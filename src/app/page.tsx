@@ -1,65 +1,193 @@
-import Image from "next/image";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+
+// Dati mock per la demo
+const mockUser = {
+  nome: "Marco",
+  cognome: "Ferretti",
+  prenotazioneAttiva: {
+    posto: "15B",
+    sala: "Sala Silenziosa",
+    oraInizio: "08:30",
+    oraFine: "12:30",
+    checkInEntro: 45, // minuti
+  },
+};
+
+const mockStats = {
+  postiDisponibili: 42,
+  prenotazioniAttive: 1,
+  percentualeOccupazione: 73,
+};
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-[var(--background)]">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-[var(--primary)] text-white shadow-md">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+          <h1 className="text-xl font-bold">BiblioFlow</h1>
+          <div className="flex items-center gap-4">
+            <Badge variant="secondary" className="bg-white/20 text-white">
+              {mockStats.postiDisponibili} posti liberi
+            </Badge>
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <span className="text-sm font-medium">MF</span>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="container mx-auto px-4 py-6 pb-24">
+        {/* Saluto */}
+        <section className="mb-6">
+          <h2 className="text-2xl font-bold text-[var(--foreground)]">
+            Ciao {mockUser.nome}! 👋
+          </h2>
+          <p className="text-[var(--gray-500)]">Cosa vuoi fare oggi?</p>
+        </section>
+
+        {/* Prenotazione Attiva */}
+        {mockUser.prenotazioneAttiva && (
+          <Card className="mb-6 border-[var(--primary)] border-l-4 bg-[var(--primary-light)]">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg text-[var(--primary)]">
+                  Prenotazione Attiva
+                </CardTitle>
+                <Badge className="bg-[var(--success)] text-white">
+                  Check-in tra {mockUser.prenotazioneAttiva.checkInEntro} min
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="font-medium">
+                Posto {mockUser.prenotazioneAttiva.posto} - {mockUser.prenotazioneAttiva.sala}
+              </p>
+              <p className="text-sm text-[var(--gray-600)]">
+                {mockUser.prenotazioneAttiva.oraInizio} - {mockUser.prenotazioneAttiva.oraFine}
+              </p>
+              <div className="flex gap-2 mt-4">
+                <Button size="sm" className="bg-[var(--primary)]">
+                  Vai al Check-in
+                </Button>
+                <Button size="sm" variant="outline">
+                  Vedi Percorso
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Quick Actions */}
+        <section className="grid grid-cols-2 gap-4 mb-6">
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardHeader className="pb-2">
+              <div className="w-12 h-12 rounded-lg bg-[var(--primary)] flex items-center justify-center mb-2">
+                <span className="text-2xl text-white">+</span>
+              </div>
+              <CardTitle className="text-base">Prenota Posto</CardTitle>
+              <CardDescription>{mockStats.postiDisponibili} disponibili</CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardHeader className="pb-2">
+              <div className="w-12 h-12 rounded-lg bg-[var(--success)] flex items-center justify-center mb-2">
+                <span className="text-2xl text-white">✓</span>
+              </div>
+              <CardTitle className="text-base">Prenotazioni</CardTitle>
+              <CardDescription>{mockStats.prenotazioniAttive} attiva</CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardHeader className="pb-2">
+              <div className="w-12 h-12 rounded-lg bg-[var(--warning)] flex items-center justify-center mb-2">
+                <span className="text-2xl">🔍</span>
+              </div>
+              <CardTitle className="text-base">Cerca Libro</CardTitle>
+              <CardDescription>Catalogo</CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="cursor-pointer hover:shadow-lg transition-shadow">
+            <CardHeader className="pb-2">
+              <div className="w-12 h-12 rounded-lg bg-[var(--gray-400)] flex items-center justify-center mb-2">
+                <span className="text-2xl text-white">⚙</span>
+              </div>
+              <CardTitle className="text-base">Profilo</CardTitle>
+              <CardDescription>Impostazioni</CardDescription>
+            </CardHeader>
+          </Card>
+        </section>
+
+        {/* Stats */}
+        <section>
+          <h3 className="text-lg font-semibold mb-3">Stato Biblioteca</h3>
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-[var(--gray-500)]">Occupazione</p>
+                  <p className="text-2xl font-bold text-[var(--primary)]">
+                    {mockStats.percentualeOccupazione}%
+                  </p>
+                </div>
+                <div className="w-24 h-24 relative">
+                  <svg className="w-full h-full transform -rotate-90">
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r="40"
+                      fill="none"
+                      stroke="var(--gray-200)"
+                      strokeWidth="8"
+                    />
+                    <circle
+                      cx="48"
+                      cy="48"
+                      r="40"
+                      fill="none"
+                      stroke="var(--primary)"
+                      strokeWidth="8"
+                      strokeDasharray={`${mockStats.percentualeOccupazione * 2.51} 251`}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </section>
       </main>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-[var(--gray-200)] py-2 px-4">
+        <div className="container mx-auto flex justify-around">
+          <NavItem icon="🏠" label="Home" active />
+          <NavItem icon="🗺️" label="Mappa" />
+          <NavItem icon="📚" label="Libri" />
+          <NavItem icon="👤" label="Profilo" />
+        </div>
+      </nav>
     </div>
+  );
+}
+
+function NavItem({ icon, label, active = false }: { icon: string; label: string; active?: boolean }) {
+  return (
+    <button
+      className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+        active 
+          ? "text-[var(--primary)] bg-[var(--primary-light)]" 
+          : "text-[var(--gray-500)] hover:bg-[var(--gray-100)]"
+      }`}
+    >
+      <span className="text-xl">{icon}</span>
+      <span className="text-xs font-medium">{label}</span>
+    </button>
   );
 }
