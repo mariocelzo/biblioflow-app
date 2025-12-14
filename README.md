@@ -4,7 +4,7 @@
 
 BiblioFlow è un'applicazione PWA (Progressive Web App) progettata per digitalizzare e ottimizzare la gestione delle sale studio e dei prestiti librari nelle biblioteche universitarie.
 
-> 🎓 Progetto sviluppato per il corso di **Human-Computer Interaction** - Università degli Studi
+> 🎓 Progetto sviluppato per il corso di **Human-Computer Interaction** - Università degli Studi di Salerno
 
 ---
 
