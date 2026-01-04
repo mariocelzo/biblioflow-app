@@ -2,6 +2,7 @@ import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import pg from "pg";
+import { hashPassword } from "../src/lib/password";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
@@ -28,6 +29,11 @@ async function main() {
   // ============================================
   console.log("👤 Creazione utenti...");
 
+  // Hash delle password
+  const passwordStudenti = await hashPassword("password123");
+  const passwordAdmin = await hashPassword("admin123");
+  const passwordStaff = await hashPassword("staff123");
+
   const studenti = await Promise.all([
     prisma.user.create({
       data: {
@@ -35,7 +41,7 @@ async function main() {
         nome: "Mario",
         cognome: "Rossi",
         matricola: "0512110001",
-        passwordHash: "$2b$10$hash_placeholder_mario", // In prod: hash bcrypt
+        passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
         isPendolare: true,
         notifichePush: true,
@@ -48,7 +54,7 @@ async function main() {
         nome: "Laura",
         cognome: "Bianchi",
         matricola: "0512110002",
-        passwordHash: "$2b$10$hash_placeholder_laura",
+        passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
         isPendolare: false,
       },
@@ -59,7 +65,7 @@ async function main() {
         nome: "Giuseppe",
         cognome: "Verdi",
         matricola: "0512110003",
-        passwordHash: "$2b$10$hash_placeholder_giuseppe",
+        passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
         necessitaAccessibilita: true,
       },
@@ -70,7 +76,7 @@ async function main() {
         nome: "Anna",
         cognome: "Neri",
         matricola: "0512110004",
-        passwordHash: "$2b$10$hash_placeholder_anna",
+        passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
       },
     }),
@@ -80,7 +86,7 @@ async function main() {
         nome: "Luca",
         cognome: "Ferrari",
         matricola: "0512110005",
-        passwordHash: "$2b$10$hash_placeholder_luca",
+        passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
       },
     }),
@@ -92,7 +98,7 @@ async function main() {
         email: "admin@biblioteca.unisa.it",
         nome: "Admin",
         cognome: "Sistema",
-        passwordHash: "$2b$10$hash_placeholder_admin",
+        passwordHash: passwordAdmin,
         ruolo: "ADMIN",
       },
     }),
@@ -101,7 +107,7 @@ async function main() {
         email: "giulia.romano@biblioteca.unisa.it",
         nome: "Giulia",
         cognome: "Romano",
-        passwordHash: "$2b$10$hash_placeholder_giulia",
+        passwordHash: passwordStaff,
         ruolo: "BIBLIOTECARIO",
       },
     }),
@@ -163,68 +169,86 @@ async function main() {
 
   const postiCreati: Awaited<ReturnType<typeof prisma.posto.create>>[] = [];
 
-  // Sala Studio Principale - 50 posti (griglia 10x5)
-  for (let row = 0; row < 5; row++) {
-    for (let col = 0; col < 10; col++) {
-      const numero = `${String.fromCharCode(65 + row)}${col + 1}`; // A1, A2, ..., E10
-      const hasPresa = col < 6; // primi 6 posti per fila hanno presa
-      const hasFinestra = col === 0 || col === 9; // prima e ultima colonna vicino finestre
-      const isAccessibile = row === 0 && col < 3; // primi 3 posti prima fila accessibili
-      
-      const posto = await prisma.posto.create({
-        data: {
-          salaId: sale[0].id,
-          numero,
-          coordinataX: col * 80 + 50,
-          coordinataY: row * 100 + 50,
-          haPresaElettrica: hasPresa,
-          haFinestra: hasFinestra,
-          isAccessibile,
-          stato: "DISPONIBILE",
-        },
-      });
-      postiCreati.push(posto);
+  // Sala Studio Principale - 72 posti (12 tavoli × 6 posti)
+  // Layout: 2 file (sinistra/destra), 6 tavoli per fila, 6 postazioni per tavolo
+  const TAVOLI_PER_FILA = 6;
+  const POSTI_PER_TAVOLO = 6;
+  
+  for (let filaIndex = 0; filaIndex < 2; filaIndex++) {
+    // 0 = fila sinistra, 1 = fila destra
+    for (let tavoloIndex = 0; tavoloIndex < TAVOLI_PER_FILA; tavoloIndex++) {
+      for (let postoIndex = 0; postoIndex < POSTI_PER_TAVOLO; postoIndex++) {
+        // Calcola numero progressivo A1-A6 (tavolo 1), B1-B6 (tavolo 2), etc.
+        const tavoloGlobale = (filaIndex * TAVOLI_PER_FILA) + tavoloIndex;
+        const letteraTavolo = String.fromCharCode(65 + tavoloGlobale); // A-L
+        const numeroPosto = postoIndex + 1; // 1-6
+        const numero = `${letteraTavolo}${numeroPosto}`;
+        
+        // Coordinate: simulate il layout tavoli
+        const baseX = filaIndex === 0 ? 100 : 300; // fila sx o dx
+        const baseY = tavoloIndex * 100 + 100;
+        const offsetX = (postoIndex % 3) * 40; // 3 posti per lato
+        const offsetY = postoIndex < 3 ? -20 : 80; // sopra o sotto tavolo
+        
+        const hasFinestra = tavoloIndex === 0 || tavoloIndex === 5; // primo e ultimo tavolo vicino finestre
+        const isAccessibile = tavoloIndex === 0 && postoIndex < 2; // primi 2 posti del primo tavolo
+        
+        const posto = await prisma.posto.create({
+          data: {
+            salaId: sale[0].id,
+            numero,
+            coordinataX: baseX + offsetX,
+            coordinataY: baseY + offsetY,
+            haPresaElettrica: true, // TUTTI i posti hanno presa elettrica
+            haFinestra: hasFinestra,
+            isAccessibile,
+            stato: "DISPONIBILE",
+          },
+        });
+        postiCreati.push(posto);
+      }
     }
   }
 
-  // Sala Lettura Silenziosa - 30 posti (griglia 10x3)
-  for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 10; col++) {
-      const numero = `S${row + 1}${col + 1}`;
-      const posto = await prisma.posto.create({
-        data: {
-          salaId: sale[1].id,
-          numero,
-          coordinataX: col * 80 + 50,
-          coordinataY: row * 100 + 50,
-          haPresaElettrica: true, // tutti con presa
-          haFinestra: col === 0 || col === 9,
-          isAccessibile: row === 0,
-          stato: "DISPONIBILE",
-        },
-      });
-      postiCreati.push(posto);
-    }
+  // Sala Lettura Silenziosa - 30 postazioni individuali
+  // Numerazione: S1-S30
+  for (let i = 1; i <= 30; i++) {
+    const numero = `S${i}`;
+    const fila = Math.floor((i - 1) / 6);
+    const colonna = (i - 1) % 6;
+    
+    const posto = await prisma.posto.create({
+      data: {
+        salaId: sale[1].id,
+        numero,
+        coordinataX: colonna * 80 + 50,
+        coordinataY: fila * 100 + 50,
+        haPresaElettrica: true, // tutti con presa
+        haFinestra: colonna === 0 || colonna === 5,
+        isAccessibile: i <= 6, // Prima fila accessibile
+        stato: "DISPONIBILE",
+      },
+    });
+    postiCreati.push(posto);
   }
 
-  // Sala Gruppi - 20 posti (5 tavoli da 4)
-  for (let tavolo = 0; tavolo < 5; tavolo++) {
-    for (let sedia = 0; sedia < 4; sedia++) {
-      const numero = `T${tavolo + 1}-${sedia + 1}`;
-      const posto = await prisma.posto.create({
-        data: {
-          salaId: sale[2].id,
-          numero,
-          coordinataX: (tavolo % 3) * 200 + sedia * 40 + 50,
-          coordinataY: Math.floor(tavolo / 3) * 200 + 50,
-          haPresaElettrica: sedia < 2, // 2 prese per tavolo
-          haFinestra: false,
-          isAccessibile: tavolo === 0,
-          stato: "DISPONIBILE",
-        },
-      });
-      postiCreati.push(posto);
-    }
+  // Sala Gruppi - 20 posti (4 tavoli grandi da 5 posti ciascuno)
+  // Numerazione: G1-G20
+  for (let i = 1; i <= 20; i++) {
+    const numero = `G${i}`;
+    const posto = await prisma.posto.create({
+      data: {
+        salaId: sale[2].id,
+        numero,
+        coordinataX: 100,
+        coordinataY: 100,
+        haPresaElettrica: true,
+        haFinestra: false,
+        isAccessibile: i <= 5, // Primo tavolo accessibile
+        stato: "DISPONIBILE",
+      },
+    });
+    postiCreati.push(posto);
   }
 
   console.log(`   ✓ ${postiCreati.length} posti creati`);
@@ -522,10 +546,41 @@ async function main() {
         userId: studenti[0].id,
         tipo: "SCADENZA_PRESTITO",
         titolo: "Promemoria scadenza prestito",
-        messaggio: "Il prestito del libro 'Clean Code' scade tra 23 giorni.",
+        messaggio: "Il prestito del libro 'Clean Code' scade tra 23 giorni. Ricorda di restituirlo o rinnovarlo.",
         letta: false,
         actionUrl: "/prestiti",
         actionLabel: "Gestisci prestiti",
+      },
+    }),
+    prisma.notifica.create({
+      data: {
+        userId: studenti[0].id,
+        tipo: "SISTEMA",
+        titolo: "Benvenuto in BiblioFlow!",
+        messaggio: "Grazie per esserti registrato. Esplora le funzionalità e prenota il tuo primo posto in biblioteca.",
+        letta: false,
+        actionUrl: "/prenota",
+        actionLabel: "Prenota ora",
+      },
+    }),
+    prisma.notifica.create({
+      data: {
+        userId: studenti[0].id,
+        tipo: "PROMO",
+        titolo: "Nuovi orari biblioteca",
+        messaggio: "Da questo mese la biblioteca è aperta anche il sabato mattina dalle 9:00 alle 13:00.",
+        letta: false,
+      },
+    }),
+    prisma.notifica.create({
+      data: {
+        userId: studenti[0].id,
+        tipo: "CHECK_IN_REMINDER",
+        titolo: "Ricorda di fare check-in",
+        messaggio: "La tua prenotazione inizia tra 15 minuti. Ricorda di effettuare il check-in!",
+        letta: false,
+        actionUrl: "/prenotazioni",
+        actionLabel: "Fai check-in",
       },
     }),
     prisma.notifica.create({
@@ -537,17 +592,6 @@ async function main() {
         letta: false,
         actionUrl: "/prenotazioni",
         actionLabel: "Vedi prenotazione",
-      },
-    }),
-    prisma.notifica.create({
-      data: {
-        userId: studenti[0].id,
-        tipo: "CHECK_IN_REMINDER",
-        titolo: "Ricorda di fare check-in",
-        messaggio: "La tua prenotazione inizia tra 15 minuti. Ricorda di effettuare il check-in!",
-        letta: true,
-        actionUrl: "/check-in",
-        actionLabel: "Fai check-in",
       },
     }),
   ]);

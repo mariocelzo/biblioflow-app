@@ -2,7 +2,7 @@
 
 > **Progetto HCI** - Sistema di Prenotazione Posti Biblioteca Universitaria
 >
-> Ultimo aggiornamento: 11 Dicembre 2025
+> Ultimo aggiornamento: 2 Gennaio 2026
 
 ---
 
@@ -10,10 +10,10 @@
 
 | Fase                       | Stato          | Progresso |
 | -------------------------- | -------------- | --------- |
-| 1. Setup & Configurazione  | � Completato   | 100%      |
-| 2. Database & Backend      | 🔴 Da iniziare | 0%        |
-| 3. Autenticazione          | 🔴 Da iniziare | 0%        |
-| 4. App Studente            | 🔴 Da iniziare | 0%        |
+| 1. Setup & Configurazione  | 🟢 Completato  | 100%      |
+| 2. Database & Backend      | 🟢 Completato  | 100%      |
+| 3. Autenticazione          | 🟢 Completato  | 100%      |
+| 4. App Studente            | 🟡 In corso    | 70%       |
 | 5. Dashboard Bibliotecario | 🔴 Da iniziare | 0%        |
 | 6. Real-time & Notifiche   | 🔴 Da iniziare | 0%        |
 | 7. PWA & Accessibilità     | 🔴 Da iniziare | 0%        |
@@ -55,67 +55,74 @@
 
 ### 2.1 Schema Database
 
-- [ ] **Tabella User**
-  - [ ] Campi base (id, email, nome, cognome, matricola)
-  - [ ] Ruolo (STUDENTE, BIBLIOTECARIO, ADMIN)
-  - [ ] Preferenze accessibilità
-  - [ ] Flag pendolare
-  - [ ] Timestamps
-- [ ] **Tabella Posto**
+- [x] **Tabella User**
+  - [x] Campi base (id, email, nome, cognome, matricola)
+  - [x] Ruolo (STUDENTE, BIBLIOTECARIO, ADMIN)
+  - [x] Preferenze accessibilità
+  - [x] Flag pendolare
+  - [x] Timestamps
+- [x] **Tabella Posto**
 
-  - [ ] Identificativo (numero, sala, piano)
-  - [ ] Caratteristiche (presa, finestra, silenzioso)
-  - [ ] Flag accessibile
-  - [ ] Stato (disponibile, occupato, manutenzione)
-  - [ ] Coordinate mappa (x, y)
+  - [x] Identificativo (numero, sala, piano)
+  - [x] Caratteristiche (presa, finestra, silenzioso)
+  - [x] Flag accessibile
+  - [x] Stato (disponibile, occupato, manutenzione)
+  - [x] Coordinate mappa (x, y)
 
-- [ ] **Tabella Prenotazione**
+- [x] **Tabella Prenotazione**
 
-  - [ ] Relazione User e Posto
-  - [ ] Data e slot orario
-  - [ ] Stato (confermata, check-in, completata, cancellata, no-show)
-  - [ ] Margine pendolare attivo
-  - [ ] Timestamps check-in/out
+  - [x] Relazione User e Posto
+  - [x] Data e slot orario
+  - [x] Stato (confermata, check-in, completata, cancellata, no-show)
+  - [x] Margine pendolare attivo
+  - [x] Timestamps check-in/out
 
-- [ ] **Tabella Libro**
+- [x] **Tabella Libro**
 
-  - [ ] Dati bibliografici (titolo, autore, ISBN)
-  - [ ] Posizione fisica
-  - [ ] Disponibilità
+  - [x] Dati bibliografici (titolo, autore, ISBN)
+  - [x] Posizione fisica
+  - [x] Disponibilità
 
-- [ ] **Tabella Prestito**
+- [x] **Tabella Prestito**
 
-  - [ ] Relazione User e Libro
-  - [ ] Date prestito e scadenza
-  - [ ] Stato e rinnovi
+  - [x] Relazione User e Libro
+  - [x] Date prestito e scadenza
+  - [x] Stato e rinnovi
 
-- [ ] **Tabella Notifica**
+- [x] **Tabella Notifica**
 
-  - [ ] Relazione User
-  - [ ] Tipo, titolo, messaggio
-  - [ ] Flag letta
-  - [ ] Link azione
+  - [x] Relazione User
+  - [x] Tipo, titolo, messaggio
+  - [x] Flag letta
+  - [x] Link azione
 
-- [ ] **Tabella LogEvento** (per audit)
-  - [ ] Tipo evento
-  - [ ] Entità coinvolte
-  - [ ] Dettagli JSON
+- [x] **Tabella LogEvento** (per audit)
+
+  - [x] Tipo evento
+  - [x] Entità coinvolte
+  - [x] Dettagli JSON
+
+- [x] **Tabella AuthToken** (per verifica email/reset password)
+  - [x] Token univoco
+  - [x] Tipo (VERIF, RESET)
+  - [x] Scadenza
+  - [x] Flag usato
 
 ### 2.2 Seed Data
 
-- [ ] Script seed per utenti demo
-- [ ] Script seed per posti (configurazione reale biblioteca)
-- [ ] Script seed per libri esempio
-- [ ] Script seed per prenotazioni esempio
+- [x] Script seed per utenti demo
+- [x] Script seed per posti (configurazione reale biblioteca)
+- [x] Script seed per libri esempio
+- [x] Script seed per prenotazioni esempio
 
 ### 2.3 API Routes Base
 
-- [ ] `GET /api/health` - Health check
-- [ ] Middleware autenticazione
-- [ ] Middleware error handling
+- [x] `GET /api/health` - Health check (implicito in Next.js)
+- [x] Middleware autenticazione (NextAuth)
+- [x] Middleware error handling
 - [ ] Middleware rate limiting
 
-**Deliverable**: Database popolato e API base funzionanti
+**Deliverable**: ✅ Database popolato e API base funzionanti
 
 ---
 
@@ -123,89 +130,107 @@
 
 ### 3.1 NextAuth.js Setup
 
-- [ ] Configurare NextAuth con Prisma adapter
-- [ ] Provider Credentials (email/password)
+- [x] Configurare NextAuth con Prisma adapter
+- [x] Provider Credentials (email/password)
 - [ ] Opzionale: Provider Google/Microsoft universitario
-- [ ] Gestione sessioni JWT
-- [ ] Middleware protezione route
+- [x] Gestione sessioni JWT
+- [x] Middleware protezione route
 
 ### 3.2 Pagine Auth
 
-- [ ] Pagina Login (`/login`)
-  - [ ] Form email/password
-  - [ ] Validazione client-side
-  - [ ] Error handling
-  - [ ] Link recupero password
-- [ ] Pagina Registrazione (`/registrazione`)
+- [x] Pagina Login (`/login`)
+  - [x] Form email/password
+  - [x] Validazione client-side
+  - [x] Error handling
+  - [x] Link recupero password
+- [x] Pagina Registrazione (`/registrazione`)
 
-  - [ ] Form completo con matricola
-  - [ ] Validazione matricola universitaria
-  - [ ] Selezione preferenze iniziali
-  - [ ] Email di conferma (mock)
+  - [x] Form completo con matricola
+  - [x] Validazione matricola universitaria (10 cifre)
+  - [x] Selezione preferenze iniziali (pendolare, accessibilità)
+  - [x] Email di conferma con token reale
 
-- [ ] Pagina Recupero Password (`/recupera-password`)
-  - [ ] Form email
-  - [ ] Invio link reset (mock)
+- [x] Pagina Recupero Password (`/recupera-password`)
+
+  - [x] Form email
+  - [x] Invio link reset con token reale
+
+- [x] Pagina Reset Password (`/reset-password`)
+  - [x] Form nuova password
+  - [x] Validazione requisiti password
+  - [x] Conferma reset
 
 ### 3.3 Gestione Ruoli
 
-- [ ] Hook `useAuth()` con ruolo utente
-- [ ] HOC/middleware per route protette
-- [ ] Redirect automatici per ruolo
+- [x] Hook `useAuth()` con ruolo utente (via NextAuth session)
+- [x] HOC/middleware per route protette
+- [x] Redirect automatici per ruolo
 
-**Deliverable**: Sistema auth completo e funzionante
+**Deliverable**: ✅ Sistema auth completo e funzionante
 
 ---
 
-## 📋 FASE 4: App Studente (Mobile-First)
+## 📋 FASE 4: App Studente (Mobile-First) - 50%
 
 ### 4.1 Layout & Navigazione
 
-- [ ] Layout responsive con header
-- [ ] Bottom navigation mobile
+- [x] Layout responsive con header ✅
+- [x] Bottom navigation mobile ✅
+- [x] BackButton component riutilizzabile ✅
+- [x] Design system Apple-style (glassmorphism, shadows, colori) ✅
 - [ ] Sidebar desktop
 - [ ] Breadcrumbs
 - [ ] Loading states globali
 
 ### 4.2 Dashboard Home (`/`)
 
-- [ ] Saluto personalizzato
-- [ ] Card prenotazione attiva con countdown
-- [ ] Quick actions (4 card grandi)
+- [x] Saluto personalizzato ✅
+- [x] Quick actions (4 card grandi) ✅
+- [x] Statistiche biblioteca in tempo reale ✅
+- [x] Grafico circolare occupazione ✅
+- [x] Bottom navigation ✅
+- [x] Card prenotazione attiva con countdown ✅
+- [x] Countdown timer in tempo reale ✅
+- [x] Badge caratteristiche posto ✅
+- [x] 3 bottoni azione (Check-in, Percorso, Dettagli) ✅
+- [x] Alert check-in con deadline ✅
 - [ ] Sezione "Potrebbe interessarti"
 - [ ] Statistiche personali
 
 ### 4.3 Prenotazione Posto (`/prenota`)
 
-- [ ] **Step 1: Quando**
-  - [ ] Calendario interattivo
+- [x] **Step 1: Quando** (base)
+  - [x] Calendario interattivo
   - [ ] Indicatori disponibilità per giorno
-  - [ ] Selezione slot orario
+  - [x] Selezione slot orario
   - [ ] Preview posti disponibili
-- [ ] **Step 2: Dove**
-  - [ ] Mappa interattiva biblioteca
-  - [ ] Switch tra piani
-  - [ ] Legenda colori (libero/occupato/prenotato)
-  - [ ] Click su posto per dettagli
-  - [ ] Filtri caratteristiche
+- [x] **Step 2: Dove** ✅
+  - [x] Mappa interattiva biblioteca SVG ✅
+  - [x] Zoom controls (ChevronLeft/Right) ✅
+  - [x] Legenda colori (disponibile/occupato/prenotato/manutenzione) ✅
+  - [x] Click su posto per dettagli ✅
+  - [x] Filtri caratteristiche (presa elettrica, accessibile) ✅
+  - [x] Card dettaglio posto selezionato ✅
+  - [x] Icone caratteristiche (⚡ Zap, ☀️ Sun, 🔇 VolumeX, 📶 Wifi, ♿ Accessibility) ✅
+  - [ ] Switch tra piani (attualmente mostra piano della sala selezionata)
   - [ ] Vista lista alternativa
-- [ ] **Step 3: Conferma**
-  - [ ] Riepilogo prenotazione
+- [x] **Step 3: Conferma** (base)
+  - [x] Riepilogo prenotazione
   - [ ] Toggle Margine Pendolare
   - [ ] Toggle notifiche percorso
-  - [ ] Pulsante conferma
+  - [x] Pulsante conferma
   - [ ] Animazione successo
 
 ### 4.4 Gestione Prenotazione (`/prenotazioni`)
 
-- [ ] Lista prenotazioni attive
+- [x] Lista prenotazioni attive
 - [ ] Storico prenotazioni passate
-- [ ] Card prenotazione con azioni
+- [x] Card prenotazione con azioni
   - [ ] Vedi percorso
-  - [ ] Check-in (QR code)
+  - [x] Check-in (QR code) ✅
   - [ ] Estendi sessione
   - [ ] Pausa
-  - [ ] Cancella
+  - [x] Cancella
 - [ ] Dettaglio prenotazione singola
 
 ### 4.5 Estensione Sessione (`/prenotazioni/[id]/estendi`)
@@ -215,27 +240,44 @@
 - [ ] Verifica disponibilità real-time
 - [ ] Conferma estensione
 
-### 4.6 Check-in (`/checkin`)
+### 4.6 Check-in (`/checkin`) ✅
 
-- [ ] Generazione QR code
-- [ ] Scanner QR (per totem)
-- [ ] Check-in manuale con codice
+- [x] Generazione QR code dinamico ✅
+- [x] QR code contiene JSON (prenotazioneId + timestamp) ✅
+- [x] Dialog modal con QR code ✅
+- [x] Informazioni posto (numero, sala, piano) ✅
+- [x] Countdown tempo rimasto per check-in ✅
+- [x] Check-in manuale con validazioni ✅
+- [x] API endpoint `/api/prenotazioni/[id]/check-in` ✅
+- [x] Validazione stato prenotazione (CONFERMATA) ✅
+- [x] Validazione timing (15 min prima - ora inizio) ✅
+- [x] Aggiornamento stato posto (DISPONIBILE → OCCUPATO) ✅
+- [x] Animazione successo check-in ✅
+- [ ] Scanner QR (per totem fisico)
 - [ ] Conferma visiva successo
 
-### 4.7 Catalogo Libri (`/libri`)
+### 4.7 Catalogo Libri (`/libri`) ✅
 
-- [ ] Barra ricerca con autocomplete
-- [ ] Filtri (categoria, disponibilità, posizione)
-- [ ] Lista risultati con card
-- [ ] Dettaglio libro
-  - [ ] Info complete
-  - [ ] Disponibilità real-time
-  - [ ] Posizione in biblioteca
-  - [ ] Pulsante "Prepara per ritiro"
+- [x] Barra ricerca per titolo, autore, ISBN ✅
+- [x] Filtri (categoria, disponibilità) ✅
+- [x] Lista risultati con card responsive ✅
+- [x] Card libro con tutte le info ✅
+  - [x] Badge categoria e disponibilità ✅
+  - [x] Titolo, autore, ISBN, editore, anno ✅
+  - [x] Posizione in biblioteca con icona MapPin ✅
+  - [x] Copie disponibili / totali ✅
+  - [x] Bottone "Richiedi Prestito" ✅
+- [x] Integration con API `/api/libri` ✅
+- [x] Gestione stati loading con skeleton ✅
+- [x] Stato vuoto quando nessun risultato ✅
+- [x] Reset filtri ✅
+- [ ] Dettaglio libro singolo (pagina separata)
+- [ ] Autocomplete ricerca
+- [ ] Filtro per posizione/piano
 
 ### 4.8 I Miei Prestiti (`/prestiti`)
 
-- [ ] Lista prestiti attivi
+- [x] Lista prestiti attivi
 - [ ] Countdown scadenze
 - [ ] Pulsante rinnova
 - [ ] Storico prestiti
@@ -243,7 +285,7 @@
 
 ### 4.9 Profilo Utente (`/profilo`)
 
-- [ ] Visualizza/modifica dati personali
+- [x] Visualizza/modifica dati personali
 - [ ] Gestione preferenze
   - [ ] Posto preferito
   - [ ] Sala preferita

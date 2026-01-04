@@ -64,6 +64,11 @@ enum TipoEvento {
   OVERRIDE_BIBLIOTECARIO
 }
 
+enum TokenType {
+  VERIF
+  RESET
+}
+
 // ============================================
 // MODELLI
 // ============================================
@@ -106,6 +111,7 @@ model User {
   notifiche     Notifica[]
   eventiLog     LogEvento[]    @relation("UtenteEvento")
   eventiTarget  LogEvento[]    @relation("TargetEvento")
+  authTokens     AuthToken[]
   
   @@index([email])
   @@index([matricola])
@@ -339,5 +345,21 @@ model ConfigurazioneSistema {
   updatedAt DateTime @updatedAt
   
   @@index([chiave])
+}
+
+// Token per operazioni auth (verifica email, reset password)
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  token     String    @unique
+  type      TokenType
+  used      Boolean   @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([type])
+  @@index([expiresAt])
 }
 
