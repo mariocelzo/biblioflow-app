@@ -78,6 +78,16 @@ export function MappaBiblioteca({
     }
   };
 
+  const getPostoTooltip = (posto: Posto): string => {
+    switch (posto.stato) {
+      case 'DISPONIBILE': return `Posto ${posto.numero} - Disponibile (clicca per selezionare)`;
+      case 'OCCUPATO': return `Posto ${posto.numero} - Già prenotato per questa fascia oraria`;
+      case 'PRENOTATO': return `Posto ${posto.numero} - Prenotato`;
+      case 'MANUTENZIONE': return `Posto ${posto.numero} - In manutenzione`;
+      default: return `Posto ${posto.numero}`;
+    }
+  };
+
   const handlePostoClick = (posto: Posto) => {
     if (posto.stato === 'DISPONIBILE') {
       onSelectPosto(posto.id);
@@ -172,6 +182,7 @@ export function MappaBiblioteca({
 
         elementi.push(
           <g key={`posto-sx-${tavoloIndex}-${p}`}>
+            <title>{getPostoTooltip(posto)}</title>
             <circle
               cx={postoX}
               cy={postoY}
@@ -246,6 +257,7 @@ export function MappaBiblioteca({
 
         elementi.push(
           <g key={`posto-dx-${t}-${p}`}>
+            <title>{getPostoTooltip(posto)}</title>
             <circle
               cx={postoX}
               cy={postoY}
@@ -309,6 +321,7 @@ export function MappaBiblioteca({
 
       elementi.push(
         <g key={`postazione-${i}`}>
+          <title>{getPostoTooltip(posto)}</title>
           <rect
             x={x}
             y={y}
@@ -437,6 +450,7 @@ export function MappaBiblioteca({
 
         elementi.push(
           <g key={`posto-gruppo-${postoGlobaleIndex}`}>
+            <title>{getPostoTooltip(posto)}</title>
             <circle
               cx={postoX}
               cy={postoY}

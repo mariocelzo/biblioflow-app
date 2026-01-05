@@ -482,7 +482,7 @@ async function main() {
         postoId: postiCreati[50].id, // Sala silenziosa S11
         data: oggi,
         oraInizio: makeTime(15, 0),
-        oraFine: makeTime(19, 0),
+        oraFine: makeTime(18, 0),
         stato: "CONFERMATA",
       },
     }),
@@ -505,6 +505,74 @@ async function main() {
         data: oggi,
         oraInizio: oraNoShowTest,
         oraFine: makeTime((oraCorrente.getHours() + 2) % 24, 0),
+        stato: "CONFERMATA",
+      },
+    }),
+    // 🧪 TEST VISIVO: Posti occupati in diversi slot per vedere colore rosso
+    // A2 occupato mattina 09:00-11:00
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[0].id,
+        postoId: postiCreati[1].id, // A2
+        data: oggi,
+        oraInizio: makeTime(9, 0),
+        oraFine: makeTime(11, 0),
+        stato: "CONFERMATA",
+      },
+    }),
+    // A3 occupato mattina 11:00-13:00
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[1].id,
+        postoId: postiCreati[2].id, // A3
+        data: oggi,
+        oraInizio: makeTime(11, 0),
+        oraFine: makeTime(13, 0),
+        stato: "CONFERMATA",
+      },
+    }),
+    // B2 occupato pomeriggio 13:00-15:00
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[2].id,
+        postoId: postiCreati[7].id, // B2
+        data: oggi,
+        oraInizio: makeTime(13, 0),
+        oraFine: makeTime(15, 0),
+        stato: "CONFERMATA",
+      },
+    }),
+    // B3 occupato pomeriggio 15:00-17:00
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[3].id,
+        postoId: postiCreati[8].id, // B3
+        data: oggi,
+        oraInizio: makeTime(15, 0),
+        oraFine: makeTime(17, 0),
+        stato: "CONFERMATA",
+      },
+    }),
+    // C1 occupato tutto il giorno
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[4].id,
+        postoId: postiCreati[12].id, // C1
+        data: oggi,
+        oraInizio: makeTime(9, 0),
+        oraFine: makeTime(18, 0),
+        stato: "CHECK_IN",
+        checkInAt: new Date(oggi.getTime() + 9 * 60 * 60 * 1000),
+      },
+    }),
+    // D1 occupato mezza giornata mattina
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[0].id,
+        postoId: postiCreati[18].id, // D1
+        data: oggi,
+        oraInizio: makeTime(9, 0),
+        oraFine: makeTime(13, 0),
         stato: "CONFERMATA",
       },
     }),
