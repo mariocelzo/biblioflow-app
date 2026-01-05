@@ -85,14 +85,21 @@ export default function NotifichePage() {
         if (tabAttiva === "non-lette") params.append("letta", "false");
         if (tabAttiva === "lette") params.append("letta", "true");
         
-        const res = await fetch(`/api/notifiche?${params}`);
+        const res = await fetch(`/api/notifiche?${params}`, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+          },
+        });
         if (res.ok) {
           const data = await res.json();
+          console.log("📥 Notifiche caricate:", data.nonLette, "non lette");
           setNotifiche(data.data || []);
           setNonLette(data.nonLette || 0);
         }
-      } catch (error) {
-        console.error("Errore caricamento notifiche:", error);
+      } catch (err) {
+        console.error("Errore caricamento notifiche:", err);
         toast.error("Errore nel caricamento delle notifiche");
       } finally {
         setLoading(false);
@@ -107,16 +114,24 @@ export default function NotifichePage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: [id], segnaLetta: true }),
+        cache: "no-store",
       });
       
       if (res.ok) {
+        const result = await res.json();
+        console.log("✅ Notifica segnata come letta:", result);
         setNotifiche(prev => prev.map(n => 
           n.id === id ? { ...n, letta: true, lettaAt: new Date().toISOString() } : n
         ));
         setNonLette(prev => Math.max(0, prev - 1));
+        toast.success("Notifica segnata come letta");
+      } else {
+        console.error("❌ Errore API:", await res.text());
+        toast.error("Errore nell'aggiornamento");
       }
     } catch (error) {
-      console.error("Errore:", error);
+      console.error("❌ Errore:", error);
+      toast.error("Errore nell'aggiornamento");
     }
   };
 
@@ -127,14 +142,18 @@ export default function NotifichePage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ userId: session.user.id, segnaTutteLette: true }),
+        cache: "no-store",
       });
       
       if (res.ok) {
         setNotifiche(prev => prev.map(n => ({ ...n, letta: true, lettaAt: new Date().toISOString() })));
         setNonLette(0);
         toast.success("Tutte le notifiche segnate come lette");
+      } else {
+        toast.error("Errore nell'operazione");
       }
-    } catch (error) {
+    } catch (err) {
+      console.error("Errore:", err);
       toast.error("Errore nell'operazione");
     }
   };
@@ -150,7 +169,8 @@ export default function NotifichePage() {
         }
         toast.success("Notifica eliminata");
       }
-    } catch (error) {
+    } catch (err) {
+      console.error("Errore:", err);
       toast.error("Errore nell'eliminazione");
     }
   };

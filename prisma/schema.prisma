@@ -51,6 +51,8 @@ enum TipoNotifica {
   SCADENZA_PRESTITO
   SISTEMA
   PROMO
+  ALERT   // Per alert scadenze e avvisi urgenti
+  INFO    // Per info generiche (posto liberato, etc)
 }
 
 enum TipoEvento {
@@ -62,6 +64,8 @@ enum TipoEvento {
   PRESTITO_CREATO
   PRESTITO_RESTITUITO
   OVERRIDE_BIBLIOTECARIO
+  AUTOMATION       // Per eventi da automazioni
+  NO_SHOW_AUTO     // Per rilascio automatico no-show
 }
 
 enum TokenType {

@@ -47,7 +47,13 @@ export function Header() {
     const fetchNotificheCount = async () => {
       if (!session?.user?.id) return;
       try {
-        const res = await fetch(`/api/notifiche?userId=${session.user.id}&letta=false`);
+        const res = await fetch(`/api/notifiche?userId=${session.user.id}&letta=false`, {
+          cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+          },
+        });
         if (res.ok) {
           const data = await res.json();
           setNotificheNonLette(data.nonLette || 0);

@@ -20,6 +20,7 @@ const publicRoutes = [
 const publicApiPrefixes = [
   "/api/auth",
   "/api/health",
+  "/api/cron", // Cron jobs protetti da Authorization header
 ];
 
 export function middleware(request: NextRequest) {

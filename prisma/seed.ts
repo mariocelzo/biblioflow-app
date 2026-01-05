@@ -420,7 +420,7 @@ async function main() {
   console.log(`   ✓ ${libri.length} libri creati`);
 
   // ============================================
-  // 6. PRENOTAZIONI (alcune attive)
+  // 6. PRENOTAZIONI (alcune attive + scenari test automazioni)
   // ============================================
   console.log("📅 Creazione prenotazioni...");
 
@@ -435,6 +435,19 @@ async function main() {
     const d = new Date(1970, 0, 1, ore, minuti, 0, 0);
     return d;
   };
+
+  // Calcola un orario tra 10 e 20 minuti nel futuro per test reminder
+  const oraCorrente = new Date();
+  const minutiAttuali = oraCorrente.getMinutes();
+  const minutiFuturo = minutiAttuali + 12; // tra 12 minuti
+  const oraReminderTest = makeTime(oraCorrente.getHours(), minutiFuturo % 60);
+
+  // Calcola un orario di 30 minuti fa per test no-show
+  const minutiPassati = minutiAttuali - 30;
+  const oraNoShowTest = makeTime(
+    oraCorrente.getHours() + (minutiPassati < 0 ? -1 : 0),
+    (minutiPassati + 60) % 60
+  );
 
   const prenotazioni = await Promise.all([
     // Mario ha una prenotazione attiva oggi con check-in effettuato
@@ -473,6 +486,28 @@ async function main() {
         stato: "CONFERMATA",
       },
     }),
+    // 🧪 TEST AUTOMATION 1: Anna ha prenotazione tra 12 min (test REMINDER)
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[3].id, // Anna
+        postoId: postiCreati[20].id,
+        data: oggi,
+        oraInizio: oraReminderTest,
+        oraFine: makeTime((oraCorrente.getHours() + 2) % 24, 0),
+        stato: "CONFERMATA",
+      },
+    }),
+    // 🧪 TEST AUTOMATION 2: Luca ha prenotazione 30 min fa senza check-in (test NO-SHOW)
+    prisma.prenotazione.create({
+      data: {
+        userId: studenti[4].id, // Luca
+        postoId: postiCreati[30].id,
+        data: oggi,
+        oraInizio: oraNoShowTest,
+        oraFine: makeTime((oraCorrente.getHours() + 2) % 24, 0),
+        stato: "CONFERMATA",
+      },
+    }),
   ]);
 
   // Aggiorna stato posto occupato per Mario
@@ -484,7 +519,7 @@ async function main() {
   console.log(`   ✓ ${prenotazioni.length} prenotazioni create`);
 
   // ============================================
-  // 7. PRESTITI
+  // 7. PRESTITI (alcuni con scadenze vicine per test)
   // ============================================
   console.log("📖 Creazione prestiti...");
 
@@ -496,6 +531,9 @@ async function main() {
 
   const traUnMese = new Date(oggi);
   traUnMese.setDate(traUnMese.getDate() + 30);
+
+  const tra2Giorni = new Date(oggi);
+  tra2Giorni.setDate(tra2Giorni.getDate() + 2);
 
   const prestiti = await Promise.all([
     // Mario ha in prestito Clean Code
@@ -527,6 +565,16 @@ async function main() {
         dataScadenza: new Date(oggi.getTime() + 10 * 24 * 60 * 60 * 1000),
         dataRestituzione: ieri,
         stato: "RESTITUITO",
+      },
+    }),
+    // 🧪 TEST AUTOMATION 3: Anna ha prestito in scadenza tra 2 giorni (test ALERT SCADENZA)
+    prisma.prestito.create({
+      data: {
+        userId: studenti[3].id, // Anna
+        libroId: libri[8].id, // Fisica
+        dataPrestito: new Date(oggi.getTime() - 28 * 24 * 60 * 60 * 1000),
+        dataScadenza: tra2Giorni,
+        stato: "ATTIVO",
       },
     }),
   ]);
@@ -652,18 +700,29 @@ async function main() {
    🏛️ Sale:         ${sale.length}
    🪑 Posti:        ${postiCreati.length}
    📚 Libri:        ${libri.length}
-   📅 Prenotazioni: ${prenotazioni.length}
-   📖 Prestiti:     ${prestiti.length}
+   📅 Prenotazioni: ${prenotazioni.length} (🧪 2 per test automazioni)
+   📖 Prestiti:     ${prestiti.length} (🧪 1 per test scadenza)
    🔔 Notifiche:    ${notifiche.length}
    📋 Log Eventi:   ${logEventi.length}
 
 🔑 Utenti di test:
    Email: mario.rossi@studenti.unisa.it (Studente con prenotazione attiva)
-   Email: laura.bianchi@studenti.unisa.it (Studente)
+   Password: password123
+   
+   Email: anna.neri@studenti.unisa.it (🧪 TEST AUTOMATIONS - ha prenotazione tra 12 min + prestito in scadenza)
+   Password: password123
+   
+   Email: luca.ferrari@studenti.unisa.it (🧪 TEST NO-SHOW - prenotazione 30 min fa senza check-in)
+   Password: password123
+   
    Email: admin@biblioteca.unisa.it (Admin)
-   Email: giulia.romano@biblioteca.unisa.it (Bibliotecario)
-   Email: marco.bianchi@biblioteca.unisa.it (Bibliotecario)
-   Password per tutti: password123 (studenti) | admin123 (admin) | staff123 (bibliotecari)
+   Password: admin123
+
+🧪 TEST AUTOMAZIONI:
+   1. Chiama: curl -X POST http://localhost:3000/api/cron/automations \\
+              -H "Authorization: Bearer ${process.env.CRON_SECRET}"
+   2. Login come Anna (anna.neri@studenti.unisa.it) e vedi notifiche
+   3. Login come Luca (luca.ferrari@studenti.unisa.it) - la sua prenotazione sarà cancellata per no-show
 
 🔍 Scanner QR:
    - Accedi come bibliotecario e vai su /admin/scanner

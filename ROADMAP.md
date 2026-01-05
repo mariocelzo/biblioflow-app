@@ -2,7 +2,7 @@
 
 > **Progetto HCI** - Sistema di Prenotazione Posti Biblioteca Universitaria
 >
-> Ultimo aggiornamento: 4 Gennaio 2026
+> Ultimo aggiornamento: 5 Gennaio 2026
 
 ---
 
@@ -13,9 +13,9 @@
 | 1. Setup & Configurazione  | 🟢 Completato  | 100%      |
 | 2. Database & Backend      | 🟢 Completato  | 100%      |
 | 3. Autenticazione          | 🟢 Completato  | 100%      |
-| 4. App Studente            | � Completato   | 100%      |
-| 5. Dashboard Bibliotecario | � Completato   | 100%      |
-| 6. Real-time & Notifiche   | 🔴 Da iniziare | 0%        |
+| 4. App Studente            | 🟢 Completato  | 100%      |
+| 5. Dashboard Bibliotecario | 🟢 Completato  | 100%      |
+| 6. Real-time & Notifiche   | � In corso    | 25%       |
 | 7. PWA & Accessibilità     | 🔴 Da iniziare | 0%        |
 | 8. Testing & Deploy        | 🔴 Da iniziare | 0%        |
 
@@ -398,14 +398,20 @@
 - [ ] Push notifications browser
 - [ ] Email notifications (mock/Resend)
 
-### 6.4 Automazioni
+### 6.4 Automazioni ✅ COMPLETATO
 
-- [ ] Reminder check-in (15 min prima)
-- [ ] Alert scadenza prestito
-- [ ] Rilascio automatico posto no-show
-- [ ] Notifica posto liberato (coda)
+- [x] Reminder check-in (15 min prima) ✅
+- [x] Alert scadenza prestito ✅
+- [x] Rilascio automatico posto no-show ✅
+- [x] Notifica posto liberato (coda) ✅
+- [x] Service `automation-service.ts` con 4 funzioni ✅
+- [x] API `/api/cron/automations` protetta con Bearer token ✅
+- [x] Vercel Cron configurato (ogni 5 minuti) ✅
+- [x] Middleware aggiornato per route cron ✅
+- [x] Fix cache notifiche (no-store) ✅
+- [x] Seed con scenari di test ✅
 
-**Deliverable**: Sistema real-time funzionante
+**Deliverable**: ✅ Sistema automazioni backend completo
 
 ---
 
