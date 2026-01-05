@@ -1,0 +1,72 @@
+{
+  "name": "BiblioFlow",
+  "short_name": "BiblioFlow",
+  "description": "Sistema di prenotazione posti biblioteca universitaria - Prenota il tuo posto studio in pochi tap",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "it-IT",
+  "dir": "ltr",
+  "categories": ["education", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/home.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Homepage BiblioFlow"
+    },
+    {
+      "src": "/screenshots/prenota.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Prenotazione posto"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Prenota Posto",
+      "short_name": "Prenota",
+      "description": "Prenota un posto in biblioteca",
+      "url": "/prenota"
+    },
+    {
+      "name": "Le Mie Prenotazioni",
+      "short_name": "Prenotazioni",
+      "description": "Visualizza le tue prenotazioni",
+      "url": "/prenotazioni"
+    },
+    {
+      "name": "Catalogo Libri",
+      "short_name": "Libri",
+      "description": "Cerca libri nel catalogo",
+      "url": "/libri"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false
+}
