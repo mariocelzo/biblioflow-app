@@ -52,7 +52,16 @@ function LoginForm() {
         };
         setError(errorMessages[result.error] || "Errore durante l'accesso. Riprova.");
       } else {
-        router.push(callbackUrl);
+        // Login riuscito - ottieni la sessione per controllare il ruolo
+        const response = await fetch("/api/auth/session");
+        const session = await response.json();
+        
+        // Reindirizza in base al ruolo
+        if (session?.user?.ruolo === "ADMIN" || session?.user?.ruolo === "BIBLIOTECARIO") {
+          router.push("/admin");
+        } else {
+          router.push(callbackUrl);
+        }
         router.refresh();
       }
     } catch {

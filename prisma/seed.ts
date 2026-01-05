@@ -111,6 +111,15 @@ async function main() {
         ruolo: "BIBLIOTECARIO",
       },
     }),
+    prisma.user.create({
+      data: {
+        email: "marco.bianchi@biblioteca.unisa.it",
+        nome: "Marco",
+        cognome: "Bianchi",
+        passwordHash: passwordStaff,
+        ruolo: "BIBLIOTECARIO",
+      },
+    }),
   ]);
 
   console.log(`   ✓ ${studenti.length} studenti creati`);
@@ -652,6 +661,13 @@ async function main() {
    Email: mario.rossi@studenti.unisa.it (Studente con prenotazione attiva)
    Email: laura.bianchi@studenti.unisa.it (Studente)
    Email: admin@biblioteca.unisa.it (Admin)
+   Email: giulia.romano@biblioteca.unisa.it (Bibliotecario)
+   Email: marco.bianchi@biblioteca.unisa.it (Bibliotecario)
+   Password per tutti: password123 (studenti) | admin123 (admin) | staff123 (bibliotecari)
+
+🔍 Scanner QR:
+   - Accedi come bibliotecario e vai su /admin/scanner
+   - Scansiona i QR generati dagli studenti
 
 🌐 Per visualizzare i dati:
    npx prisma studio
