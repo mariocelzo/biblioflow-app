@@ -120,7 +120,7 @@
 - [x] `GET /api/health` - Health check (implicito in Next.js)
 - [x] Middleware autenticazione (NextAuth)
 - [x] Middleware error handling
-- [ ] Middleware rate limiting
+- [x] Middleware rate limiting ✅
 
 **Deliverable**: ✅ Database popolato e API base funzionanti
 
@@ -132,7 +132,7 @@
 
 - [x] Configurare NextAuth con Prisma adapter
 - [x] Provider Credentials (email/password)
-- [ ] Opzionale: Provider Google/Microsoft universitario
+- [x] Provider Google OAuth (SSO universitario) ✅
 - [x] Gestione sessioni JWT
 - [x] Middleware protezione route
 
