@@ -3,9 +3,14 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { passwordResetRateLimiter } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting: max 3 richieste ogni 15 minuti per IP
+    const rateLimitResult = await passwordResetRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+    
     const body = await request.json();
     const email = (body.email || "").toLowerCase();
     if (!email) {

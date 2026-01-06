@@ -12,6 +12,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, validatePassword } from "@/lib/auth";
+import { registrationRateLimiter } from "@/lib/rate-limit";
 import { z } from "zod";
 
 // Schema di validazione registrazione
@@ -46,6 +47,10 @@ const registrazioneSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting: max 3 registrazioni all'ora per IP
+    const rateLimitResult = await registrationRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+    
     const body = await request.json();
     
     // Valida i dati di input

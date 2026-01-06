@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { readApiRateLimiter, loanRequestRateLimiter } from "@/lib/rate-limit";
 
 // GET /api/prestiti - Lista prestiti
 export async function GET(request: NextRequest) {
   try {
+    // Rate limiting: 300 req/min per letture
+    const rateLimitResult = await readApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+    
     const { searchParams } = new URL(request.url);
     
     // Parametri di filtro
@@ -93,6 +98,10 @@ export async function GET(request: NextRequest) {
 // POST /api/prestiti - Crea nuovo prestito
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting: max 5 richieste prestito al giorno
+    const rateLimitResult = await loanRequestRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+    
     const body = await request.json();
     
     const { userId, libroId, durataDays = 30 } = body;

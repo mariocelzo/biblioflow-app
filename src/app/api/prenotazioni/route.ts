@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { readApiRateLimiter, bookingRateLimiter } from "@/lib/rate-limit";
 
 // GET /api/prenotazioni - Lista prenotazioni
 export async function GET(request: NextRequest) {
   try {
+    // Rate limiting: 300 req/min per letture
+    const rateLimitResult = await readApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+    
     const { searchParams } = new URL(request.url);
     
     // Parametri di filtro
@@ -100,6 +105,10 @@ export async function GET(request: NextRequest) {
 // POST /api/prenotazioni - Crea nuova prenotazione
 export async function POST(request: NextRequest) {
   try {
+    // Rate limiting: max 10 prenotazioni ogni 30 minuti
+    const rateLimitResult = await bookingRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+    
     const body = await request.json();
     
     const { userId, postoId, data, oraInizio, oraFine, marginePendolare, minutiMarginePendolare, note } = body;

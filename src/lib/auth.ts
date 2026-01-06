@@ -8,6 +8,7 @@
 
 import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
+import Google from "next-auth/providers/google";
 import { prisma } from "./prisma";
 import type { UserRole } from "@prisma/client";
 
@@ -52,6 +53,22 @@ declare module "@auth/core/jwt" {
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
+    // Google OAuth Provider per login universitario
+    Google({
+      clientId: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      authorization: {
+        params: {
+          // Limita il dominio per login universitario (opzionale)
+          // hd: "studenti.unisa.it",
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code",
+        },
+      },
+    }),
+    
+    // Credentials Provider (email/password)
     Credentials({
       name: "credentials",
       credentials: {
@@ -127,6 +144,73 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   
   callbacks: {
+    // Callback per signin con Google OAuth
+    async signIn({ user, account, profile }) {
+      // Signin con Credentials - gestito dal provider
+      if (account?.provider === "credentials") {
+        return true;
+      }
+      
+      // Signin con Google OAuth
+      if (account?.provider === "google" && user.email) {
+        try {
+          // Cerca utente esistente
+          let dbUser = await prisma.user.findUnique({
+            where: { email: user.email },
+          });
+          
+          if (!dbUser) {
+            // Crea nuovo utente dalla risposta Google
+            // Estrai nome e cognome dall'account Google
+            const nome = profile?.given_name || user.name?.split(" ")[0] || "Nome";
+            const cognome = profile?.family_name || user.name?.split(" ").slice(1).join(" ") || "Cognome";
+            
+            dbUser = await prisma.user.create({
+              data: {
+                email: user.email,
+                nome: nome,
+                cognome: cognome,
+                ruolo: "STUDENTE",
+                emailVerificata: true, // Google ha già verificato
+                attivo: true,
+                isPendolare: false,
+                necessitaAccessibilita: false,
+                notifichePush: true,
+                notificheEmail: true,
+                // Password non necessaria per OAuth
+                passwordHash: null,
+              },
+            });
+          } else {
+            // Aggiorna ultimo accesso
+            await prisma.user.update({
+              where: { id: dbUser.id },
+              data: { 
+                ultimoAccesso: new Date(),
+                emailVerificata: true, // Assicura che sia verificata
+              },
+            });
+          }
+          
+          // Aggiungi i campi custom al user object per i callback JWT/session
+          user.id = dbUser.id;
+          user.nome = dbUser.nome;
+          user.cognome = dbUser.cognome;
+          user.ruolo = dbUser.ruolo;
+          user.matricola = dbUser.matricola;
+          user.isPendolare = dbUser.isPendolare;
+          user.necessitaAccessibilita = dbUser.necessitaAccessibilita;
+          
+          return true;
+        } catch (error) {
+          console.error("Errore signin Google:", error);
+          return false;
+        }
+      }
+      
+      return false;
+    },
+    
     // Personalizza il JWT token
     async jwt({ token, user }) {
       if (user) {
