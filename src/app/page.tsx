@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Header } from "@/components/layout/header";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,7 +26,9 @@ import {
   Navigation,
   Star,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  X,
+  Loader2
 } from "lucide-react";
 
 interface StatsBiblioteca {
@@ -53,6 +56,7 @@ export default function HomePage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [showQRCheckIn, setShowQRCheckIn] = useState(false);
+  const [cancellando, setCancellando] = useState(false);
   const [stats] = useState<StatsBiblioteca>({
     postiDisponibili: 42,
     prenotazioniAttive: 1,
@@ -119,6 +123,33 @@ export default function HomePage() {
     const timer = setTimeout(() => setIsLoading(false), 800);
     return () => clearTimeout(timer);
   }, []);
+
+  const handleCancellaPrenotazione = async () => {
+    if (!prenotazioneAttiva) return;
+    
+    setCancellando(true);
+    try {
+      const res = await fetch(`/api/prenotazioni/${prenotazioneAttiva.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ azione: "cancella" }),
+      });
+
+      if (res.ok) {
+        toast.success("Prenotazione cancellata con successo");
+        // Ricarica la pagina per aggiornare i dati
+        router.refresh();
+      } else {
+        const error = await res.json();
+        toast.error(error.error || "Errore durante la cancellazione");
+      }
+    } catch (error) {
+      console.error("Errore cancellazione:", error);
+      toast.error("Errore di connessione");
+    } finally {
+      setCancellando(false);
+    }
+  };
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -227,7 +258,7 @@ export default function HomePage() {
                 </div>
 
                 {/* Azioni */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <Button
                     variant="secondary"
                     className="bg-white/20 hover:bg-white/30 text-white border-0"
@@ -244,6 +275,8 @@ export default function HomePage() {
                     <Navigation className="h-4 w-4 mr-2" />
                     Percorso
                   </Button>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                   <Button
                     variant="secondary"
                     className="bg-white/20 hover:bg-white/30 text-white border-0"
@@ -251,6 +284,24 @@ export default function HomePage() {
                   >
                     <Clock className="h-4 w-4 mr-2" />
                     Dettagli
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="bg-red-500/20 hover:bg-red-500/30 text-white border-0"
+                    onClick={handleCancellaPrenotazione}
+                    disabled={cancellando}
+                  >
+                    {cancellando ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Cancellando...
+                      </>
+                    ) : (
+                      <>
+                        <X className="h-4 w-4 mr-2" />
+                        Cancella
+                      </>
+                    )}
                   </Button>
                 </div>
 

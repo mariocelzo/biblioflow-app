@@ -333,20 +333,32 @@ export default function PrenotaPage() {
   });
 
   const postiMappa: PostoMappa[] = useMemo(() => {
-    return postiFiltrati.map((posto) => ({
-      id: posto.id,
-      numero: posto.numero,
-      x: posto.posizioneX || 100,
-      y: posto.posizioneY || 100,
-      stato: posto.stato === "RISERVATO" ? "PRENOTATO" : posto.stato,
-      caratteristiche: {
-        presaElettrica: posto.haPresaElettrica,
-        finestraVicina: false,
-        silenzioso: true,
-        wifi: true,
-        accessibile: posto.accessibileDisabili,
-      },
-    }));
+    return postiFiltrati.map((posto) => {
+      // Converti RISERVATO in PRENOTATO per la mappa
+      let statoMappa: "DISPONIBILE" | "OCCUPATO" | "PRENOTATO" | "MANUTENZIONE";
+      if (posto.stato === "RISERVATO") {
+        statoMappa = "PRENOTATO";
+      } else if (posto.stato === "OCCUPATO" || posto.stato === "DISPONIBILE" || posto.stato === "MANUTENZIONE") {
+        statoMappa = posto.stato;
+      } else {
+        statoMappa = "DISPONIBILE"; // fallback
+      }
+      
+      return {
+        id: posto.id,
+        numero: posto.numero,
+        x: posto.posizioneX || 100,
+        y: posto.posizioneY || 100,
+        stato: statoMappa,
+        caratteristiche: {
+          presaElettrica: posto.haPresaElettrica,
+          finestraVicina: false,
+          silenzioso: true,
+          wifi: true,
+          accessibile: posto.accessibileDisabili,
+        },
+      };
+    });
   }, [postiFiltrati]);
 
   const salaCorrente = sale.find((s) => s.id === salaSelezionata);

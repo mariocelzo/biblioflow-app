@@ -66,22 +66,31 @@ export async function GET(request: NextRequest) {
     
     // Se sono specificati data e orari, verifica la disponibilità per ogni posto
     if (data && oraInizio && oraFine) {
-      const dataPrenotazione = new Date(data);
       const oraInizioMinuti = parseTimeToMinutes(oraInizio);
       const oraFineMinuti = parseTimeToMinutes(oraFine);
       
-      // Recupera le prenotazioni esistenti per quella data
-      const prenotazioniEsistenti = await prisma.prenotazione.findMany({
-        where: {
-          data: dataPrenotazione,
-          stato: { in: ["CONFERMATA", "CHECK_IN"] },
-          postoId: { in: posti.map(p => p.id) },
-        },
-        select: {
-          postoId: true,
-          oraInizio: true,
-          oraFine: true,
-        },
+      const postiIds = posti.map((p: { id: string }) => p.id);
+      
+      console.log(`[API POSTI] Data input: ${data}`);
+      console.log(`[API POSTI] Posti IDs: ${posti.slice(0, 3).map((p: { numero: string }) => p.numero).join(", ")}...`);
+      
+      // Usa raw query per evitare problemi di timezone con @db.Date
+      const prenotazioniEsistenti = await prisma.$queryRaw<Array<{
+        postoId: string;
+        oraInizio: Date;
+        oraFine: Date;
+      }>>`
+        SELECT "postoId", "oraInizio", "oraFine" 
+        FROM "Prenotazione" 
+        WHERE data = ${data}::date 
+          AND stato IN ('CONFERMATA', 'CHECK_IN')
+          AND "postoId" = ANY(${postiIds})
+      `;
+      
+      console.log(`[API POSTI] Cercando prenotazioni per data ${data}, orario ${oraInizio}-${oraFine}`);
+      console.log(`[API POSTI] Trovate ${prenotazioniEsistenti.length} prenotazioni esistenti`);
+      prenotazioniEsistenti.forEach((p: { postoId: string; oraInizio: Date; oraFine: Date }) => {
+        console.log(`[API POSTI] - Posto ${p.postoId}: ${p.oraInizio.toISOString()} - ${p.oraFine.toISOString()}`);
       });
       
       // Mappa delle prenotazioni per postoId
@@ -97,19 +106,31 @@ export async function GET(request: NextRequest) {
       }
       
       // Aggiungi info disponibilità a ogni posto
-      const postiConDisponibilita = posti.map(posto => {
+      interface PostoData {
+        id: string;
+        numero: string;
+        stato: string;
+      }
+      const postiConDisponibilita = posti.map((posto: PostoData) => {
         const prenotazioni = prenotazioniPerPosto.get(posto.id) || [];
         const isOccupato = prenotazioni.some(pren => {
-          const prenInizio = pren.oraInizio.getHours() * 60 + pren.oraInizio.getMinutes();
-          const prenFine = pren.oraFine.getHours() * 60 + pren.oraFine.getMinutes();
+          // Estrai ore e minuti dalla prenotazione
+          // I campi TIME in PostgreSQL vengono restituiti come Date con data 1970-01-01
+          const prenInizio = pren.oraInizio.getUTCHours() * 60 + pren.oraInizio.getUTCMinutes();
+          const prenFine = pren.oraFine.getUTCHours() * 60 + pren.oraFine.getUTCMinutes();
+          
+          console.log(`[API POSTI] Posto ${posto.numero}: prenotazione ${prenInizio}-${prenFine} vs richiesta ${oraInizioMinuti}-${oraFineMinuti}`);
+          
           // Verifica sovrapposizione: due intervalli si sovrappongono se non sono completamente separati
-          return !(oraFineMinuti <= prenInizio || oraInizioMinuti >= prenFine);
+          const overlaps = !(oraFineMinuti <= prenInizio || oraInizioMinuti >= prenFine);
+          console.log(`[API POSTI] Posto ${posto.numero}: overlaps=${overlaps}`);
+          return overlaps;
         });
         
         return {
           ...posto,
           stato: isOccupato ? "OCCUPATO" : posto.stato,
-          disponibile: !isOccupato,
+          disponibile: !isOccupato && posto.stato === "DISPONIBILE",
         };
       });
       

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +29,6 @@ import {
   Train,
   Accessibility,
   User,
-  Mail,
-  CheckCircle,
 } from "lucide-react";
 
 interface FormData {
@@ -78,9 +77,6 @@ export default function RegistrazionePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
-  const [verificationLink, setVerificationLink] = useState<string | null>(null);
-  const [verificationToken, setVerificationToken] = useState<string | null>(null);
-  const [showVerification, setShowVerification] = useState(false);
 
   const updateFormData = (field: keyof FormData, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -158,36 +154,25 @@ export default function RegistrazionePage() {
         return;
       }
 
-      if (data?.data?.verification) {
-        setVerificationLink(data.data.verification.link);
-        setVerificationToken(data.data.verification.token);
-        setShowVerification(true);
-        return;
-      }
+      // Registrazione completata con successo - Login automatico
+      if (data?.success) {
+        // Effettua il login automatico con le credenziali appena registrate
+        const loginResult = await signIn("credentials", {
+          email: formData.email,
+          password: formData.password,
+          redirect: false,
+        });
 
-      router.push("/login?registered=true");
+        if (loginResult?.ok) {
+          // Login riuscito - reindirizza alla home
+          router.push("/?registered=true");
+        } else {
+          // Login fallito - reindirizza alla pagina di login
+          router.push("/login?registered=true");
+        }
+      }
     } catch {
       setError("Errore di connessione. Riprova.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleVerifyEmail = async () => {
-    if (!verificationLink) return;
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const res = await fetch(verificationLink, { method: "GET" });
-      const d = await res.json();
-      if (!res.ok) {
-        setError(d.error || "Errore durante la verifica");
-      } else {
-        router.push("/login?verified=true");
-      }
-    } catch {
-      setError("Errore di connessione");
     } finally {
       setIsLoading(false);
     }
@@ -203,65 +188,6 @@ export default function RegistrazionePage() {
       </div>
     );
   };
-
-  if (showVerification) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
-        <Card className="w-full max-w-md shadow-xl">
-          <CardHeader className="space-y-4 text-center">
-            <div className="flex justify-center">
-              <div className="rounded-full bg-green-100 dark:bg-green-900/30 p-4">
-                <Mail className="h-10 w-10 text-green-600 dark:text-green-400" />
-              </div>
-            </div>
-            <CardTitle className="text-2xl font-bold">Verifica la tua email</CardTitle>
-            <CardDescription>
-              Ti abbiamo inviato un&apos;email di conferma.<br />
-              Clicca sul link per attivare il tuo account.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            {error && (
-              <div role="alert" className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300">
-                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" />
-                <span className="text-sm">{error}</span>
-              </div>
-            )}
-
-            {verificationToken && (
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
-                  <strong>Demo:</strong> Usa questo link per verificare:
-                </p>
-                <code className="text-xs break-all block p-2 bg-white dark:bg-gray-800 rounded">
-                  {verificationLink}
-                </code>
-              </div>
-            )}
-
-            <div className="flex flex-col gap-3">
-              <Button onClick={handleVerifyEmail} disabled={isLoading || !verificationLink} className="w-full">
-                {isLoading ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verificando...</>
-                ) : (
-                  <><CheckCircle className="mr-2 h-4 w-4" />Verifica Email (Demo)</>
-                )}
-              </Button>
-              <Button variant="outline" onClick={() => router.push("/login")} className="w-full">
-                Vai al Login
-              </Button>
-            </div>
-          </CardContent>
-
-          <CardFooter className="flex flex-col space-y-2 text-center text-sm text-muted-foreground">
-            <p>Non hai ricevuto l&apos;email?</p>
-            <p>Controlla la cartella spam o riprova più tardi.</p>
-          </CardFooter>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4">

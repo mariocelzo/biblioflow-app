@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { readApiRateLimiter, bookingRateLimiter } from "@/lib/rate-limit";
+import { readApiRateLimiter } from "@/lib/rate-limit";
 
 // GET /api/prenotazioni - Lista prenotazioni
 export async function GET(request: NextRequest) {
@@ -105,10 +105,6 @@ export async function GET(request: NextRequest) {
 // POST /api/prenotazioni - Crea nuova prenotazione
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting: max 10 prenotazioni ogni 30 minuti
-    const rateLimitResult = await bookingRateLimiter(request);
-    if (rateLimitResult) return rateLimitResult;
-    
     const body = await request.json();
     
     const { userId, postoId, data, oraInizio, oraFine, marginePendolare, minutiMarginePendolare, note } = body;
@@ -142,9 +138,12 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Converti le date
-    const dataPrenotazione = new Date(data);
-    dataPrenotazione.setHours(0, 0, 0, 0);
+    // Converti le date - IMPORTANTE: usare UTC per evitare problemi di timezone
+    // La stringa data è nel formato "2026-01-07", la convertiamo in UTC mezzanotte
+    const [anno, mese, giorno] = data.split("-").map(Number);
+    const dataPrenotazione = new Date(Date.UTC(anno, mese - 1, giorno, 0, 0, 0, 0));
+    
+    console.log(`[API PRENOTAZIONI] Data input: ${data}, Data salvata: ${dataPrenotazione.toISOString()}`);
     
     // Crea oggetti Date per gli orari (usando data fittizia 1970-01-01)
     const [oreInizio, minutiInizio] = oraInizio.split(":").map(Number);

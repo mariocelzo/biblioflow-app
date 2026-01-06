@@ -26,20 +26,25 @@ const registrazioneSchema = z.object({
   nome: z.string().min(2, "Nome deve avere almeno 2 caratteri"),
   cognome: z.string().min(2, "Cognome deve avere almeno 2 caratteri"),
   // Matricola opzionale: se fornita deve essere esattamente 10 cifre
-  matricola: z.string().regex(/^\d{10}$/, "La matricola deve contenere esattamente 10 cifre").optional(),
+  matricola: z.string().optional().refine(
+    (val) => !val || val.trim() === "" || /^\d{10}$/.test(val),
+    { message: "La matricola deve contenere esattamente 10 cifre" }
+  ),
   
   // Profilo pendolare (Flessibilità adattiva - HCI)
   isPendolare: z.boolean().default(false),
-  tragittoPendolare: z.string().optional(),
+  cittaResidenza: z.string().optional(),
+  mezzoTrasporto: z.string().optional(),
+  tempoPercorrenza: z.string().optional(),
   
   // Accessibilità (Inclusività by design - HCI)
   necessitaAccessibilita: z.boolean().default(false),
-  preferenzeAccessibilita: z.string().optional(),
-  altoContrasto: z.boolean().default(false),
+  tipoAccessibilita: z.string().optional(),
+  altreNote: z.string().optional(),
   
-  // Preferenze notifiche
-  notifichePush: z.boolean().default(true),
-  notificheEmail: z.boolean().default(true),
+  // Preferenze notifiche (opzionali)
+  notifichePush: z.boolean().optional().default(true),
+  notificheEmail: z.boolean().optional().default(true),
 }).refine((data) => data.password === data.confermaPassword, {
   message: "Le password non corrispondono",
   path: ["confermaPassword"],
@@ -95,8 +100,8 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Verifica se la matricola è già registrata (se fornita)
-    if (data.matricola) {
+    // Verifica se la matricola è già registrata (se fornita e non vuota)
+    if (data.matricola && data.matricola.trim() !== "") {
       const existingMatricola = await prisma.user.findUnique({
         where: { matricola: data.matricola },
       });
@@ -114,6 +119,25 @@ export async function POST(request: NextRequest) {
     // Hash della password
     const passwordHash = await hashPassword(data.password);
     
+    // Costruisci il tragitto pendolare se i dati sono forniti
+    let tragittoPendolare = null;
+    if (data.isPendolare && (data.cittaResidenza || data.mezzoTrasporto || data.tempoPercorrenza)) {
+      const parts = [];
+      if (data.cittaResidenza) parts.push(`Da: ${data.cittaResidenza}`);
+      if (data.mezzoTrasporto) parts.push(`Mezzo: ${data.mezzoTrasporto}`);
+      if (data.tempoPercorrenza) parts.push(`Tempo: ${data.tempoPercorrenza} min`);
+      tragittoPendolare = parts.join(" | ");
+    }
+    
+    // Costruisci le preferenze accessibilità
+    let preferenzeAccessibilita = null;
+    if (data.necessitaAccessibilita && (data.tipoAccessibilita || data.altreNote)) {
+      const parts = [];
+      if (data.tipoAccessibilita) parts.push(data.tipoAccessibilita);
+      if (data.altreNote) parts.push(data.altreNote);
+      preferenzeAccessibilita = parts.join(" - ");
+    }
+    
     // Crea l'utente
     const user = await prisma.user.create({
       data: {
@@ -121,15 +145,15 @@ export async function POST(request: NextRequest) {
         passwordHash,
         nome: data.nome,
         cognome: data.cognome,
-        matricola: data.matricola || null,
+        matricola: (data.matricola && data.matricola.trim() !== "") ? data.matricola : null,
         ruolo: "STUDENTE", // Default role per nuovi utenti
         isPendolare: data.isPendolare,
-        tragittoPendolare: data.tragittoPendolare || null,
+        tragittoPendolare,
         necessitaAccessibilita: data.necessitaAccessibilita,
-        preferenzeAccessibilita: data.preferenzeAccessibilita || null,
-        altoContrasto: data.altoContrasto,
-        notifichePush: data.notifichePush,
-        notificheEmail: data.notificheEmail,
+        preferenzeAccessibilita,
+        altoContrasto: false, // Default false, può essere cambiato in seguito
+        notifichePush: data.notifichePush ?? true,
+        notificheEmail: data.notificheEmail ?? true,
         emailVerificata: false, // Richiede verifica email
         attivo: true,
       },
