@@ -3,9 +3,10 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
+import confetti from "canvas-confetti";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, CheckCircle2, X } from "lucide-react";
+import { Loader2, CheckCircle2, X, PartyPopper } from "lucide-react";
 import { toast } from "sonner";
 
 interface QRCodeCheckInProps {
@@ -86,8 +87,24 @@ export function QRCodeCheckIn({
         throw new Error("Errore durante il check-in");
       }
 
+      // Trigger confetti animation
+      confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
+      
+      // Second burst for more celebration
+      setTimeout(() => {
+        confetti({
+          particleCount: 50,
+          spread: 100,
+          origin: { y: 0.5 },
+        });
+      }, 200);
+
       setCheckInSuccess(true);
-      toast.success("Check-in effettuato con successo!");
+      toast.success("Check-in effettuato con successo! 🎉");
       
       // Chiudi dialog dopo 2 secondi
       setTimeout(() => {
@@ -127,13 +144,13 @@ export function QRCodeCheckIn({
 
         {checkInSuccess ? (
           <div className="flex flex-col items-center justify-center py-8 space-y-4">
-            <div className="h-20 w-20 rounded-full bg-green-100 flex items-center justify-center">
-              <CheckCircle2 className="h-12 w-12 text-green-600" />
+            <div className="h-20 w-20 rounded-full bg-green-100 flex items-center justify-center animate-bounce">
+              <PartyPopper className="h-12 w-12 text-green-600" />
             </div>
             <div className="text-center">
-              <h3 className="text-lg font-semibold text-green-600">Check-in completato!</h3>
+              <h3 className="text-lg font-semibold text-green-600">Check-in completato! 🎉</h3>
               <p className="text-sm text-muted-foreground mt-1">
-                Benvenuto in biblioteca
+                Benvenuto in biblioteca, buono studio!
               </p>
             </div>
           </div>

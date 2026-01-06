@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -26,7 +26,9 @@ import {
   XCircle,
   Clock,
   User,
-  Filter
+  Filter,
+  Building2,
+  Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,6 +47,13 @@ interface Libro {
   immagineCopertina?: string;
 }
 
+// Suggerimento autocomplete
+interface Suggerimento {
+  tipo: "titolo" | "autore";
+  valore: string;
+  libro?: Libro;
+}
+
 export default function LibriPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -55,6 +64,14 @@ export default function LibriPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoriaFiltro, setCategoriaFiltro] = useState<string>("TUTTE");
   const [disponibilitaFiltro, setDisponibilitaFiltro] = useState<string>("TUTTE");
+  const [posizioneFiltro, setPosizioneFiltro] = useState<string>("TUTTE");
+  
+  // Autocomplete
+  const [suggerimenti, setSuggerimenti] = useState<Suggerimento[]>([]);
+  const [showSuggerimenti, setShowSuggerimenti] = useState(false);
+  const [loadingSuggerimenti, setLoadingSuggerimenti] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   
   const categorie = [
     "TUTTE",
@@ -68,6 +85,82 @@ export default function LibriPage() {
     "Psicologia",
     "Economia",
   ];
+
+  // Posizioni uniche estratte dai libri
+  const posizioni = ["TUTTE", ...Array.from(new Set(libri.map(l => l.posizione).filter(Boolean)))];
+
+  // Chiudi suggerimenti quando si clicca fuori
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setShowSuggerimenti(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Genera suggerimenti autocomplete
+  const generaSuggerimenti = useCallback((query: string, libriList: Libro[]): Suggerimento[] => {
+    if (!query || query.length < 2) return [];
+    
+    const queryLower = query.toLowerCase();
+    const risultati: Suggerimento[] = [];
+    const titoliVisti = new Set<string>();
+    const autoriVisti = new Set<string>();
+    
+    for (const libro of libriList) {
+      // Suggerimenti titolo
+      if (libro.titolo.toLowerCase().includes(queryLower) && !titoliVisti.has(libro.titolo)) {
+        titoliVisti.add(libro.titolo);
+        risultati.push({ tipo: "titolo", valore: libro.titolo, libro });
+        if (risultati.length >= 8) break;
+      }
+      
+      // Suggerimenti autore
+      if (libro.autore.toLowerCase().includes(queryLower) && !autoriVisti.has(libro.autore)) {
+        autoriVisti.add(libro.autore);
+        risultati.push({ tipo: "autore", valore: libro.autore });
+        if (risultati.length >= 8) break;
+      }
+    }
+    
+    return risultati.slice(0, 8);
+  }, []);
+
+  // Debounced search per autocomplete
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value);
+    
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    
+    if (value.length < 2) {
+      setSuggerimenti([]);
+      setShowSuggerimenti(false);
+      return;
+    }
+    
+    setLoadingSuggerimenti(true);
+    debounceRef.current = setTimeout(() => {
+      const nuoviSuggerimenti = generaSuggerimenti(value, libri);
+      setSuggerimenti(nuoviSuggerimenti);
+      setShowSuggerimenti(nuoviSuggerimenti.length > 0);
+      setLoadingSuggerimenti(false);
+    }, 150);
+  };
+
+  // Seleziona suggerimento
+  const handleSelectSuggerimento = (suggerimento: Suggerimento) => {
+    setSearchQuery(suggerimento.valore);
+    setShowSuggerimenti(false);
+    
+    if (suggerimento.tipo === "titolo" && suggerimento.libro) {
+      // Vai direttamente al dettaglio libro
+      router.push(`/libri/${suggerimento.libro.id}`);
+    }
+  };
 
   // Fetch libri
   useEffect(() => {
@@ -115,7 +208,10 @@ export default function LibriPage() {
       (disponibilitaFiltro === "DISPONIBILI" && libro.disponibile) ||
       (disponibilitaFiltro === "NON_DISPONIBILI" && !libro.disponibile);
     
-    return matchSearch && matchCategoria && matchDisponibilita;
+    // Filtro posizione
+    const matchPosizione = posizioneFiltro === "TUTTE" || libro.posizione === posizioneFiltro;
+    
+    return matchSearch && matchCategoria && matchDisponibilita && matchPosizione;
   });
 
   // Handler richiesta prestito
@@ -182,16 +278,50 @@ export default function LibriPage() {
         {/* Barra ricerca e filtri */}
         <Card className="mb-6 border-0 shadow-lg">
           <CardContent className="p-6 space-y-4">
-            {/* Ricerca */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+            {/* Ricerca con autocomplete */}
+            <div className="relative" ref={searchRef}>
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-muted-foreground z-10" />
+              {loadingSuggerimenti && (
+                <Loader2 className="absolute right-3 top-1/2 transform -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
+              )}
               <Input
                 type="text"
                 placeholder="Cerca per titolo, autore o ISBN..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
+                onFocus={() => searchQuery.length >= 2 && suggerimenti.length > 0 && setShowSuggerimenti(true)}
                 className="pl-10 h-12 text-base"
               />
+              
+              {/* Dropdown suggerimenti */}
+              {showSuggerimenti && suggerimenti.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
+                  {suggerimenti.map((sugg, index) => (
+                    <button
+                      key={`${sugg.tipo}-${index}`}
+                      onClick={() => handleSelectSuggerimento(sugg)}
+                      className="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center gap-3 border-b last:border-b-0 transition-colors"
+                    >
+                      {sugg.tipo === "titolo" ? (
+                        <BookOpen className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                      ) : (
+                        <User className="h-4 w-4 text-green-600 flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{sugg.valore}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {sugg.tipo === "titolo" ? "Vai al libro →" : "Cerca per autore"}
+                        </p>
+                      </div>
+                      {sugg.tipo === "titolo" && sugg.libro && (
+                        <Badge variant={sugg.libro.disponibile ? "default" : "secondary"} className="flex-shrink-0">
+                          {sugg.libro.disponibile ? "Disponibile" : "Non disponibile"}
+                        </Badge>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Filtri */}
@@ -227,13 +357,34 @@ export default function LibriPage() {
                 </Select>
               </div>
 
-              {(searchQuery || categoriaFiltro !== "TUTTE" || disponibilitaFiltro !== "TUTTE") && (
+              <div className="flex-1">
+                <Select value={posizioneFiltro} onValueChange={setPosizioneFiltro}>
+                  <SelectTrigger className="h-10">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-4 w-4" />
+                      <SelectValue placeholder="Posizione" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {posizioni.map((pos) => (
+                      <SelectItem key={pos} value={pos}>
+                        {pos === "TUTTE" ? "Tutte le posizioni" : pos}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {(searchQuery || categoriaFiltro !== "TUTTE" || disponibilitaFiltro !== "TUTTE" || posizioneFiltro !== "TUTTE") && (
                 <Button
                   variant="outline"
                   onClick={() => {
                     setSearchQuery("");
                     setCategoriaFiltro("TUTTE");
                     setDisponibilitaFiltro("TUTTE");
+                    setPosizioneFiltro("TUTTE");
+                    setSuggerimenti([]);
+                    setShowSuggerimenti(false);
                   }}
                   className="h-10"
                 >

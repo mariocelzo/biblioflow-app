@@ -11,6 +11,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import confetti from "canvas-confetti";
 import {
   Plug,
   Accessibility,
@@ -37,6 +40,11 @@ import {
   Timer,
   Sun,
   Coffee,
+  Train,
+  Bell,
+  List,
+  Map,
+  PartyPopper,
 } from "lucide-react";
 
 // Tipi
@@ -104,6 +112,13 @@ const FESTIVITA_2026 = [
   "2026-05-01", "2026-06-02", "2026-08-15", "2026-11-01", "2026-12-08",
   "2026-12-25", "2026-12-26",
 ];
+
+// Cache disponibilità per data
+interface DisponibilitaGiorno {
+  data: string;
+  postiDisponibili: number;
+  postiTotali: number;
+}
 
 function isGiornoChiuso(data: string): { chiuso: boolean; motivo: string } {
   const date = new Date(data);
@@ -289,9 +304,16 @@ export default function PrenotaPage() {
         }),
       });
       if (res.ok) {
+        // Trigger confetti animation
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 },
+        });
         toast.success("Prenotazione confermata! 🎉", { description: `Posto ${postoSelezionato.numero} - ${oraInizio} - ${oraFine}` });
         setDialogAperto(false);
-        router.push("/prenotazioni");
+        // Ritardo per vedere l'animazione
+        setTimeout(() => router.push("/prenotazioni"), 1500);
       } else {
         const error = await res.json();
         toast.error(error.error || "Errore nella prenotazione");
@@ -467,6 +489,42 @@ export default function PrenotaPage() {
                 </div>
               </CardContent>
             </Card>
+            
+            {/* Switch rapido tra sale */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Map className="h-5 w-5 text-blue-600" />
+                  Cambia Sala
+                </CardTitle>
+                <CardDescription>Passa rapidamente ad un&apos;altra sala senza tornare indietro</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs value={salaSelezionata} onValueChange={(value) => {
+                  setSalaSelezionata(value);
+                  setPostoSelezionato(null);
+                }} className="w-full">
+                  <TabsList className="w-full flex-wrap h-auto gap-1 bg-slate-100 p-1">
+                    {sale.map((sala) => (
+                      <TabsTrigger 
+                        key={sala.id} 
+                        value={sala.id} 
+                        className="flex-1 min-w-[120px] data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                      >
+                        <div className="flex items-center gap-2">
+                          {sala.tipoSala === "SILENZIOSA" ? <VolumeX className="h-4 w-4" /> : 
+                           sala.tipoSala === "GRUPPO" ? <Volume2 className="h-4 w-4" /> : 
+                           <MapPin className="h-4 w-4" />}
+                          <span className="truncate">{sala.nome.replace("Sala ", "")}</span>
+                          <Badge variant="outline" className="ml-1 text-xs">P{sala.piano}</Badge>
+                        </div>
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </CardContent>
+            </Card>
+
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-lg">Filtri</CardTitle></CardHeader>
               <CardContent>
