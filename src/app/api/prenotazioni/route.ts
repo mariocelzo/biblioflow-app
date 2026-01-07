@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      prenotazioni: prenotazioni,
+      data: prenotazioni,
       count: prenotazioni.length,
     });
   } catch (error) {
