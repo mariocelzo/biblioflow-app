@@ -157,8 +157,7 @@ export function MappaBiblioteca({
           y={tavoloY}
           width={LARGHEZZA_TAVOLO}
           height={ALTEZZA_TAVOLO}
-          fill="#f3f4f6"
-          stroke="#d1d5db"
+          className="fill-muted stroke-border dark:fill-gray-700 dark:stroke-gray-600"
           strokeWidth="2"
           rx="4"
         />
@@ -190,8 +189,18 @@ export function MappaBiblioteca({
               fill={getPostoColor(posto.stato, isSelected)}
               stroke={isSelected ? '#1e40af' : 'white'}
               strokeWidth={isSelected ? 3 : 2}
-              className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity' : 'cursor-not-allowed'}
+              className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity focus:outline-none' : 'cursor-not-allowed'}
               onClick={() => handlePostoClick(posto)}
+              tabIndex={posto.stato === 'DISPONIBILE' ? 0 : -1}
+              role="button"
+              aria-label={getPostoTooltip(posto)}
+              aria-pressed={isSelected}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handlePostoClick(posto);
+                }
+              }}
             />
             <text
               x={postoX}
@@ -232,8 +241,7 @@ export function MappaBiblioteca({
           y={tavoloY}
           width={LARGHEZZA_TAVOLO}
           height={ALTEZZA_TAVOLO}
-          fill="#f3f4f6"
-          stroke="#d1d5db"
+          className="fill-muted stroke-border dark:fill-gray-700 dark:stroke-gray-600"
           strokeWidth="2"
           rx="4"
         />
@@ -265,8 +273,18 @@ export function MappaBiblioteca({
               fill={getPostoColor(posto.stato, isSelected)}
               stroke={isSelected ? '#1e40af' : 'white'}
               strokeWidth={isSelected ? 3 : 2}
-              className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity' : 'cursor-not-allowed'}
+              className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity focus:outline-none' : 'cursor-not-allowed'}
               onClick={() => handlePostoClick(posto)}
+              tabIndex={posto.stato === 'DISPONIBILE' ? 0 : -1}
+              role="button"
+              aria-label={getPostoTooltip(posto)}
+              aria-pressed={isSelected}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handlePostoClick(posto);
+                }
+              }}
             />
             <text
               x={postoX}
@@ -327,8 +345,7 @@ export function MappaBiblioteca({
             y={y}
             width={LARGHEZZA_POSTAZIONE}
             height={ALTEZZA_POSTAZIONE}
-            fill="#e0e7ff"
-            stroke="#6366f1"
+            className="fill-indigo-100 stroke-indigo-500 dark:fill-indigo-900 dark:stroke-indigo-400"
             strokeWidth="2"
             rx="4"
           />
@@ -338,7 +355,7 @@ export function MappaBiblioteca({
             y={y + 10}
             width="3"
             height={ALTEZZA_POSTAZIONE - 20}
-            fill="#c7d2fe"
+            className="fill-indigo-200 dark:fill-indigo-700"
             opacity="0.5"
           />
           <rect
@@ -346,7 +363,7 @@ export function MappaBiblioteca({
             y={y + 10}
             width="3"
             height={ALTEZZA_POSTAZIONE - 20}
-            fill="#c7d2fe"
+            className="fill-indigo-200 dark:fill-indigo-700"
             opacity="0.5"
           />
           
@@ -357,8 +374,18 @@ export function MappaBiblioteca({
             fill={getPostoColor(posto.stato, isSelected)}
             stroke={isSelected ? '#1e40af' : 'white'}
             strokeWidth={isSelected ? 3 : 2}
-            className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity' : 'cursor-not-allowed'}
+            className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity focus:outline-none' : 'cursor-not-allowed'}
             onClick={() => handlePostoClick(posto)}
+            tabIndex={posto.stato === 'DISPONIBILE' ? 0 : -1}
+            role="button"
+            aria-label={getPostoTooltip(posto)}
+            aria-pressed={isSelected}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handlePostoClick(posto);
+              }
+            }}
           />
           
           <text
@@ -415,8 +442,7 @@ export function MappaBiblioteca({
           y={y}
           width={LARGHEZZA_TAVOLO}
           height={ALTEZZA_TAVOLO}
-          fill="#dcfce7"
-          stroke="#22c55e"
+          className="fill-green-100 stroke-green-500 dark:fill-green-900 dark:stroke-green-400"
           strokeWidth="3"
           rx="12"
         />
@@ -458,8 +484,18 @@ export function MappaBiblioteca({
               fill={getPostoColor(posto.stato, isSelected)}
               stroke={isSelected ? '#1e40af' : 'white'}
               strokeWidth={isSelected ? 3 : 2}
-              className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity' : 'cursor-not-allowed'}
+              className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer hover:opacity-80 transition-opacity focus:outline-none' : 'cursor-not-allowed'}
               onClick={() => handlePostoClick(posto)}
+              tabIndex={posto.stato === 'DISPONIBILE' ? 0 : -1}
+              role="button"
+              aria-label={getPostoTooltip(posto)}
+              aria-pressed={isSelected}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handlePostoClick(posto);
+                }
+              }}
             />
             <text
               x={postoX}
@@ -513,8 +549,8 @@ export function MappaBiblioteca({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-xl font-semibold text-slate-900">{sala}</h3>
-          <p className="text-sm text-slate-600">Piano {piano} • {getSalaDescription()}</p>
+          <h3 className="text-xl font-semibold text-foreground">{sala}</h3>
+          <p className="text-sm text-muted-foreground">Piano {piano} • {getSalaDescription()}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -523,8 +559,9 @@ export function MappaBiblioteca({
             onClick={zoomOut}
             className="h-8 w-8"
             title="Zoom out"
+            aria-label="Riduci zoom della mappa"
           >
-            <ZoomOut className="h-4 w-4" />
+            <ZoomOut className="h-4 w-4" aria-hidden="true" />
           </Button>
           <Button
             variant="outline"
@@ -532,13 +569,14 @@ export function MappaBiblioteca({
             onClick={zoomIn}
             className="h-8 w-8"
             title="Zoom in"
+            aria-label="Aumenta zoom della mappa"
           >
-            <ZoomIn className="h-4 w-4" />
+            <ZoomIn className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       </div>
 
-      <Card className="border-slate-200">
+      <Card className="border-border">
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-4 text-sm">
             <div className="flex items-center gap-2">
@@ -565,13 +603,20 @@ export function MappaBiblioteca({
         </CardContent>
       </Card>
 
-      <div className="relative w-full bg-white rounded-lg border-2 border-slate-200 overflow-hidden" style={{ aspectRatio: svgDimensions.aspectRatio }}>
+      <div 
+        className="relative w-full bg-card dark:bg-gray-800 rounded-lg border-2 border-border overflow-hidden" 
+        style={{ aspectRatio: svgDimensions.aspectRatio }}
+        role="application"
+        aria-label={`Mappa interattiva della ${sala}. Usa Tab per navigare tra i posti disponibili.`}
+      >
         <svg
           viewBox={svgDimensions.viewBox}
           className="w-full h-full"
           style={{ transform: `scale(${zoom})`, transformOrigin: 'center', transition: 'transform 0.3s ease' }}
+          role="img"
+          aria-label={`Piantina della ${sala} con ${postiOrdinati.length} posti totali, di cui ${postiOrdinati.filter(p => p.stato === 'DISPONIBILE').length} disponibili`}
         >
-          <rect x="0" y="0" width="500" height={svgDimensions.height} fill="#fafafa" />
+          <rect x="0" y="0" width="500" height={svgDimensions.height} className="fill-muted dark:fill-gray-900" />
 
           {salaId === 1 && (
             <>
@@ -618,11 +663,11 @@ export function MappaBiblioteca({
       </div>
 
       {postoSelezionatoData && (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950">
           <CardContent className="p-4">
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="font-semibold text-slate-900">Posto {postoSelezionatoData.numero}</h4>
+                <h4 className="font-semibold text-foreground">Posto {postoSelezionatoData.numero}</h4>
                 <Badge className="bg-green-500 text-white">Disponibile</Badge>
               </div>
               

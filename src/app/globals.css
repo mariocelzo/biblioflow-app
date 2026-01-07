@@ -80,6 +80,70 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* ============================================
+   DARK MODE
+   ============================================ */
+.dark {
+  /* Dark Brand Colors */
+  --primary: #0A84FF;
+  --primary-hover: #409CFF;
+  --primary-light: #1C2C3D;
+  
+  /* Dark Semantic Colors */
+  --success: #30D158;
+  --success-light: #1C2E20;
+  --warning: #FFB340;
+  --warning-light: #2E2619;
+  --danger: #FF453A;
+  --danger-light: #2E1C1A;
+  
+  /* Dark Gray Scale */
+  --gray-50: #1C1C1E;
+  --gray-100: #2C2C2E;
+  --gray-200: #3A3A3C;
+  --gray-300: #48484A;
+  --gray-400: #636366;
+  --gray-500: #8E8E93;
+  --gray-600: #AEAEB2;
+  --gray-700: #C7C7CC;
+  --gray-800: #D1D1D6;
+  --gray-900: #F5F5F7;
+  
+  /* Dark Surfaces */
+  --card-bg: rgba(28, 28, 30, 0.8);
+  --card-bg-solid: #1C1C1E;
+  --card-border: rgba(255, 255, 255, 0.1);
+  --card-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
+  --card-shadow-hover: 0 8px 32px rgba(0, 0, 0, 0.5);
+  
+  /* Dark Mode Colors (Tailwind vars) */
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.18 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.145 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.23 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.23 0 0);
+  --muted-foreground: oklch(0.654 0 0);
+  --accent: oklch(0.23 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.23 0 0);
+  --input: oklch(0.23 0 0);
+  --ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.145 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.985 0 0);
+  --sidebar-primary-foreground: oklch(0.145 0 0);
+  --sidebar-accent: oklch(0.23 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.23 0 0);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -165,40 +229,6 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
@@ -301,3 +331,188 @@ body {
   color: var(--gray-700);
 }
 
+/* ============================================
+   ACCESSIBILITY ENHANCEMENTS
+   ============================================ */
+
+/* Modalità Accessibilità Attiva */
+.accessibility-mode {
+  /* Touch target minimi 44x44px */
+  --min-touch-target: 44px;
+}
+
+/* Indicatore visivo che la modalità è attiva (per debug) */
+.accessibility-mode::before {
+  content: "🦾 Modalità Accessibilità Attiva";
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #0066FF;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.accessibility-mode button,
+.accessibility-mode [role="button"],
+.accessibility-mode a:not(.no-touch-target) {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.75rem 1rem;
+}
+
+.accessibility-mode input,
+.accessibility-mode select,
+.accessibility-mode textarea {
+  min-height: 44px;
+}
+
+/* Modalità Alto Contrasto */
+.high-contrast {
+  --primary: #0033CC;
+  --foreground: #000000;
+  --background: #FFFFFF;
+  --border: #000000;
+  --muted-foreground: #333333;
+}
+
+/* Indicatore visivo alto contrasto (per debug) */
+.high-contrast::after {
+  content: "👁️ Alto Contrasto";
+  position: fixed;
+  bottom: 65px;
+  right: 20px;
+  background: #0033CC;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.high-contrast.dark {
+  --primary: #99CCFF;
+  --foreground: #FFFFFF;
+  --background: #000000;
+  --border: #FFFFFF;
+  --muted-foreground: #CCCCCC;
+}
+
+.high-contrast * {
+  border-width: 2px !important;
+}
+
+.high-contrast button,
+.high-contrast a {
+  font-weight: 600 !important;
+}
+
+/* Riduzione Movimento (oltre a prefers-reduced-motion) */
+.reduce-motion *,
+.reduce-motion *::before,
+.reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Testo Grande */
+.large-text {
+  font-size: 112.5% !important; /* 18px base invece di 16px */
+}
+
+/* Indicatore visivo testo grande (per debug) */
+.large-text::after {
+  content: "📝 Testo Grande (18px)";
+  position: fixed;
+  bottom: 110px;
+  right: 20px;
+  background: #00AA00;
+  color: white;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px !important;
+  font-weight: 600;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+}
+
+.large-text * {
+  line-height: 1.6 !important;
+  letter-spacing: 0.02em;
+}
+
+.large-text h1 { font-size: 2.5rem !important; }
+.large-text h2 { font-size: 2rem !important; }
+.large-text h3 { font-size: 1.5rem !important; }
+.large-text h4 { font-size: 1.25rem !important; }
+.large-text p { font-size: 1.125rem !important; }
+.large-text button { font-size: 1.125rem !important; }
+.large-text input { font-size: 1.125rem !important; }
+
+/* Focus visibile potenziato per accessibilità */
+.accessibility-mode *:focus-visible {
+  outline: 3px solid var(--primary) !important;
+  outline-offset: 3px !important;
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.2) !important;
+}
+
+/* Skip to content link */
+.skip-to-content {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--primary);
+  color: white;
+  padding: 8px 16px;
+  text-decoration: none;
+  z-index: 100;
+  border-radius: 0 0 4px 0;
+}
+
+.skip-to-content:focus {
+  top: 0;
+}
+
+/* Screen Reader Only */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+.sr-only-focusable:focus,
+.sr-only-focusable:active {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+/* Live Region per Screen Reader */
+[aria-live="polite"],
+[aria-live="assertive"] {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}

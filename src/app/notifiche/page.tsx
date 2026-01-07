@@ -218,10 +218,10 @@ export default function NotifichePage() {
         
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <Bell className="h-8 w-8 text-blue-600" />
+            <Bell className="h-8 w-8 text-blue-600 dark:text-blue-400" />
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Notifiche</h1>
-              <p className="text-gray-500">
+              <h1 className="text-2xl font-bold text-foreground">Notifiche</h1>
+              <p className="text-muted-foreground">
                 {nonLette > 0 ? `${nonLette} non lette` : "Nessuna notifica non letta"}
               </p>
             </div>
@@ -277,8 +277,8 @@ export default function NotifichePage() {
             ) : notifiche.length === 0 ? (
               <Card>
                 <CardContent className="p-12 text-center">
-                  <Bell className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  <Bell className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
+                  <h3 className="text-lg font-medium text-foreground mb-2">
                     {tabAttiva === "non-lette" 
                       ? "Nessuna notifica non letta" 
                       : tabAttiva === "lette"
@@ -286,7 +286,7 @@ export default function NotifichePage() {
                       : "Nessuna notifica"
                     }
                   </h3>
-                  <p className="text-gray-500">
+                  <p className="text-muted-foreground">
                     {tabAttiva === "non-lette" 
                       ? "Sei in pari con tutte le notifiche!" 
                       : "Le notifiche appariranno qui"
@@ -306,7 +306,7 @@ export default function NotifichePage() {
                     <CardContent className="p-4">
                       <div className="flex gap-4">
                         <div className="flex-shrink-0 mt-1">
-                          <div className="h-10 w-10 rounded-full bg-white border flex items-center justify-center">
+                          <div className="h-10 w-10 rounded-full bg-card dark:bg-gray-700 border flex items-center justify-center">
                             {ICONE_TIPO[notifica.tipo]}
                           </div>
                         </div>
@@ -314,7 +314,7 @@ export default function NotifichePage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className={`font-medium ${!notifica.letta ? "text-gray-900" : "text-gray-700"}`}>
+                              <h3 className={`font-medium ${!notifica.letta ? "text-foreground" : "text-muted-foreground"}`}>
                                 {notifica.titolo}
                               </h3>
                               <Badge variant="secondary" className={`text-xs ${COLORI_TIPO[notifica.tipo]}`}>

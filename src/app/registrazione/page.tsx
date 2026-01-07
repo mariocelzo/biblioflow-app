@@ -200,12 +200,12 @@ export default function RegistrazionePage() {
         <Card className="border-0 shadow-xl">
         <CardHeader className="space-y-4 text-center">
           <div className="flex justify-center">
-            <div className="rounded-2xl bg-blue-100 p-4">
-              <BookOpen className="h-10 w-10 text-blue-600" aria-hidden="true" />
+            <div className="rounded-2xl bg-blue-100 dark:bg-blue-900 p-4">
+              <BookOpen className="h-10 w-10 text-blue-600 dark:text-blue-400" aria-hidden="true" />
             </div>
           </div>
-          <CardTitle className="text-3xl font-bold tracking-tight text-slate-900">Registrati</CardTitle>
-          <CardDescription className="text-base text-slate-600">Crea il tuo account in pochi semplici passaggi</CardDescription>
+          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">Registrati</CardTitle>
+          <CardDescription className="text-base text-muted-foreground">Crea il tuo account in pochi semplici passaggi</CardDescription>
 
           <div className="flex items-center justify-center gap-2 pt-4">
             {STEPS.map((step, index) => {

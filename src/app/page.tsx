@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -57,38 +57,114 @@ export default function HomePage() {
   const router = useRouter();
   const [showQRCheckIn, setShowQRCheckIn] = useState(false);
   const [cancellando, setCancellando] = useState(false);
-  const [stats] = useState<StatsBiblioteca>({
-    postiDisponibili: 42,
-    prenotazioniAttive: 1,
-    percentualeOccupazione: 73,
-    utentiOnline: 28
+  const [prenotazioneAttiva, setPrenotazioneAttiva] = useState<PrenotazioneAttiva | null>(null);
+  const [stats, setStats] = useState<StatsBiblioteca>({
+    postiDisponibili: 0,
+    prenotazioniAttive: 0,
+    percentualeOccupazione: 0,
+    utentiOnline: 0
   });
   
   const isAuthenticated = status === "authenticated";
   const userName = session?.user?.nome || "Ospite";
 
-  // Mock data prenotazione attiva (poi sarà da API)
-  const prenotazioneAttiva = useMemo<PrenotazioneAttiva | null>(() => {
-    if (!isAuthenticated || stats.prenotazioniAttive === 0) return null;
+  // Carica prenotazione attiva dell'utente
+  useEffect(() => {
+    if (!isAuthenticated || !session?.user?.id) return;
     
-    const now = new Date();
-    const fine = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 ore da ora
-    const checkIn = new Date(now.getTime() + 15 * 60 * 1000); // 15 minuti da ora
-    
-    return {
-      id: "1",
-      posto: {
-        numero: "A42",
-        sala: "Sala Studio Silenziosa",
-        piano: 2,
-        caratteristiche: ["Presa elettrica", "Vicino finestra"]
-      },
-      dataInizio: now.toISOString(),
-      dataFine: fine.toISOString(),
-      stato: "CONFERMATA",
-      checkInEntro: checkIn.toISOString()
+    const fetchPrenotazioneAttiva = async () => {
+      try {
+        console.log('[HOME] Caricamento prenotazioni per utente:', session.user.id);
+        const res = await fetch(`/api/prenotazioni?userId=${session.user.id}`);
+        if (res.ok) {
+          const data = await res.json();
+          console.log('[HOME] Prenotazioni ricevute:', data.prenotazioni?.length || 0);
+          
+          // Trova la prenotazione attiva più vicina (CONFERMATA o CHECK_IN) per oggi o futuro
+          const prenotazioni = data.prenotazioni || [];
+          
+          interface PrenotazioneAPI {
+            id: string;
+            data: string;
+            stato: string;
+            oraInizio: string;
+            oraFine: string;
+            posto: {
+              numero: string;
+              haPresaElettrica: boolean;
+              haFinestra: boolean;
+              isAccessibile: boolean;
+              sala?: {
+                nome: string;
+                piano: number;
+              };
+            };
+          }
+          
+          const prenotazioneOggi = prenotazioni.find((p: PrenotazioneAPI) => {
+            const dataPrenotazione = new Date(p.data);
+            const oggi = new Date();
+            oggi.setHours(0, 0, 0, 0);
+            dataPrenotazione.setHours(0, 0, 0, 0);
+            
+            return (
+              (p.stato === 'CONFERMATA' || p.stato === 'CHECK_IN') &&
+              dataPrenotazione >= oggi
+            );
+          });
+          
+          if (prenotazioneOggi) {
+            // Costruisci l'oggetto prenotazione per il display
+            const oraInizio = new Date(prenotazioneOggi.oraInizio);
+            const oraFine = new Date(prenotazioneOggi.oraFine);
+            const data = new Date(prenotazioneOggi.data);
+            
+            // Combina data + ora per creare DateTime completi
+            const dataInizio = new Date(data);
+            dataInizio.setHours(oraInizio.getUTCHours(), oraInizio.getUTCMinutes(), 0, 0);
+            
+            const dataFine = new Date(data);
+            dataFine.setHours(oraFine.getUTCHours(), oraFine.getUTCMinutes(), 0, 0);
+            
+            const caratteristiche = [];
+            if (prenotazioneOggi.posto.haPresaElettrica) caratteristiche.push("Presa elettrica");
+            if (prenotazioneOggi.posto.haFinestra) caratteristiche.push("Vicino finestra");
+            if (prenotazioneOggi.posto.isAccessibile) caratteristiche.push("Accessibile");
+            
+            setPrenotazioneAttiva({
+              id: prenotazioneOggi.id,
+              posto: {
+                numero: prenotazioneOggi.posto.numero,
+                sala: prenotazioneOggi.posto.sala?.nome || "Sala",
+                piano: prenotazioneOggi.posto.sala?.piano || 0,
+                caratteristiche
+              },
+              dataInizio: dataInizio.toISOString(),
+              dataFine: dataFine.toISOString(),
+              stato: prenotazioneOggi.stato === 'CHECK_IN' ? 'CHECKIN' : 'CONFERMATA',
+              checkInEntro: prenotazioneOggi.stato === 'CONFERMATA' 
+                ? new Date(dataInizio.getTime() + 15 * 60 * 1000).toISOString() 
+                : undefined
+            });
+          } else {
+            setPrenotazioneAttiva(null);
+          }
+          
+          // Aggiorna stats
+          setStats(prev => ({
+            ...prev,
+            prenotazioniAttive: prenotazioni.filter((p: PrenotazioneAPI) => 
+              p.stato === 'CONFERMATA' || p.stato === 'CHECK_IN'
+            ).length
+          }));
+        }
+      } catch (error) {
+        console.error("Errore caricamento prenotazione:", error);
+      }
     };
-  }, [isAuthenticated, stats.prenotazioniAttive]);
+    
+    fetchPrenotazioneAttiva();
+  }, [isAuthenticated, session?.user?.id]);
 
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
@@ -125,7 +201,7 @@ export default function HomePage() {
   }, []);
 
   const handleCancellaPrenotazione = async () => {
-    if (!prenotazioneAttiva) return;
+    if (!prenotazioneAttiva || !session?.user?.id) return;
     
     setCancellando(true);
     try {
@@ -137,8 +213,12 @@ export default function HomePage() {
 
       if (res.ok) {
         toast.success("Prenotazione cancellata con successo");
-        // Ricarica la pagina per aggiornare i dati
-        router.refresh();
+        // Rimuovi la prenotazione dalla vista
+        setPrenotazioneAttiva(null);
+        setStats(prev => ({
+          ...prev,
+          prenotazioniAttive: Math.max(0, prev.prenotazioniAttive - 1)
+        }));
       } else {
         const error = await res.json();
         toast.error(error.error || "Errore durante la cancellazione");

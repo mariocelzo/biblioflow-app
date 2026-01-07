@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
     const dataInizio = searchParams.get("dataInizio");
     const dataFine = searchParams.get("dataFine");
     
+    console.log('[API PRENOTAZIONI GET] Parametri:', { userId, postoId, stato, data, dataInizio, dataFine });
+    
     const where: Record<string, unknown> = {};
     
     if (userId) {
@@ -52,6 +54,8 @@ export async function GET(request: NextRequest) {
         (where.data as Record<string, Date>).lte = new Date(dataFine);
       }
     }
+    
+    console.log('[API PRENOTAZIONI GET] Where clause:', JSON.stringify(where, null, 2));
     
     const prenotazioni = await prisma.prenotazione.findMany({
       where,
@@ -88,9 +92,11 @@ export async function GET(request: NextRequest) {
       ],
     });
     
+    console.log('[API PRENOTAZIONI GET] Trovate:', prenotazioni.length, 'prenotazioni');
+    
     return NextResponse.json({
       success: true,
-      data: prenotazioni,
+      prenotazioni: prenotazioni,
       count: prenotazioni.length,
     });
   } catch (error) {
@@ -152,8 +158,45 @@ export async function POST(request: NextRequest) {
     const oraInizioDate = new Date(1970, 0, 1, oreInizio, minutiInizio, 0, 0);
     const oraFineDate = new Date(1970, 0, 1, oreFine, minutiFine, 0, 0);
     
-    // Verifica che non ci siano sovrapposizioni
-    const prenotazioniEsistenti = await prisma.prenotazione.findMany({
+    // VERIFICA 1: L'utente non deve avere già una prenotazione che si sovrappone per quel giorno
+    const prenotazioniUtente = await prisma.prenotazione.findMany({
+      where: {
+        userId,
+        data: dataPrenotazione,
+        stato: {
+          in: ["CONFERMATA", "CHECK_IN"],
+        },
+      },
+      include: {
+        posto: {
+          select: {
+            numero: true,
+          },
+        },
+      },
+    });
+    
+    // Controlla sovrapposizioni con prenotazioni dell'utente
+    const nuovoInizio = oreInizio * 60 + minutiInizio;
+    const nuovoFine = oreFine * 60 + minutiFine;
+    
+    for (const p of prenotazioniUtente) {
+      const pInizio = p.oraInizio.getHours() * 60 + p.oraInizio.getMinutes();
+      const pFine = p.oraFine.getHours() * 60 + p.oraFine.getMinutes();
+      
+      if (nuovoInizio < pFine && nuovoFine > pInizio) {
+        return NextResponse.json(
+          { 
+            success: false, 
+            error: `Hai già una prenotazione per il posto ${p.posto.numero} in questo orario (${p.oraInizio.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}-${p.oraFine.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })})` 
+          },
+          { status: 409 }
+        );
+      }
+    }
+    
+    // VERIFICA 2: Il posto non deve essere già prenotato da altri
+    const prenotazioniPosto = await prisma.prenotazione.findMany({
       where: {
         postoId,
         data: dataPrenotazione,
@@ -163,12 +206,10 @@ export async function POST(request: NextRequest) {
       },
     });
     
-    // Controlla sovrapposizioni di orari
-    for (const p of prenotazioniEsistenti) {
+    // Controlla sovrapposizioni di orari per il posto
+    for (const p of prenotazioniPosto) {
       const pInizio = p.oraInizio.getHours() * 60 + p.oraInizio.getMinutes();
       const pFine = p.oraFine.getHours() * 60 + p.oraFine.getMinutes();
-      const nuovoInizio = oreInizio * 60 + minutiInizio;
-      const nuovoFine = oreFine * 60 + minutiFine;
       
       if (nuovoInizio < pFine && nuovoFine > pInizio) {
         return NextResponse.json(

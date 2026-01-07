@@ -97,6 +97,9 @@ model User {
   necessitaAccessibilita Boolean @default(false)
   preferenzeAccessibilita String? // JSON con preferenze specifiche
   altoContrasto          Boolean @default(false)
+  riduzioneMovimento     Boolean @default(false)
+  darkMode               Boolean @default(false)
+  dimensioneTesto        Int     @default(16) // 16-24px
   
   // Notifiche
   notifichePush   Boolean @default(true)

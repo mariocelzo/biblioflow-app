@@ -244,7 +244,7 @@ export default function LibriPage() {
 
   if (status === "loading") {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 dark:from-gray-900 dark:to-gray-950">
         <Header />
         <main className="container mx-auto px-4 py-6 max-w-7xl">
           <Skeleton className="h-8 w-48 mb-6" />
@@ -260,7 +260,7 @@ export default function LibriPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+    <div className="min-h-screen bg-gradient-to-b from-background to-muted/30 dark:from-gray-900 dark:to-gray-950">
       <Header />
       
       <main className="container mx-auto px-4 py-6 max-w-7xl">
@@ -268,7 +268,7 @@ export default function LibriPage() {
         <div className="flex items-center gap-3 mb-6">
           <BackButton />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Catalogo Libri</h1>
+            <h1 className="text-2xl font-bold text-foreground">Catalogo Libri</h1>
             <p className="text-sm text-muted-foreground">
               {libriFiltrati.length} {libriFiltrati.length === 1 ? "libro trovato" : "libri trovati"}
             </p>
@@ -295,20 +295,20 @@ export default function LibriPage() {
               
               {/* Dropdown suggerimenti */}
               {showSuggerimenti && suggerimenti.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
+                <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-lg shadow-lg z-50 max-h-80 overflow-y-auto">
                   {suggerimenti.map((sugg, index) => (
                     <button
                       key={`${sugg.tipo}-${index}`}
                       onClick={() => handleSelectSuggerimento(sugg)}
-                      className="w-full px-4 py-3 text-left hover:bg-slate-50 flex items-center gap-3 border-b last:border-b-0 transition-colors"
+                      className="w-full px-4 py-3 text-left hover:bg-muted flex items-center gap-3 border-b border-border last:border-b-0 transition-colors"
                     >
                       {sugg.tipo === "titolo" ? (
-                        <BookOpen className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                        <BookOpen className="h-4 w-4 text-primary flex-shrink-0" />
                       ) : (
-                        <User className="h-4 w-4 text-green-600 flex-shrink-0" />
+                        <User className="h-4 w-4 text-green-500 dark:text-green-400 flex-shrink-0" />
                       )}
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{sugg.valore}</p>
+                        <p className="font-medium truncate text-foreground">{sugg.valore}</p>
                         <p className="text-xs text-muted-foreground">
                           {sugg.tipo === "titolo" ? "Vai al libro →" : "Cerca per autore"}
                         </p>

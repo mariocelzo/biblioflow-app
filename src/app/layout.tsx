@@ -4,6 +4,8 @@ import "./globals.css";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { PWAProvider } from "@/components/providers/pwa-provider";
+import { AccessibilityProvider } from "@/contexts/accessibility-context";
+import { SkipToContent, KeyboardShortcuts } from "@/components/accessibility";
 import { InstallBanner, OfflineIndicator } from "@/components/pwa";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -61,13 +63,17 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <SkipToContent />
         <ThemeProvider defaultTheme="system">
           <SessionProvider>
-            <PWAProvider>
-              <OfflineIndicator />
-              {children}
-              <InstallBanner />
-            </PWAProvider>
+            <AccessibilityProvider>
+              <PWAProvider>
+                <KeyboardShortcuts />
+                <OfflineIndicator />
+                {children}
+                <InstallBanner />
+              </PWAProvider>
+            </AccessibilityProvider>
             <Toaster />
           </SessionProvider>
         </ThemeProvider>

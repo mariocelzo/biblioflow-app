@@ -37,6 +37,8 @@ import {
   Calendar,
   Clock,
   BarChart3,
+  Moon,
+  Zap,
 } from "lucide-react";
 
 interface UserProfile {
@@ -68,6 +70,8 @@ export default function ProfiloPage() {
   const [necessitaAccessibilita, setNecessitaAccessibilita] = useState(false);
   const [preferenzeAccessibilita, setPreferenzeAccessibilita] = useState("");
   const [altoContrasto, setAltoContrasto] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
+  const [riduzioneMovimento, setRiduzioneMovimento] = useState(false);
   const [notifichePush, setNotifichePush] = useState(true);
   const [notificheEmail, setNotificheEmail] = useState(true);
   
@@ -86,35 +90,53 @@ export default function ProfiloPage() {
     }
   }, [status, router]);
 
-  // Carica profilo (simulato - in produzione userebbe API)
+  // Carica profilo dall'API
   useEffect(() => {
+    console.log("[PROFILO] useEffect triggered, session:", session?.user?.id);
+    
     if (session?.user) {
-      // Simula caricamento profilo
-      const mockProfile: UserProfile = {
-        nome: session.user.nome || "",
-        cognome: session.user.cognome || "",
-        email: session.user.email || "",
-        matricola: session.user.matricola || null,
-        ruolo: session.user.ruolo || "STUDENTE",
-        isPendolare: session.user.isPendolare || false,
-        tragittoPendolare: null,
-        necessitaAccessibilita: session.user.necessitaAccessibilita || false,
-        preferenzeAccessibilita: null,
-        altoContrasto: false,
-        notifichePush: true,
-        notificheEmail: true,
+      const loadProfile = async () => {
+        try {
+          console.log("[PROFILO] Inizio caricamento...");
+          const response = await fetch("/api/profilo");
+          console.log("[PROFILO] Response status:", response.status);
+          
+          if (response.ok) {
+            const data = await response.json();
+            
+            console.log("[PROFILO] Dati caricati:", data);
+            
+            setProfile(data);
+            
+            // Popola form
+            setIsPendolare(data.isPendolare || false);
+            setTragitto(data.tragittoPendolare || "");
+            setNecessitaAccessibilita(data.necessitaAccessibilita || false);
+            setPreferenzeAccessibilita(data.preferenzeAccessibilita || "");
+            setAltoContrasto(data.altoContrasto || false);
+            setDarkMode(data.darkMode || false);
+            setRiduzioneMovimento(data.riduzioneMovimento || false);
+            setNotifichePush(data.notifichePush ?? true);
+            setNotificheEmail(data.notificheEmail ?? true);
+          } else {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+            console.error("[PROFILO] Errore API:", response.status, errorData);
+            toast.error(`Errore nel caricamento: ${errorData.error || response.status}`);
+          }
+        } catch (error) {
+          console.error("[PROFILO] Errore caricamento completo:", error);
+          toast.error("Errore di connessione");
+        } finally {
+          setLoading(false);
+        }
       };
-      
-      setProfile(mockProfile);
-      setIsPendolare(mockProfile.isPendolare);
-      setNecessitaAccessibilita(mockProfile.necessitaAccessibilita);
-      setAltoContrasto(mockProfile.altoContrasto);
-      setNotifichePush(mockProfile.notifichePush);
-      setNotificheEmail(mockProfile.notificheEmail);
-      setLoading(false);
+
+      loadProfile();
       
       // Fetch statistiche utente
-      fetchStatistiche(session.user.id);
+      if (session.user.id) {
+        fetchStatistiche(session.user.id);
+      }
     }
   }, [session]);
 
@@ -160,27 +182,51 @@ export default function ProfiloPage() {
     setSaving(true);
     
     try {
-      // Simula salvataggio (in produzione chiamerebbe API)
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const payload = {
+        isPendolare,
+        tragittoPendolare: tragitto || null,
+        necessitaAccessibilita,
+        preferenzeAccessibilita: preferenzeAccessibilita || null,
+        altoContrasto,
+        darkMode,
+        riduzioneMovimento,
+        dimensioneTesto: 16, // Default, può essere personalizzato in futuro
+        notifichePush,
+        notificheEmail,
+      };
+      
+      console.log("[PROFILO] Invio dati:", payload);
+      
+      const response = await fetch('/api/profilo', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      
+      console.log("[PROFILO] Response status:", response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error("[PROFILO] Errore API:", errorData);
+        throw new Error(errorData.error || 'Salvataggio fallito');
+      }
+      
+      const updatedUser = await response.json();
+      console.log("[PROFILO] Profilo aggiornato:", updatedUser);
       
       toast.success("Profilo aggiornato! ✅");
       
       // Aggiorna stato locale
-      if (profile) {
-        setProfile({
-          ...profile,
-          isPendolare,
-          tragittoPendolare: tragitto || null,
-          necessitaAccessibilita,
-          preferenzeAccessibilita: preferenzeAccessibilita || null,
-          altoContrasto,
-          notifichePush,
-          notificheEmail,
-        });
-      }
+      setProfile(prev => prev ? { ...prev, ...updatedUser } : null);
+      
+      // Ricarica per applicare le modifiche di accessibilità
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+      
     } catch (error) {
-      console.error("Errore salvataggio:", error);
-      toast.error("Errore nel salvataggio");
+      console.error("[PROFILO] Errore salvataggio:", error);
+      toast.error(error instanceof Error ? error.message : "Errore nel salvataggio");
     } finally {
       setSaving(false);
     }
@@ -228,8 +274,8 @@ export default function ProfiloPage() {
         <div className="mb-6 space-y-4">
           <BackButton href="/" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Il Mio Profilo</h1>
-            <p className="text-lg text-slate-600 mt-2">
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Il Mio Profilo</h1>
+            <p className="text-lg text-muted-foreground mt-2">
               Gestisci le tue informazioni e preferenze
             </p>
           </div>
@@ -381,6 +427,44 @@ export default function ProfiloPage() {
 
               <Separator />
 
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="dark-mode" className="flex items-center gap-2">
+                    <Moon className="h-4 w-4" />
+                    Modalità scura
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Tema scuro per ridurre l&apos;affaticamento visivo
+                  </p>
+                </div>
+                <Switch
+                  id="dark-mode"
+                  checked={darkMode}
+                  onCheckedChange={setDarkMode}
+                />
+              </div>
+
+              <Separator />
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="riduzione-movimento" className="flex items-center gap-2">
+                    <Zap className="h-4 w-4" />
+                    Riduzione movimento
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    Riduce o elimina le animazioni per utenti sensibili al movimento
+                  </p>
+                </div>
+                <Switch
+                  id="riduzione-movimento"
+                  checked={riduzioneMovimento}
+                  onCheckedChange={setRiduzioneMovimento}
+                />
+              </div>
+
+              <Separator />
+
             </CardContent>
           </Card>
 
@@ -397,27 +481,27 @@ export default function ProfiloPage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-50 rounded-xl text-center">
-                  <Calendar className="h-6 w-6 text-blue-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-slate-900">{statistiche.prenotazioniTotali}</p>
-                  <p className="text-xs text-slate-500">Prenotazioni totali</p>
+                <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-xl text-center">
+                  <Calendar className="h-6 w-6 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{statistiche.prenotazioniTotali}</p>
+                  <p className="text-xs text-muted-foreground">Prenotazioni totali</p>
                 </div>
-                <div className="p-4 bg-purple-50 rounded-xl text-center">
-                  <BookOpen className="h-6 w-6 text-purple-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-slate-900">{statistiche.prestitiTotali}</p>
-                  <p className="text-xs text-slate-500">Libri presi in prestito</p>
+                <div className="p-4 bg-purple-50 dark:bg-purple-950 rounded-xl text-center">
+                  <BookOpen className="h-6 w-6 text-purple-600 dark:text-purple-400 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{statistiche.prestitiTotali}</p>
+                  <p className="text-xs text-muted-foreground">Libri presi in prestito</p>
                 </div>
-                <div className="p-4 bg-green-50 rounded-xl text-center">
-                  <Clock className="h-6 w-6 text-green-600 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-slate-900">{statistiche.oreTotaliStudio}</p>
-                  <p className="text-xs text-slate-500">Ore in biblioteca</p>
+                <div className="p-4 bg-green-50 dark:bg-green-950 rounded-xl text-center">
+                  <Clock className="h-6 w-6 text-green-600 dark:text-green-400 mx-auto mb-2" />
+                  <p className="text-2xl font-bold text-foreground">{statistiche.oreTotaliStudio}</p>
+                  <p className="text-xs text-muted-foreground">Ore in biblioteca</p>
                 </div>
-                <div className="p-4 bg-amber-50 rounded-xl text-center">
-                  <User className="h-6 w-6 text-amber-600 mx-auto mb-2" />
-                  <p className="text-lg font-bold text-slate-900 truncate">
+                <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-xl text-center">
+                  <User className="h-6 w-6 text-amber-600 dark:text-amber-400 mx-auto mb-2" />
+                  <p className="text-lg font-bold text-foreground truncate">
                     {statistiche.salaPreferita || "N/A"}
                   </p>
-                  <p className="text-xs text-slate-500">Sala preferita</p>
+                  <p className="text-xs text-muted-foreground">Sala preferita</p>
                 </div>
               </div>
             </CardContent>

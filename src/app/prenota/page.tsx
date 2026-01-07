@@ -11,7 +11,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
@@ -23,7 +22,6 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import confetti from "canvas-confetti";
 import {
   Plug,
   Accessibility,
@@ -151,11 +149,11 @@ function StepIndicator({ step, currentStep, label }: { step: number; currentStep
     <div className="flex items-center gap-2">
       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all
         ${isCompleted ? "bg-green-500 text-white" : ""}
-        ${isActive ? "bg-blue-600 text-white ring-4 ring-blue-200" : ""}
-        ${!isActive && !isCompleted ? "bg-slate-200 text-slate-500" : ""}`}>
+        ${isActive ? "bg-blue-600 text-white ring-4 ring-blue-200 dark:ring-blue-800" : ""}
+        ${!isActive && !isCompleted ? "bg-muted text-muted-foreground" : ""}`}>
         {isCompleted ? <CheckCircle2 className="h-5 w-5" /> : step}
       </div>
-      <span className={`text-sm font-medium ${isActive ? "text-blue-600" : "text-slate-500"}`}>{label}</span>
+      <span className={`text-sm font-medium ${isActive ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}>{label}</span>
     </div>
   );
 }
@@ -304,7 +302,8 @@ export default function PrenotaPage() {
         }),
       });
       if (res.ok) {
-        // Trigger confetti animation
+        // Trigger confetti animation - lazy loaded
+        const confetti = (await import("canvas-confetti")).default;
         confetti({
           particleCount: 100,
           spread: 70,
@@ -377,14 +376,14 @@ export default function PrenotaPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/30 dark:from-gray-900 dark:via-gray-900 dark:to-gray-950">
       <Header />
       <main className="container mx-auto px-4 py-6 max-w-4xl">
         <div className="mb-6 space-y-4">
           <BackButton href="/" />
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900">Prenota un Posto</h1>
-            <p className="text-slate-600 mt-1">Biblioteca aperta dalle {ORARIO_APERTURA} alle {ORARIO_CHIUSURA} • Chiusa domenica e festivi</p>
+            <h1 className="text-3xl font-bold tracking-tight text-foreground">Prenota un Posto</h1>
+            <p className="text-muted-foreground mt-1">Biblioteca aperta dalle {ORARIO_APERTURA} alle {ORARIO_CHIUSURA} • Chiusa domenica e festivi</p>
           </div>
         </div>
 
@@ -392,11 +391,11 @@ export default function PrenotaPage() {
           <CardContent className="py-4">
             <div className="flex items-center justify-between overflow-x-auto gap-2">
               <StepIndicator step={1} currentStep={currentStep} label="Data" />
-              <ChevronRight className="h-5 w-5 text-slate-300 flex-shrink-0" />
+              <ChevronRight className="h-5 w-5 text-muted-foreground/50 flex-shrink-0" />
               <StepIndicator step={2} currentStep={currentStep} label="Durata" />
-              <ChevronRight className="h-5 w-5 text-slate-300 flex-shrink-0" />
+              <ChevronRight className="h-5 w-5 text-muted-foreground/50 flex-shrink-0" />
               <StepIndicator step={3} currentStep={currentStep} label="Sala" />
-              <ChevronRight className="h-5 w-5 text-slate-300 flex-shrink-0" />
+              <ChevronRight className="h-5 w-5 text-muted-foreground/50 flex-shrink-0" />
               <StepIndicator step={4} currentStep={currentStep} label="Posto" />
             </div>
           </CardContent>
@@ -431,35 +430,35 @@ export default function PrenotaPage() {
         {currentStep === 2 && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5 text-blue-600" />Per quanto tempo?</CardTitle>
+              <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />Per quanto tempo?</CardTitle>
               <CardDescription>Scegli la durata della tua prenotazione (minimo 2 ore)</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {OPZIONI_DURATA.map((opzione) => (
                   <button key={opzione.id} onClick={() => { setTipoDurata(opzione.id); if (opzione.id !== "2h") setSlot2OreSelezionato(""); }}
-                    className={`p-4 rounded-lg border-2 text-left transition-all ${tipoDurata === opzione.id ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
+                    className={`p-4 rounded-lg border-2 text-left transition-all ${tipoDurata === opzione.id ? "border-blue-500 bg-blue-50 dark:bg-blue-950 ring-2 ring-blue-200 dark:ring-blue-800" : "border-border hover:border-muted-foreground/50 hover:bg-muted"}`}>
                     <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${tipoDurata === opzione.id ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-600"}`}>{getDurataIcon(opzione.id)}</div>
-                      <div><p className="font-semibold">{opzione.label}</p><p className="text-sm text-slate-500">{opzione.descrizione}</p></div>
+                      <div className={`p-2 rounded-full ${tipoDurata === opzione.id ? "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"}`}>{getDurataIcon(opzione.id)}</div>
+                      <div><p className="font-semibold">{opzione.label}</p><p className="text-sm text-muted-foreground">{opzione.descrizione}</p></div>
                     </div>
                   </button>
                 ))}
               </div>
               {tipoDurata === "2h" && (
-                <div className="mt-6 p-4 bg-slate-50 rounded-lg">
+                <div className="mt-6 p-4 bg-muted dark:bg-gray-800 rounded-lg">
                   <Label className="text-base font-semibold mb-3 block">Seleziona fascia oraria</Label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                     {SLOTS_2_ORE.map((slot) => (
                       <button key={slot.id} onClick={() => setSlot2OreSelezionato(slot.id)}
-                        className={`p-3 rounded-lg border text-center transition-all ${slot2OreSelezionato === slot.id ? "border-blue-500 bg-blue-100 text-blue-800 font-semibold" : "border-slate-200 bg-white hover:border-blue-300"}`}>
+                        className={`p-3 rounded-lg border text-center transition-all ${slot2OreSelezionato === slot.id ? "border-blue-500 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold" : "border-border bg-card hover:border-blue-300"}`}>
                         {slot.label}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
-              {canProceed() && <div className="p-4 bg-green-50 rounded-lg border border-green-200"><p className="text-green-800 font-medium">⏰ Orario selezionato: {oraInizio} - {oraFine}</p></div>}
+              {canProceed() && <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800"><p className="text-green-800 dark:text-green-200 font-medium">⏰ Orario selezionato: {oraInizio} - {oraFine}</p></div>}
             </CardContent>
           </Card>
         )}
@@ -467,21 +466,21 @@ export default function PrenotaPage() {
         {currentStep === 3 && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-blue-600" />Dove vuoi studiare?</CardTitle>
+              <CardTitle className="flex items-center gap-2"><MapPin className="h-5 w-5 text-blue-600 dark:text-blue-400" />Dove vuoi studiare?</CardTitle>
               <CardDescription>Scegli la sala che preferisci</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {sale.map((sala) => (
                 <button key={sala.id} onClick={() => setSalaSelezionata(sala.id)}
-                  className={`w-full p-4 rounded-lg border-2 text-left transition-all ${salaSelezionata === sala.id ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200" : "border-slate-200 hover:border-slate-300 hover:bg-slate-50"}`}>
+                  className={`w-full p-4 rounded-lg border-2 text-left transition-all ${salaSelezionata === sala.id ? "border-blue-500 bg-blue-50 dark:bg-blue-950 ring-2 ring-blue-200 dark:ring-blue-800" : "border-border hover:border-muted-foreground/50 hover:bg-muted"}`}>
                   <div className="flex items-start gap-4">
-                    <div className={`p-3 rounded-full ${salaSelezionata === sala.id ? "bg-blue-100" : "bg-slate-100"}`}>
-                      {sala.tipoSala === "SILENZIOSA" ? <VolumeX className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600" : "text-slate-600"}`} /> : sala.tipoSala === "GRUPPO" ? <Volume2 className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600" : "text-orange-500"}`} /> : <MapPin className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600" : "text-slate-600"}`} />}
+                    <div className={`p-3 rounded-full ${salaSelezionata === sala.id ? "bg-blue-100 dark:bg-blue-900" : "bg-muted"}`}>
+                      {sala.tipoSala === "SILENZIOSA" ? <VolumeX className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} /> : sala.tipoSala === "GRUPPO" ? <Volume2 className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-orange-500"}`} /> : <MapPin className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} />}
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center gap-2"><p className="font-semibold text-lg">{sala.nome}</p><Badge variant="secondary">Piano {sala.piano}</Badge></div>
-                      <p className="text-slate-600 text-sm mt-1">{sala.descrizione}</p>
-                      <div className="flex gap-4 mt-2 text-sm text-slate-500"><span>{sala.capienza} posti</span><span>•</span><span>{sala.orarioApertura} - {sala.orarioChiusura}</span></div>
+                      <p className="text-muted-foreground text-sm mt-1">{sala.descrizione}</p>
+                      <div className="flex gap-4 mt-2 text-sm text-muted-foreground"><span>{sala.capienza} posti</span><span>•</span><span>{sala.orarioApertura} - {sala.orarioChiusura}</span></div>
                     </div>
                   </div>
                 </button>
@@ -492,7 +491,7 @@ export default function PrenotaPage() {
 
         {currentStep === 4 && (
           <div className="space-y-4">
-            <Card className="bg-blue-50 border-blue-200">
+            <Card className="bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800">
               <CardContent className="py-4">
                 <div className="flex flex-wrap gap-4 text-sm">
                   <div className="flex items-center gap-2"><Calendar className="h-4 w-4 text-blue-600" /><span className="font-medium capitalize">{formatDataDisplay(dataPrenotazione)}</span></div>

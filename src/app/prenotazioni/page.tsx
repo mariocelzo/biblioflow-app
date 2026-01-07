@@ -256,8 +256,16 @@ export default function PrenotazioniPage() {
     const isInCorso = prenotazione.stato === "CHECK_IN";
     const puoFareCheckIn = prenotazione.stato === "CONFERMATA";
     
+    const cardAriaLabel = `Prenotazione posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}, 
+      ${formatData(prenotazione.oraInizio)} dalle ${formatOra(prenotazione.oraInizio)} alle ${formatOra(prenotazione.oraFine)}, 
+      stato: ${prenotazione.stato.replace('_', ' ').toLowerCase()}`;
+    
     return (
-      <Card className={isInCorso ? "border-green-500 border-2" : ""}>
+      <Card 
+        className={isInCorso ? "border-green-500 border-2" : ""}
+        role="article"
+        aria-label={cardAriaLabel}
+      >
         <CardContent className="p-4">
           <div className="flex justify-between items-start">
             <div className="space-y-2">
@@ -291,14 +299,15 @@ export default function PrenotazioniPage() {
 
           {/* Azioni */}
           {(isAttiva || isInCorso) && (
-            <div className="flex gap-2 mt-4 pt-4 border-t flex-wrap">
+            <div className="flex gap-2 mt-4 pt-4 border-t flex-wrap" role="group" aria-label="Azioni prenotazione">
               {puoFareCheckIn && (
                 <Button
                   size="sm"
                   onClick={() => handleCheckIn(prenotazione.id)}
                   disabled={operazioneInCorso}
+                  aria-label={`Effettua check-in per posto ${prenotazione.posto.numero}`}
                 >
-                  <QrCode className="mr-2 h-4 w-4" />
+                  <QrCode className="mr-2 h-4 w-4" aria-hidden="true" />
                   Check-in
                 </Button>
               )}
@@ -308,8 +317,9 @@ export default function PrenotazioniPage() {
                   variant="outline"
                   onClick={() => handleCheckOut(prenotazione.id)}
                   disabled={operazioneInCorso}
+                  aria-label={`Effettua check-out dal posto ${prenotazione.posto.numero}`}
                 >
-                  <CheckCircle className="mr-2 h-4 w-4" />
+                  <CheckCircle className="mr-2 h-4 w-4" aria-hidden="true" />
                   Check-out
                 </Button>
               )}
@@ -320,8 +330,9 @@ export default function PrenotazioniPage() {
                   variant="outline"
                   className="border-green-500 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
                   onClick={() => router.push(`/prenotazioni/${prenotazione.id}/estendi`)}
+                  aria-label={`Estendi la prenotazione del posto ${prenotazione.posto.numero}`}
                 >
-                  <Timer className="mr-2 h-4 w-4" />
+                  <Timer className="mr-2 h-4 w-4" aria-hidden="true" />
                   Estendi
                 </Button>
               )}
@@ -334,8 +345,9 @@ export default function PrenotazioniPage() {
                     setDialogCancellaAperto(true);
                   }}
                   disabled={operazioneInCorso}
+                  aria-label={`Cancella prenotazione posto ${prenotazione.posto.numero}`}
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
                   Cancella
                 </Button>
               )}

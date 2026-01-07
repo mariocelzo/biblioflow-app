@@ -205,8 +205,17 @@ export default function PrestitiPage() {
     const inScadenza = giorni <= 3 && giorni >= 0;
     const puoRinnovare = prestito.rinnovi < prestito.maxRinnovi && !isScaduto;
 
+    const cardAriaLabel = `Prestito libro ${prestito.libro.titolo} di ${prestito.libro.autore}, 
+      preso il ${new Date(prestito.dataInizio).toLocaleDateString("it-IT")}, 
+      scadenza ${new Date(prestito.dataScadenza).toLocaleDateString("it-IT")}, 
+      stato: ${prestito.stato.toLowerCase()}${isScaduto ? ', SCADUTO' : inScadenza ? ', in scadenza' : ''}`;
+
     return (
-      <Card className={isScaduto ? "border-red-500 border-2" : inScadenza ? "border-amber-500 border-2" : ""}>
+      <Card 
+        className={isScaduto ? "border-red-500 border-2" : inScadenza ? "border-amber-500 border-2" : ""}
+        role="article"
+        aria-label={cardAriaLabel}
+      >
         <CardContent className="p-4">
           <div className="flex gap-4">
             {/* Icona libro */}
@@ -267,7 +276,7 @@ export default function PrestitiPage() {
 
           {/* Azioni */}
           {prestito.stato !== "RESTITUITO" && (
-            <div className="flex gap-2 mt-4 pt-4 border-t">
+            <div className="flex gap-2 mt-4 pt-4 border-t" role="group" aria-label="Azioni prestito">
               {puoRinnovare && (
                 <Button
                   size="sm"
@@ -277,14 +286,15 @@ export default function PrestitiPage() {
                     setDialogRinnovoAperto(true);
                   }}
                   disabled={operazioneInCorso}
+                  aria-label={`Rinnova il prestito del libro ${prestito.libro.titolo}`}
                 >
-                  <RefreshCw className="mr-2 h-4 w-4" />
+                  <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
                   Rinnova
                 </Button>
               )}
               {isScaduto && (
-                <div className="flex items-center gap-2 text-sm text-red-600">
-                  <AlertTriangle className="h-4 w-4" />
+                <div className="flex items-center gap-2 text-sm text-red-600" role="alert">
+                  <AlertTriangle className="h-4 w-4" aria-hidden="true" />
                   Restituisci il libro in biblioteca
                 </div>
               )}

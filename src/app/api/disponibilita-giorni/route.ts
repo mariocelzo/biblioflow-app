@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { auth } from "@/lib/auth";
 
 // GET: Ottiene la disponibilità per un range di giorni
 export async function GET(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
+    const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
@@ -53,7 +52,7 @@ export async function GET(request: NextRequest) {
               lte: dataFine,
             },
             stato: {
-              in: ["ATTIVA", "IN_ATTESA", "IN_CORSO"],
+              in: ["CONFERMATA", "CHECK_IN"],
             },
           },
         });

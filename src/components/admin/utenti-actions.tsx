@@ -50,6 +50,65 @@ import {
   Clock,
 } from "lucide-react";
 
+interface ProfiloData {
+  user: {
+    nome: string;
+    cognome: string;
+    email: string;
+    matricola: string | null;
+    ruolo: string;
+    attivo: boolean;
+    emailVerificata: boolean;
+    isPendolare: boolean;
+  };
+  statistiche: {
+    prenotazioniCompletate: number;
+    prestitiCompletati: number;
+    noShowCount: number;
+  };
+  prenotazioni: Array<{
+    id: string;
+    data: string;
+    oraInizio: string;
+    oraFine: string;
+    checkinEffettuato: boolean;
+    posto: {
+      numero: string;
+      sala: {
+        nome: string;
+      };
+    };
+  }>;
+  prestiti: Array<{
+    id: string;
+    dataInizio: string;
+    dataFine: string;
+    dataRestituzioneEffettiva: string | null;
+    stato: string;
+    libro: {
+      titolo: string;
+      autore: string;
+    };
+  }>;
+}
+
+interface StoricoData {
+  eventi: Array<{
+    id: string;
+    tipo: string;
+    descrizione: string;
+    createdAt: string;
+    prenotazione?: {
+      posto: {
+        numero: string;
+        sala: {
+          nome: string;
+        };
+      };
+    };
+  }>;
+}
+
 interface UtenteActionButtonProps {
   userId: string;
   nome: string;
@@ -77,11 +136,11 @@ export function UtenteActionButton({
   const [nuovoStato, setNuovoStato] = useState<boolean>(attivo);
   
   // Dati profilo
-  const [profiloData, setProfiloData] = useState<any>(null);
+  const [profiloData, setProfiloData] = useState<ProfiloData | null>(null);
   const [loadingProfilo, setLoadingProfilo] = useState(false);
   
   // Dati storico
-  const [storicoData, setStoricoData] = useState<any>(null);
+  const [storicoData, setStoricoData] = useState<StoricoData | null>(null);
   const [loadingStorico, setLoadingStorico] = useState(false);
   
   // Form notifica
@@ -416,7 +475,7 @@ export function UtenteActionButton({
                   {profiloData.prenotazioni.length === 0 ? (
                     <p className="text-center text-muted-foreground py-6">Nessuna prenotazione</p>
                   ) : (
-                    profiloData.prenotazioni.map((pren: any) => (
+                    profiloData.prenotazioni.map((pren) => (
                       <Card key={pren.id}>
                         <CardContent className="pt-4">
                           <div className="flex items-start justify-between">
@@ -458,7 +517,7 @@ export function UtenteActionButton({
                   {profiloData.prestiti.length === 0 ? (
                     <p className="text-center text-muted-foreground py-6">Nessun prestito</p>
                   ) : (
-                    profiloData.prestiti.map((prest: any) => (
+                    profiloData.prestiti.map((prest) => (
                       <Card key={prest.id}>
                         <CardContent className="pt-4">
                           <div className="flex items-start justify-between">
@@ -473,13 +532,13 @@ export function UtenteActionButton({
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Calendar className="h-3 w-3" />
                                 <span>
-                                  Prestito: {new Date(prest.dataPrestito).toLocaleDateString("it-IT")}
+                                  Prestito: {new Date(prest.dataInizio).toLocaleDateString("it-IT")}
                                 </span>
-                                {prest.dataScadenza && (
+                                {prest.dataFine && (
                                   <>
                                     <span className="mx-1">•</span>
                                     <span>
-                                      Scadenza: {new Date(prest.dataScadenza).toLocaleDateString("it-IT")}
+                                      Scadenza: {new Date(prest.dataFine).toLocaleDateString("it-IT")}
                                     </span>
                                   </>
                                 )}
@@ -529,7 +588,7 @@ export function UtenteActionButton({
                   Nessuna attività registrata
                 </p>
               ) : (
-                storicoData.eventi.map((evento: any) => (
+                storicoData.eventi.map((evento) => (
                   <Card key={evento.id}>
                     <CardContent className="pt-4">
                       <div className="flex items-start gap-3">

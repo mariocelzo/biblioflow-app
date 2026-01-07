@@ -84,14 +84,14 @@ function LoginForm() {
         <CardHeader className="space-y-4 text-center">
           {/* Logo e titolo */}
           <div className="flex justify-center">
-            <div className="rounded-2xl bg-blue-100 p-4">
-              <BookOpen className="h-10 w-10 text-blue-600" aria-hidden="true" />
+            <div className="rounded-2xl bg-blue-100 dark:bg-blue-900 p-4">
+              <BookOpen className="h-10 w-10 text-blue-600 dark:text-blue-400" aria-hidden="true" />
             </div>
           </div>
-          <CardTitle className="text-3xl font-bold tracking-tight text-slate-900">
+          <CardTitle className="text-3xl font-bold tracking-tight text-foreground">
             Accedi
           </CardTitle>
-          <CardDescription className="text-base text-slate-600">
+          <CardDescription className="text-base text-muted-foreground">
             Inserisci le tue credenziali per continuare
           </CardDescription>
         </CardHeader>
@@ -112,7 +112,7 @@ function LoginForm() {
 
             {/* Campo Email */}
             <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-semibold text-slate-700">
+              <Label htmlFor="email" className="text-sm font-semibold text-foreground">
                 Email
               </Label>
               <Input
@@ -125,9 +125,9 @@ function LoginForm() {
                 autoComplete="email"
                 disabled={isLoading}
                 aria-describedby="email-hint"
-                className="h-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-blue-500/20 transition-all"
+                className="h-12 bg-muted dark:bg-gray-800 border-border focus:bg-background focus:border-blue-500 focus:ring-blue-500/20 transition-all"
               />
-              <p id="email-hint" className="text-xs text-slate-500">
+              <p id="email-hint" className="text-xs text-muted-foreground">
                 Usa la tua email universitaria
               </p>
             </div>
@@ -135,12 +135,12 @@ function LoginForm() {
             {/* Campo Password con toggle visibilità */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-sm font-semibold text-slate-700">
+                <Label htmlFor="password" className="text-sm font-semibold text-foreground">
                   Password
                 </Label>
                 <Link
                   href="/recupera-password"
-                  className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors"
                 >
                   Password dimenticata?
                 </Link>
@@ -155,12 +155,12 @@ function LoginForm() {
                   required
                   autoComplete="current-password"
                   disabled={isLoading}
-                  className="h-12 pr-12 bg-slate-50 border-slate-200 focus:bg-white focus:border-blue-500 focus:ring-blue-500/20 transition-all"
+                  className="h-12 pr-12 bg-muted dark:bg-gray-800 border-border focus:bg-background focus:border-blue-500 focus:ring-blue-500/20 transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-lg"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg"
                   aria-label={showPassword ? "Nascondi password" : "Mostra password"}
                 >
                   {showPassword ? (
@@ -191,10 +191,10 @@ function LoginForm() {
             {/* Divider */}
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-slate-200" />
+                <span className="w-full border-t border-border" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-white px-2 text-slate-500">Oppure continua con</span>
+                <span className="bg-card px-2 text-muted-foreground">Oppure continua con</span>
               </div>
             </div>
 
@@ -202,7 +202,7 @@ function LoginForm() {
             <Button
               type="button"
               variant="outline"
-              className="w-full h-12 text-base font-medium border-slate-300 hover:bg-slate-50 transition-all"
+              className="w-full h-12 text-base font-medium border-border hover:bg-muted transition-all"
               onClick={() => signIn("google", { callbackUrl })}
               disabled={isLoading}
             >

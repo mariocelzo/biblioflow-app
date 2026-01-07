@@ -38,7 +38,6 @@ import {
   RefreshCw,
   MapPin,
   Zap,
-  Wifi,
   Users,
   Calendar,
   TrendingUp,
@@ -46,6 +45,59 @@ import {
   User,
   History,
 } from "lucide-react";
+
+interface DettagliPostoData {
+  posto: {
+    id: string;
+    numero: string;
+    stato: string;
+    haPresaElettrica: boolean;
+    haFinestra: boolean;
+    isAccessibile: boolean;
+    tavoloRegolabile: boolean;
+    sala: {
+      nome: string;
+      piano: number;
+      isSilenziosa: boolean;
+      isGruppi: boolean;
+    };
+  };
+  statistiche: {
+    prenotazioniTotali: number;
+    prenotazioniCompletate: number;
+    noShowCount: number;
+    tassoUtilizzo: number;
+    tassoNoShow: number;
+  };
+  prenotazioneAttuale?: {
+    id: string;
+    data: string;
+    oraInizio: string;
+    oraFine: string;
+    user: {
+      nome: string;
+      cognome: string;
+      email: string;
+    };
+  };
+  prenotazioniRecenti: Array<{
+    id: string;
+    data: string;
+    oraInizio: string;
+    oraFine: string;
+    stato: string;
+    user: {
+      nome: string;
+      cognome: string;
+    };
+  }>;
+  logEventi: Array<{
+    id: string;
+    tipo: string;
+    descrizione: string;
+    createdAt: string;
+  }>;
+}
 
 interface PostoActionButtonProps {
   postoId: string;
@@ -68,7 +120,7 @@ export function PostoActionButton({
   const [actionType, setActionType] = useState<"MANUTENZIONE" | "DISPONIBILE" | null>(null);
   
   // Dati dettagli posto
-  const [dettagliData, setDettagliData] = useState<any>(null);
+  const [dettagliData, setDettagliData] = useState<DettagliPostoData | null>(null);
   const [loadingDettagli, setLoadingDettagli] = useState(false);
 
   const cambiaStato = async (nuovoStato: "MANUTENZIONE" | "DISPONIBILE") => {
@@ -379,7 +431,7 @@ export function PostoActionButton({
                       Nessuna prenotazione recente
                     </p>
                   ) : (
-                    dettagliData.prenotazioniRecenti.slice(0, 5).map((pren: any) => (
+                    dettagliData.prenotazioniRecenti.slice(0, 5).map((pren) => (
                       <div key={pren.id} className="flex items-start justify-between p-2 border rounded-lg">
                         <div className="space-y-1">
                           <p className="text-sm font-medium">
@@ -416,7 +468,7 @@ export function PostoActionButton({
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-2">
-                    {dettagliData.logEventi.slice(0, 5).map((evento: any) => (
+                    {dettagliData.logEventi.slice(0, 5).map((evento) => (
                       <div key={evento.id} className="flex items-start gap-2 p-2 border rounded-lg">
                         <Badge variant="outline" className="text-xs">
                           {evento.tipo.replace(/_/g, " ")}
