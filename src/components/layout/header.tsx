@@ -83,9 +83,9 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between px-4 md:px-6">
         {/* Logo e nome app */}
-        <Link href="/" className="flex items-center gap-2 font-bold text-xl">
+        <Link href="/" className="flex items-center gap-2 font-bold text-lg sm:text-xl">
           <BookOpen className="h-6 w-6 text-primary" />
-          <span className="hidden sm:inline">BiblioFlow</span>
+          <span>BiblioFlow</span>
         </Link>
 
         {/* Navigazione centrale (visibile su desktop) */}
@@ -122,7 +122,7 @@ export function Header() {
             <>
               {/* Icona Notifiche */}
               <Link href="/notifiche">
-                <Button variant="ghost" size="icon" className="relative">
+                <Button variant="ghost" size="icon" className="relative min-h-10 min-w-10">
                   <Bell className="h-5 w-5" />
                   {notificheNonLette > 0 && (
                     <Badge 

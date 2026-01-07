@@ -8,6 +8,8 @@ import { AccessibilityProvider } from "@/contexts/accessibility-context";
 import { SkipToContent, KeyboardShortcuts } from "@/components/accessibility";
 import { InstallBanner, OfflineIndicator } from "@/components/pwa";
 import { Toaster } from "@/components/ui/sonner";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -77,6 +79,8 @@ export default function RootLayout({
             <Toaster />
           </SessionProvider>
         </ThemeProvider>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

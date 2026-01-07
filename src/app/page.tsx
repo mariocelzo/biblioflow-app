@@ -310,20 +310,20 @@ export default function HomePage() {
         {prenotazioneAttiva && (
           <section className="mb-8">
             <Card className="border-0 shadow-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="space-y-1">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex flex-col sm:flex-row items-start justify-between gap-4 mb-4">
+                  <div className="space-y-1 flex-1">
                     <Badge className="bg-white/20 text-white border-0 mb-2">
                       Prenotazione Attiva
                     </Badge>
-                    <h3 className="text-2xl font-bold">Posto {prenotazioneAttiva.posto.numero}</h3>
-                    <p className="text-blue-100 flex items-center gap-2">
-                      <MapPin className="h-4 w-4" />
-                      {prenotazioneAttiva.posto.sala} - Piano {prenotazioneAttiva.posto.piano}
+                    <h3 className="text-xl sm:text-2xl font-bold">Posto {prenotazioneAttiva.posto.numero}</h3>
+                    <p className="text-blue-100 flex items-center gap-2 text-sm sm:text-base">
+                      <MapPin className="h-4 w-4 flex-shrink-0" />
+                      <span className="truncate">{prenotazioneAttiva.posto.sala} - Piano {prenotazioneAttiva.posto.piano}</span>
                     </p>
                   </div>
-                  <div className="text-right">
-                    <div className="text-3xl font-bold">{timeRemaining}</div>
+                  <div className="text-left sm:text-right">
+                    <div className="text-2xl sm:text-3xl font-bold">{timeRemaining}</div>
                     <p className="text-blue-100 text-sm">rimanenti</p>
                   </div>
                 </div>
@@ -331,43 +331,43 @@ export default function HomePage() {
                 {/* Caratteristiche posto */}
                 <div className="flex gap-2 mb-4 flex-wrap">
                   {prenotazioneAttiva.posto.caratteristiche.map((car, idx) => (
-                    <Badge key={idx} variant="secondary" className="bg-white/10 text-white border-0">
+                    <Badge key={idx} variant="secondary" className="bg-white/10 text-white border-0 text-xs">
                       {car}
                     </Badge>
                   ))}
                 </div>
 
                 {/* Azioni */}
-                <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="grid grid-cols-2 gap-2 sm:gap-3 mb-2 sm:mb-3">
                   <Button
                     variant="secondary"
-                    className="bg-white/20 hover:bg-white/30 text-white border-0"
+                    className="bg-white/20 hover:bg-white/30 text-white border-0 h-11"
                     onClick={() => setShowQRCheckIn(true)}
                   >
                     <QrCode className="h-4 w-4 mr-2" />
-                    Check-in
+                    <span className="text-sm">Check-in</span>
                   </Button>
                   <Button
                     variant="secondary"
-                    className="bg-white/20 hover:bg-white/30 text-white border-0"
+                    className="bg-white/20 hover:bg-white/30 text-white border-0 h-11"
                     onClick={() => router.push('/prenota?percorso=true')}
                   >
                     <Navigation className="h-4 w-4 mr-2" />
-                    Percorso
+                    <span className="text-sm">Percorso</span>
                   </Button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   <Button
                     variant="secondary"
-                    className="bg-white/20 hover:bg-white/30 text-white border-0"
+                    className="bg-white/20 hover:bg-white/30 text-white border-0 h-11"
                     onClick={() => router.push('/prenotazioni')}
                   >
                     <Clock className="h-4 w-4 mr-2" />
-                    Dettagli
+                    <span className="text-sm">Dettagli</span>
                   </Button>
                   <Button
                     variant="destructive"
-                    className="bg-red-500/20 hover:bg-red-500/30 text-white border-0"
+                    className="bg-red-500/20 hover:bg-red-500/30 text-white border-0 h-11"
                     onClick={handleCancellaPrenotazione}
                     disabled={cancellando}
                   >
