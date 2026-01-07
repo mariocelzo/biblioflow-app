@@ -309,10 +309,10 @@ export default function PrenotaPage() {
           spread: 70,
           origin: { y: 0.6 },
         });
-        toast.success("Prenotazione confermata! 🎉", { description: `Posto ${postoSelezionato.numero} - ${oraInizio} - ${oraFine}` });
+        toast.success("Prenotazione confermata! 🎉", { description: `Posto ${postoSelezionato.numero} - ${oraInizio} - ${oraFine}`, duration: 3000 });
         setDialogAperto(false);
-        // Ritardo per vedere l'animazione
-        setTimeout(() => router.push("/prenotazioni"), 1500);
+        // Ritardo per vedere l'animazione e il toast
+        setTimeout(() => router.push("/prenotazioni"), 2500);
       } else {
         const error = await res.json();
         toast.error(error.error || "Errore nella prenotazione");

@@ -77,11 +77,11 @@ export default function HomePage() {
         console.log('[HOME] Caricamento prenotazioni per utente:', session.user.id);
         const res = await fetch(`/api/prenotazioni?userId=${session.user.id}`);
         if (res.ok) {
-          const data = await res.json();
-          console.log('[HOME] Prenotazioni ricevute:', data.prenotazioni?.length || 0);
+          const response = await res.json();
+          console.log('[HOME] Prenotazioni ricevute:', response.data?.length || 0);
           
           // Trova la prenotazione attiva più vicina (CONFERMATA o CHECK_IN) per oggi o futuro
-          const prenotazioni = data.prenotazioni || [];
+          const prenotazioni = response.data || [];
           
           interface PrenotazioneAPI {
             id: string;
