@@ -10,7 +10,8 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "generate:secrets": "node scripts/generate-secrets.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
