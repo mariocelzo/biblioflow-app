@@ -51,20 +51,19 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Calcola giorni di ritardo
-        const oggi = new Date();
-        const scadenza = new Date(prestito.dataScadenza);
-        const giorniRitardo = Math.max(0, Math.floor((oggi.getTime() - scadenza.getTime()) / (1000 * 60 * 60 * 24)));
-
         // Update prestito
+        const oggi = new Date();
         await prisma.prestito.update({
           where: { id: prestitoId },
           data: { 
             stato: "RESTITUITO",
-            dataRestituzione: oggi,
-            giorniRitardo: giorniRitardo > 0 ? giorniRitardo : undefined
+            dataRestituzione: oggi
           }
         });
+
+        // Calcola giorni di ritardo per log/notifica
+        const scadenza = new Date(prestito.dataScadenza);
+        const giorniRitardo = Math.max(0, Math.floor((oggi.getTime() - scadenza.getTime()) / (1000 * 60 * 60 * 24)));
 
         // Log evento
         await prisma.logEvento.create({

@@ -1,19 +1,8 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, TrendingUp, Users, BookOpen } from "lucide-react";
-
-// Lazy load del componente Charts (pesante)
-const StatisticheCharts = dynamic(() => import("@/components/admin/statistiche-charts"), {
-  loading: () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <Card><CardContent className="p-6"><div className="h-80 animate-pulse bg-muted rounded" /></CardContent></Card>
-      <Card><CardContent className="p-6"><div className="h-80 animate-pulse bg-muted rounded" /></CardContent></Card>
-    </div>
-  ),
-  ssr: false,
-});
+import StatisticheCharts from "@/components/admin/statistiche-charts";
 
 export default async function StatisticheAdminPage() {
   const session = await auth();

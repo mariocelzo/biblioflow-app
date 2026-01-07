@@ -275,7 +275,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         tipo: "SISTEMA",
         titolo: "Prenotazione estesa",
         messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} è stata estesa fino alle ${nuovaOraFine}.`,
-        link: `/prenotazioni`,
+        actionUrl: `/prenotazioni`,
+        actionLabel: "Vedi prenotazioni"
       },
     });
     

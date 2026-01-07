@@ -138,7 +138,7 @@ export async function sendLoanExpiryAlerts() {
         tipo: TipoNotifica.ALERT,
         titolo: '📚 Prestito in scadenza',
         messaggio: `Il libro "${prestito.libro.titolo}" scade tra 3 giorni (${prestito.dataScadenza.toLocaleDateString('it-IT')}). Ricordati di restituirlo o rinnovarlo.`,
-        linkAzione: '/prestiti',
+        actionUrl: '/prestiti',
       },
     });
 
@@ -166,7 +166,7 @@ export async function sendLoanExpiryAlerts() {
         tipo: TipoNotifica.ALERT,
         titolo: '⚠️ Prestito scade domani!',
         messaggio: `URGENTE: Il libro "${prestito.libro.titolo}" scade domani (${prestito.dataScadenza.toLocaleDateString('it-IT')}). Restituiscilo oggi o rinnovalo per evitare penali.`,
-        linkAzione: '/prestiti',
+        actionUrl: '/prestiti',
       },
     });
 
@@ -244,7 +244,7 @@ export async function releaseNoShowReservations() {
         tipo: TipoNotifica.ALERT,
         titolo: '❌ Prenotazione annullata per no-show',
         messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome} è stata annullata perché non hai fatto check-in entro 15 minuti dall'orario di inizio.`,
-        linkAzione: '/prenotazioni',
+        actionUrl: '/prenotazioni',
       },
     });
 
@@ -299,8 +299,8 @@ export async function notifyAvailableSeat(prenotazione: {
           posto: {
             OR: [
               { salaId: prenotazione.posto.sala.id }, // Stessa sala
-              { presaElettrica: prenotazione.posto.presaElettrica },
-              { accessibile: prenotazione.posto.accessibile },
+              { haPresaElettrica: prenotazione.posto.presaElettrica },
+              { isAccessibile: prenotazione.posto.accessibile },
             ],
           },
           createdAt: {
@@ -321,7 +321,7 @@ export async function notifyAvailableSeat(prenotazione: {
         tipo: TipoNotifica.INFO,
         titolo: '✨ Posto disponibile!',
         messaggio: `Un posto simile a quelli che prenoti di solito è appena diventato disponibile: Posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome} per il ${prenotazione.data.toLocaleDateString('it-IT')} dalle ${prenotazione.oraInizio.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}.`,
-        linkAzione: '/prenota',
+        actionUrl: '/prenota',
       },
     });
 

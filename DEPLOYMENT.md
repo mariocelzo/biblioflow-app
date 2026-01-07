@@ -26,6 +26,7 @@ npm run generate:secrets
 ```
 
 Questo comando genera:
+
 - `NEXTAUTH_SECRET` - Per JWT e session encryption
 - `QR_SECRET` - Per firma crittografica dei QR codes
 - `CRON_SECRET` - Per proteggere gli endpoint cron
@@ -136,13 +137,13 @@ Vai su: **Vercel Dashboard → Tuo Progetto → Settings → Environment Variabl
 
 Aggiungi **una per una** tutte le variabili da `.env.production`:
 
-| Name | Value | Environment |
-|------|-------|-------------|
-| `DATABASE_URL` | `postgresql://...` | Production |
-| `NEXTAUTH_SECRET` | `aB3dE...` | Production |
-| `NEXTAUTH_URL` | `https://tuo-dominio.vercel.app` | Production |
-| `QR_SECRET` | `jK8lM...` | Production |
-| `CRON_SECRET` | `550e8...` | Production |
+| Name              | Value                            | Environment |
+| ----------------- | -------------------------------- | ----------- |
+| `DATABASE_URL`    | `postgresql://...`               | Production  |
+| `NEXTAUTH_SECRET` | `aB3dE...`                       | Production  |
+| `NEXTAUTH_URL`    | `https://tuo-dominio.vercel.app` | Production  |
+| `QR_SECRET`       | `jK8lM...`                       | Production  |
+| `CRON_SECRET`     | `550e8...`                       | Production  |
 
 **💡 Tip:** Usa "Production" environment per tutte le variabili critiche.
 
@@ -151,6 +152,7 @@ Aggiungi **una per una** tutte le variabili da `.env.production`:
 ## 🔄 Step 5: Setup Cron Jobs (Automazioni)
 
 BiblioFlow utilizza cron jobs per:
+
 - Controllare prestiti scaduti ogni ora
 - Inviare notifiche automatiche
 - Cancellare prenotazioni scadute
@@ -160,11 +162,11 @@ BiblioFlow utilizza cron jobs per:
 1. Vai su **Vercel Dashboard → Tuo Progetto → Settings → Cron Jobs**
 2. Aggiungi questi job:
 
-| Path | Schedule | Descrizione |
-|------|----------|-------------|
-| `/api/cron/check-overdue-loans` | `0 * * * *` | Ogni ora |
-| `/api/cron/send-notifications` | `0 8,20 * * *` | 8:00 e 20:00 |
-| `/api/cron/cleanup-expired` | `0 2 * * *` | 2:00 AM |
+| Path                            | Schedule       | Descrizione  |
+| ------------------------------- | -------------- | ------------ |
+| `/api/cron/check-overdue-loans` | `0 * * * *`    | Ogni ora     |
+| `/api/cron/send-notifications`  | `0 8,20 * * *` | 8:00 e 20:00 |
+| `/api/cron/cleanup-expired`     | `0 2 * * *`    | 2:00 AM      |
 
 3. Configura header di autenticazione:
    - Header: `Authorization`
@@ -273,6 +275,7 @@ pg_dump $DATABASE_URL > backup-$(date +%Y%m%d).sql
 ### Problema: "Invalid environment variables"
 
 **Soluzione:**
+
 ```bash
 # Verifica che tutte le variabili siano impostate
 vercel env ls
@@ -284,6 +287,7 @@ vercel env add NEXTAUTH_SECRET
 ### Problema: "Database connection failed"
 
 **Soluzione:**
+
 ```bash
 # Verifica connection string
 echo $DATABASE_URL
@@ -295,6 +299,7 @@ npx prisma db pull
 ### Problema: "NextAuth callback URL mismatch"
 
 **Soluzione:**
+
 - Verifica che `NEXTAUTH_URL` corrisponda esattamente al dominio production
 - Include `https://` e nessun trailing slash
 - Redeploy dopo la modifica
@@ -302,6 +307,7 @@ npx prisma db pull
 ### Problema: "Cron jobs non eseguiti"
 
 **Soluzione:**
+
 - Verifica che `CRON_SECRET` sia impostato su Vercel
 - Controlla logs: `vercel logs --follow`
 - Verifica che gli header Authorization siano configurati
@@ -313,6 +319,7 @@ npx prisma db pull
 Prima di lanciare in produzione, verifica:
 
 ### Security
+
 - [ ] Tutti i secrets generati con `npm run generate:secrets`
 - [ ] `.env.production` non committato (verificare `.gitignore`)
 - [ ] HTTPS configurato e funzionante
@@ -320,30 +327,35 @@ Prima di lanciare in produzione, verifica:
 - [ ] Headers di sicurezza configurati (`next.config.ts`)
 
 ### Performance
+
 - [ ] Lighthouse Performance score > 90
 - [ ] Immagini ottimizzate (next/image)
 - [ ] Code splitting implementato (lazy loading)
 - [ ] PWA configurata correttamente
 
 ### Accessibility
+
 - [ ] Lighthouse Accessibility score > 95
 - [ ] Keyboard navigation funzionante
 - [ ] Screen reader testato (VoiceOver/NVDA)
 - [ ] ARIA labels presenti
 
 ### Database
+
 - [ ] Migrations eseguite con `prisma migrate deploy`
 - [ ] Seed eseguito (se necessario)
 - [ ] Backup strategy configurata
 - [ ] Connection pooling attivo
 
 ### Monitoring
+
 - [ ] Error logging configurato (Sentry opzionale)
 - [ ] Vercel Analytics attivo
 - [ ] Cron jobs schedulati
 - [ ] Alerts configurati
 
 ### Documentation
+
 - [ ] README.md aggiornato
 - [ ] ROADMAP.md completato
 - [ ] ACCESSIBILITY.md documentato
@@ -358,19 +370,23 @@ Se stai deployando BiblioFlow per un progetto universitario/demo:
 ### Setup Veloce (15 minuti)
 
 1. **Deploy su Vercel:**
+
    ```bash
    vercel --prod
    ```
 
 2. **Usa Vercel Postgres (free tier):**
+
    - Storage → Create Database → Postgres
    - Auto-configura `DATABASE_URL`
 
 3. **Genera secrets su Vercel Dashboard:**
+
    - Settings → Environment Variables
    - Aggiungi manualmente NEXTAUTH_SECRET, QR_SECRET, CRON_SECRET
 
 4. **Esegui migrations:**
+
    ```bash
    # Vercel esegue automaticamente `npm run build`
    # Aggiungi postbuild script se necessario

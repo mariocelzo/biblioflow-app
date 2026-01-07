@@ -4,7 +4,7 @@ import db from "@/lib/prisma";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth();
@@ -17,7 +17,7 @@ export async function GET(
       return NextResponse.json({ error: "Non autorizzato" }, { status: 403 });
     }
 
-    const postoId = params.id;
+    const { id: postoId } = await params;
 
     // Ottieni posto con sala
     const posto = await db.posto.findUnique({
