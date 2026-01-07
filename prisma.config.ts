@@ -9,7 +9,7 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    // Legge DATABASE_URL dal file .env
+    // Supabase connection (usa pooler per performance)
     url: process.env.DATABASE_URL!,
   },
 });
