@@ -16,6 +16,7 @@ import {
 import db from "@/lib/prisma";
 import { DashboardAnomalieCard } from "@/components/admin/dashboard-anomalie-card";
 import { DashboardActivityCard } from "@/components/admin/dashboard-activity-card";
+import { RichiesteCard } from "@/components/admin/richieste-card"; // Placeholder per nuova card
 
 export default async function AdminDashboardPage() {
   const session = await auth();
@@ -36,15 +37,7 @@ export default async function AdminDashboardPage() {
   const setteGiorniFa = new Date(oggi);
   setteGiorniFa.setDate(setteGiorniFa.getDate() - 7);
 
-  const [
-    totaleUtenti,
-    totalePosti,
-    prenotazioniOggi,
-    prenotazioniCheckIn,
-    prestitiAttivi,
-    noShowRecentiTutti,
-    postiDisponibili,
-  ] = await Promise.all([
+  const results = await Promise.all([
     db.user.count(),
     db.posto.count(),
     db.prenotazione.count({
@@ -79,7 +72,38 @@ export default async function AdminDashboardPage() {
         stato: "DISPONIBILE",
       },
     }),
+    db.posto.count({
+      where: {
+        stato: "MANUTENZIONE",
+      },
+    }),
+    db.prestito.count({
+      where: {
+        dataRestituzione: null,
+        dataScadenza: {
+          lte: domani, // In scadenza entro domani
+        }
+      },
+    }),
+    db.richiestaPreparazione.count({
+      where: {
+        stato: "PENDENTE",
+      }
+    }),
   ]);
+
+  const [
+    totaleUtenti,
+    totalePosti,
+    prenotazioniOggi,
+    prenotazioniCheckIn,
+    prestitiAttivi,
+    noShowRecentiTutti,
+    postiDisponibili,
+    postiManutenzione,
+    prestitiInScadenza,
+    richiestePendenti,
+  ] = results;
 
   // Filtra solo NO_SHOW non risolti
   const noShowRecenti = noShowRecentiTutti.filter((evento) => {
@@ -206,9 +230,8 @@ export default async function AdminDashboardPage() {
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
                   <div
-                    className={`flex items-center gap-1 text-xs font-medium ${
-                      stat.trendUp ? "text-green-600" : "text-red-600"
-                    }`}
+                    className={`flex items-center gap-1 text-xs font-medium ${stat.trendUp ? "text-green-600" : "text-red-600"
+                      }`}
                   >
                     {stat.trendUp ? (
                       <ArrowUp className="h-3 w-3" />
@@ -229,8 +252,15 @@ export default async function AdminDashboardPage() {
         {/* Attività Recente */}
         <DashboardActivityCard activities={recentActivity} />
 
+        {/* Widget Richieste Click & Collect */}
+        <RichiesteCard richiestePendenti={richiestePendenti} />
+
         {/* Anomalie e Alert */}
-        <DashboardAnomalieCard noShowRecenti={noShowRecenti} />
+        <DashboardAnomalieCard
+          noShowRecenti={noShowRecenti}
+          postiManutenzione={postiManutenzione}
+          prestitiInScadenza={prestitiInScadenza}
+        />
       </div>
 
       {/* Quick Actions */}

@@ -607,13 +607,6 @@
 - [ ] Accessibility audit automatico
 - [ ] Performance testing
 
-### 9.2 CI/CD
-
-- [ ] GitHub Actions workflow
-- [ ] Lint + Type check automatici su PR
-- [ ] Test automatici su push
-- [ ] Preview deployments per PR
-
 ### 9.3 Deploy Produzione
 
 - [ ] Setup Vercel project

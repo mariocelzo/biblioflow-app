@@ -35,6 +35,8 @@ import {
   AlertCircle,
   BookMarked,
   ArrowRight,
+  PackageCheck,
+  HelpingHand,
 } from "lucide-react";
 
 interface Libro {
@@ -71,6 +73,10 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
   const [loading, setLoading] = useState(true);
   const [richiediLoading, setRichiediLoading] = useState(false);
   const [showRichiediDialog, setShowRichiediDialog] = useState(false);
+
+  // Stati per Richiesta Preparazione (Click & Collect)
+  const [showPreparazioneDialog, setShowPreparazioneDialog] = useState(false);
+  const [preparazioneLoading, setPreparazioneLoading] = useState(false);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -154,6 +160,41 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
     }
   };
 
+  const handleRichiestaPreparazione = async () => {
+    if (!session?.user?.id || !libro) return;
+    setPreparazioneLoading(true);
+
+    try {
+      const res = await fetch("/api/richieste", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: session.user.id,
+          libroId: libro.id,
+          note: "Richiesta da app BiblioFlow"
+        }),
+      });
+
+      if (res.ok) {
+        setShowPreparazioneDialog(false);
+        // Mostra feedback di successo
+        toast.success("Richiesta inviata al bibliotecario!", {
+          description: "Il libro verrà prelevato dallo scaffale. Riceverai una notifica quando sarà pronto.",
+          icon: <PackageCheck className="h-5 w-5 text-green-600" />,
+          duration: 5000,
+        });
+      } else {
+        const err = await res.json();
+        toast.error(err.error || "Errore nell'invio della richiesta");
+      }
+    } catch (error) {
+      console.error("Errore:", error);
+      toast.error("Errore di connessione");
+    } finally {
+      setPreparazioneLoading(false);
+    }
+  };
+
   const calcolaGiorniRimanenti = (dataScadenza: string) => {
     const oggi = new Date();
     const scadenza = new Date(dataScadenza);
@@ -209,8 +250,8 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
   }
 
   const disponibile = libro.copieDisponibili > 0;
-  const percentualeDisponibilita = libro.copieTotali > 0 
-    ? Math.round((libro.copieDisponibili / libro.copieTotali) * 100) 
+  const percentualeDisponibilita = libro.copieTotali > 0
+    ? Math.round((libro.copieDisponibili / libro.copieTotali) * 100)
     : 0;
 
   return (
@@ -255,11 +296,10 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                       </Badge>
                     )}
                     <Badge
-                      className={`border-0 ${
-                        disponibile
-                          ? "bg-emerald-500/90 text-white"
-                          : "bg-red-500/90 text-white"
-                      }`}
+                      className={`border-0 ${disponibile
+                        ? "bg-emerald-500/90 text-white"
+                        : "bg-red-500/90 text-white"
+                        }`}
                     >
                       {disponibile ? (
                         <>
@@ -287,13 +327,12 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      percentualeDisponibilita > 50
-                        ? "bg-emerald-500"
-                        : percentualeDisponibilita > 20
+                    className={`h-full rounded-full transition-all duration-500 ${percentualeDisponibilita > 50
+                      ? "bg-emerald-500"
+                      : percentualeDisponibilita > 20
                         ? "bg-amber-500"
                         : "bg-red-500"
-                    }`}
+                      }`}
                     style={{ width: `${percentualeDisponibilita}%` }}
                   />
                 </div>
@@ -439,20 +478,38 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
       {/* Bottom Action Bar */}
       {!prestitoAttivo && (
         <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border p-4 z-50">
-          <div className="container mx-auto max-w-4xl">
+          <div className="container mx-auto max-w-4xl flex gap-3">
             <Button
-              className={`w-full h-14 text-lg font-semibold rounded-xl shadow-lg ${
-                disponibile
-                  ? "bg-blue-600 hover:bg-blue-700 text-white"
-                  : "bg-muted text-muted-foreground cursor-not-allowed"
-              }`}
+              className={`flex-1 h-14 text-lg font-semibold rounded-xl shadow-lg border-2 ${disponibile
+                ? "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
+                : "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
+                }`}
+              disabled={!disponibile}
+              onClick={() => setShowPreparazioneDialog(true)}
+              variant="outline"
+            >
+              {disponibile ? (
+                <>
+                  <HelpingHand className="w-5 h-5 mr-2" />
+                  Preparamelo
+                </>
+              ) : (
+                "Non disponibile"
+              )}
+            </Button>
+
+            <Button
+              className={`flex-[2] h-14 text-lg font-semibold rounded-xl shadow-lg ${disponibile
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "bg-muted text-muted-foreground cursor-not-allowed"
+                }`}
               disabled={!disponibile}
               onClick={() => setShowRichiediDialog(true)}
             >
               {disponibile ? (
                 <>
                   <BookMarked className="w-5 h-5 mr-2" />
-                  Richiedi Prestito
+                  Prenota Ritiro
                 </>
               ) : (
                 "Non disponibile"
@@ -502,6 +559,49 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                 </>
               ) : (
                 "Conferma Prestito"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Preparazione (Click & Collect) */}
+      <Dialog open={showPreparazioneDialog} onOpenChange={setShowPreparazioneDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <HelpingHand className="h-5 w-5 text-blue-600" />
+              Richiedi Preparazione
+            </DialogTitle>
+            <DialogDescription>
+              Un bibliotecario preleverà il libro per te. Utile se il libro è in alto o difficile da raggiungere.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-4 bg-amber-50 rounded-xl my-4 border border-amber-100">
+            <h3 className="font-semibold text-gray-900 mb-1">Nota per il bibliotecario</h3>
+            <p className="text-sm text-gray-600">
+              "Vorrei trovare questo libro già pronto al banco prestiti per favore."
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowPreparazioneDialog(false)}>
+              Annulla
+            </Button>
+            <Button
+              onClick={handleRichiestaPreparazione}
+              disabled={preparazioneLoading}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {preparazioneLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Invio richiesta...
+                </>
+              ) : (
+                <>
+                  <PackageCheck className="w-4 h-4 mr-2" /> Conferma Richiesta
+                </>
               )}
             </Button>
           </DialogFooter>

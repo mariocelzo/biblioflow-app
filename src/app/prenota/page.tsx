@@ -170,7 +170,7 @@ function getDurataIcon(id: TipoDurata) {
 export default function PrenotaPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  
+
   const [currentStep, setCurrentStep] = useState(1);
   const [dataPrenotazione, setDataPrenotazione] = useState<string>("");
   const [dataError, setDataError] = useState<string>("");
@@ -187,9 +187,40 @@ export default function PrenotaPage() {
   const [dialogAperto, setDialogAperto] = useState(false);
   const [prenotazioneInCorso, setPrenotazioneInCorso] = useState(false);
 
+  // Margine Pendolare - Feature HCI per scenario Marco
+  const [marginePendolare, setMarginePendolare] = useState(false);
+  const [isPendolare, setIsPendolare] = useState(false);
+  const [tragittoPendolare, setTragittoPendolare] = useState<string | null>(null);
+
   useEffect(() => {
     if (status === "unauthenticated") router.push("/login?callbackUrl=/prenota");
   }, [status, router]);
+
+  // Carica profilo utente per verificare se è pendolare
+  useEffect(() => {
+    const fetchProfilo = async () => {
+      if (status !== "authenticated") return;
+      try {
+        const res = await fetch("/api/profilo");
+        if (res.ok) {
+          const data = await res.json();
+          setIsPendolare(data.isPendolare || false);
+          setTragittoPendolare(data.tragittoPendolare || null);
+          // Se è pendolare, attiva automaticamente il margine
+          if (data.isPendolare) {
+            setMarginePendolare(true);
+          }
+          // Se ha necessità accessibilità, attiva filtro automaticamente
+          if (data.necessitaAccessibilita) {
+            setFiltroAccessibile(true);
+          }
+        }
+      } catch (error) {
+        console.error("Errore caricamento profilo:", error);
+      }
+    };
+    fetchProfilo();
+  }, [status]);
 
   useEffect(() => {
     const oggi = getDataMinima();
@@ -254,7 +285,7 @@ export default function PrenotaPage() {
   };
 
   const handleAvanti = () => { if (currentStep < 4) setCurrentStep(currentStep + 1); };
-  
+
   const handleIndietro = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
@@ -299,6 +330,7 @@ export default function PrenotaPage() {
           data: dataPrenotazione,
           oraInizio,
           oraFine,
+          marginePendolare: isPendolare && marginePendolare,
         }),
       });
       if (res.ok) {
@@ -342,7 +374,7 @@ export default function PrenotaPage() {
       } else {
         statoMappa = "DISPONIBILE"; // fallback
       }
-      
+
       return {
         id: posto.id,
         numero: posto.numero,
@@ -500,7 +532,7 @@ export default function PrenotaPage() {
                 </div>
               </CardContent>
             </Card>
-            
+
             {/* Switch rapido tra sale */}
             <Card>
               <CardHeader className="pb-3">
@@ -517,15 +549,15 @@ export default function PrenotaPage() {
                 }} className="w-full">
                   <TabsList className="w-full flex-wrap h-auto gap-1 bg-slate-100 p-1">
                     {sale.map((sala) => (
-                      <TabsTrigger 
-                        key={sala.id} 
-                        value={sala.id} 
+                      <TabsTrigger
+                        key={sala.id}
+                        value={sala.id}
                         className="flex-1 min-w-[120px] data-[state=active]:bg-blue-600 data-[state=active]:text-white"
                       >
                         <div className="flex items-center gap-2">
-                          {sala.tipoSala === "SILENZIOSA" ? <VolumeX className="h-4 w-4" /> : 
-                           sala.tipoSala === "GRUPPO" ? <Volume2 className="h-4 w-4" /> : 
-                           <MapPin className="h-4 w-4" />}
+                          {sala.tipoSala === "SILENZIOSA" ? <VolumeX className="h-4 w-4" /> :
+                            sala.tipoSala === "GRUPPO" ? <Volume2 className="h-4 w-4" /> :
+                              <MapPin className="h-4 w-4" />}
                           <span className="truncate">{sala.nome.replace("Sala ", "")}</span>
                           <Badge variant="outline" className="ml-1 text-xs">P{sala.piano}</Badge>
                         </div>
@@ -537,12 +569,32 @@ export default function PrenotaPage() {
             </Card>
 
             <Card>
-              <CardHeader className="pb-3"><CardTitle className="text-lg">Filtri</CardTitle></CardHeader>
+              <CardHeader className="pb-3"><CardTitle className="text-lg">Filtri e Preferenze</CardTitle></CardHeader>
               <CardContent>
-                <div className="flex flex-wrap gap-6">
-                  <div className="flex items-center space-x-2"><Switch id="presa" checked={filtroPresaElettrica} onCheckedChange={setFiltroPresaElettrica} /><Label htmlFor="presa" className="flex items-center gap-2"><Plug className="h-4 w-4" />Presa elettrica</Label></div>
-                  <div className="flex items-center space-x-2"><Switch id="accessibile" checked={filtroAccessibile} onCheckedChange={setFiltroAccessibile} /><Label htmlFor="accessibile" className="flex items-center gap-2"><Accessibility className="h-4 w-4" />Accessibile</Label></div>
+                <div className="flex flex-wrap gap-3">
+                  <Badge
+                    variant={filtroPresaElettrica ? "default" : "outline"}
+                    className={`cursor-pointer px-3 py-2 text-sm flex gap-2 items-center transition-all ${filtroPresaElettrica ? "bg-amber-500 hover:bg-amber-600 border-amber-500 text-white" : "hover:border-amber-500 hover:text-amber-600"}`}
+                    onClick={() => setFiltroPresaElettrica(!filtroPresaElettrica)}
+                  >
+                    <Plug className="h-4 w-4" />
+                    {filtroPresaElettrica ? "Presa Inclusa" : "Solo con Presa"}
+                  </Badge>
+
+                  <Badge
+                    variant={filtroAccessibile ? "default" : "outline"}
+                    className={`cursor-pointer px-3 py-2 text-sm flex gap-2 items-center transition-all ${filtroAccessibile ? "bg-blue-600 hover:bg-blue-700 border-blue-600 text-white" : "hover:border-blue-600 hover:text-blue-600"}`}
+                    onClick={() => setFiltroAccessibile(!filtroAccessibile)}
+                  >
+                    <Accessibility className="h-4 w-4" />
+                    {filtroAccessibile ? "Accessibile" : "Accessibilità"}
+                  </Badge>
                 </div>
+                {filtroAccessibile && (
+                  <p className="text-xs text-blue-600 mt-2 flex items-center gap-1 animate-in fade-in">
+                    <Info className="h-3 w-3" /> Mostra solo posti con spazio per sedia a rotelle e vicini all'ingresso
+                  </p>
+                )}
               </CardContent>
             </Card>
             <Card>
@@ -577,6 +629,26 @@ export default function PrenotaPage() {
               </div>
             )}
           </div>
+
+          {isPendolare && (
+            <div className="mb-4 p-3 bg-blue-50/50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <Label htmlFor="margine-pendolare" className="flex items-center gap-2 font-semibold text-blue-800 dark:text-blue-300">
+                  <Train className="h-4 w-4" />
+                  Margine Pendolare
+                </Label>
+                <Switch
+                  id="margine-pendolare"
+                  checked={marginePendolare}
+                  onCheckedChange={setMarginePendolare}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Estendi il tempo di check-in di <strong>30 minuti</strong> per compensare eventuali ritardi dei mezzi. {tragittoPendolare ? `(Tragitto: ${tragittoPendolare})` : ""}
+              </p>
+            </div>
+          )}
+
           <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row">
             <Button variant="outline" onClick={() => setDialogAperto(false)} className="h-11 sm:h-10 w-full sm:w-auto">Annulla</Button>
             <Button onClick={handleConfermaPrenotazione} disabled={prenotazioneInCorso} className="bg-green-600 hover:bg-green-700 h-11 sm:h-10 w-full sm:w-auto">

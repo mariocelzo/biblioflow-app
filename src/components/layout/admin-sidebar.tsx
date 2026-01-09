@@ -20,6 +20,7 @@ import {
   Shield,
   LogOut,
   QrCode,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -40,6 +41,12 @@ const menuItems = [
     href: "/admin/scanner",
     badge: null,
     highlight: true, // Evidenzia come nuova funzionalità
+  },
+  {
+    title: "Richieste Libri",
+    icon: Package,
+    href: "/admin/richieste",
+    badge: null,
   },
   {
     title: "Gestione Posti",
@@ -69,7 +76,7 @@ const menuItems = [
     title: "Anomalie",
     icon: AlertTriangle,
     href: "/admin/anomalie",
-    badge: "3",
+    badge: null,
     badgeVariant: "destructive" as const,
   },
 ];

@@ -68,6 +68,15 @@ enum TipoEvento {
   NO_SHOW_AUTO     // Per rilascio automatico no-show
 }
 
+enum StatoRichiesta {
+  PENDENTE
+  IN_LAVORAZIONE
+  PRONTA_RITIRO
+  COMPLETATA
+  RIFIUTATA
+  CANCELLATA
+}
+
 enum TokenType {
   VERIF
   RESET
@@ -116,6 +125,7 @@ model User {
   prenotazioni  Prenotazione[]
   prestiti      Prestito[]
   notifiche     Notifica[]
+  richiestePreparazione RichiestaPreparazione[]
   eventiLog     LogEvento[]    @relation("UtenteEvento")
   eventiTarget  LogEvento[]    @relation("TargetEvento")
   authTokens     AuthToken[]
@@ -251,6 +261,7 @@ model Libro {
   
   // Relazioni
   prestiti Prestito[]
+  richiestePreparazione RichiestaPreparazione[]
   
   @@index([titolo])
   @@index([autore])
@@ -370,3 +381,25 @@ model AuthToken {
   @@index([expiresAt])
 }
 
+
+
+// Richieste preparazione libri (Click & Collect)
+model RichiestaPreparazione {
+  id        String          @id @default(cuid())
+  userId    String
+  user      User            @relation(fields: [userId], references: [id])
+  libroId   String
+  libro     Libro           @relation(fields: [libroId], references: [id])
+  
+  stato     StatoRichiesta  @default(PENDENTE)
+  note      String?         // Messaggio utente
+  
+  // Timestamps
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  evasaAt   DateTime?       // Quando diventa PRONTA o altro
+  
+  @@index([userId])
+  @@index([libroId])
+  @@index([stato])
+}
