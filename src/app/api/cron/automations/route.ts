@@ -12,6 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runAllAutomations } from '@/lib/automation-service';
+import { env } from '@/lib/env';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.split(' ')[1]; // Bearer <token>
 
-    const cronSecret = process.env.CRON_SECRET || 'dev-secret-change-in-production';
+    const cronSecret = env.CRON_SECRET || 'dev-secret-change-in-production';
 
     if (token !== cronSecret) {
       console.warn('❌ Tentativo accesso non autorizzato al cron job');

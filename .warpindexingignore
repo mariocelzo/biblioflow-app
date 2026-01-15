@@ -1,0 +1,39 @@
+# Node modules
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Vercel deployment
+.vercel/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.production
+.env.vercel
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database
+*.db
+*.sqlite
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Prisma generated client (auto-generated)
+node_modules/.prisma/
+
+# Package lock (too large)
+package-lock.json

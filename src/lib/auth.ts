@@ -10,6 +10,7 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { prisma } from "./prisma";
+import { env } from "./env";
 import type { UserRole } from "@prisma/client";
 
 // Estendi i tipi di NextAuth per includere i campi custom
@@ -55,8 +56,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
     // Google OAuth Provider per login universitario
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientId: env.GOOGLE_CLIENT_ID,
+      clientSecret: env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
           // Limita il dominio per login universitario (opzionale)
