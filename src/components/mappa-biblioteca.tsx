@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MobilePostiGrid } from "@/components/mobile-posti-grid";
 import {
   Wifi,
   Zap,
@@ -49,6 +50,18 @@ export function MappaBiblioteca({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile viewport
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Determina quale sala in base al nome della sala (priorità) o ai posti
   const determinaSalaId = (): number => {
@@ -364,6 +377,19 @@ export function MappaBiblioteca({
     return "";
   };
 
+  // Mobile: render grid instead of SVG map
+  if (isMobile && postiFiltrati.length > 0) {
+    return (
+      <MobilePostiGrid
+        posti={postiFiltrati}
+        postoSelezionato={postoSelezionato}
+        onSelectPosto={onSelectPosto}
+        sala={sala}
+      />
+    );
+  }
+
+  // Desktop: render SVG map
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
