@@ -32,24 +32,21 @@ concurrency:
 permissions:
   contents: read
 
-# Variabili d'ambiente comuni a tutti i job.
-# NOTA IMPORTANTE: src/lib/env.ts valida le variabili d'ambiente al momento
-# dell'import (viene importato da src/lib/auth.ts) e chiama process.exit(1) se
-# mancano DATABASE_URL / NEXTAUTH_URL / NEXTAUTH_SECRET. In CI non esiste un
-# file .env, quindi forniamo dei placeholder NON segreti, sufficienti solo a
-# superare la validazione di formato (NEXTAUTH_SECRET deve essere >= 32 char).
+# Solo valori NON sensibili. I placeholder che "sembrano" segreti stanno nelle
+# impostazioni del repository, non nel codice:
+#   - secrets: CI_NEXTAUTH_SECRET, CI_CRON_SECRET   (Settings > Secrets > Actions)
+#   - variables: CI_DATABASE_URL                    (Settings > Variables > Actions)
+# Nota: i secret NON sono disponibili nelle PR aperte da un fork; per il flusso
+# di lavoro del gruppo (branch nello stesso repo) sono sempre presenti.
 env:
-  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/biblioflow_test
-  NEXTAUTH_URL: http://localhost:3000
-  NEXTAUTH_SECRET: ci-placeholder-secret-non-segreto-piu-lungo-di-32-caratteri
-  CRON_SECRET: ci-placeholder-cron-secret
-  NEXT_PUBLIC_APP_NAME: BiblioFlow
-  # Disattiva la telemetria di Next.js per non rallentare i job.
   NEXT_TELEMETRY_DISABLED: "1"
+  NEXTAUTH_URL: "http://localhost:3000"
+  NEXT_PUBLIC_APP_NAME: BiblioFlow
 
 jobs:
   # --------------------------------------------------------------------------
-  # LINT — analisi statica con ESLint (config in eslint.config.mjs)
+  # LINT — analisi statica con ESLint (config in eslint.config.mjs).
+  # Non esegue codice applicativo: non servono variabili d'ambiente.
   # --------------------------------------------------------------------------
   lint:
     name: lint
@@ -62,7 +59,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          # Cache automatica della cartella ~/.npm basata su package-lock.json:
+          # Cache automatica di ~/.npm basata su package-lock.json:
           # sostituisce la cache manuale di node_modules ed è più affidabile.
           cache: npm
 
@@ -73,7 +70,8 @@ jobs:
         run: npm run lint
 
   # --------------------------------------------------------------------------
-  # TYPECHECK — controllo dei tipi TypeScript senza generare file
+  # TYPECHECK — controllo dei tipi TypeScript senza generare file.
+  # "tsc --noEmit" non esegue i moduli: non servono variabili d'ambiente.
   # --------------------------------------------------------------------------
   typecheck:
     name: typecheck
@@ -97,11 +95,18 @@ jobs:
         run: npx tsc --noEmit
 
   # --------------------------------------------------------------------------
-  # BUILD — build di produzione di Next.js
+  # BUILD — build di produzione di Next.js.
+  # src/lib/env.ts valida le env all'import (viene importato da auth.ts) e fa
+  # process.exit(1) se mancano DATABASE_URL / NEXTAUTH_URL / NEXTAUTH_SECRET:
+  # i valori arrivano dai secrets/variables del repo (vedi blocco env sopra).
   # --------------------------------------------------------------------------
   build:
     name: build
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ vars.CI_DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.CI_NEXTAUTH_SECRET }}
+      CRON_SECRET: ${{ secrets.CI_CRON_SECRET }}
     steps:
       - name: Checkout del codice
         uses: actions/checkout@v4
@@ -119,11 +124,18 @@ jobs:
         run: npm run build
 
   # --------------------------------------------------------------------------
-  # TEST — test automatici con un PostgreSQL reale (per i futuri test Prisma)
+  # TEST — test automatici con un PostgreSQL reale (per i futuri test Prisma).
   # --------------------------------------------------------------------------
   test:
     name: test
     runs-on: ubuntu-latest
+
+    env:
+      # CI_DATABASE_URL punta a localhost:5432/biblioflow_test, cioè al servizio
+      # PostgreSQL definito qui sotto.
+      DATABASE_URL: ${{ vars.CI_DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.CI_NEXTAUTH_SECRET }}
+      CRON_SECRET: ${{ secrets.CI_CRON_SECRET }}
 
     # Database PostgreSQL containerizzato, come richiesto dalla card:
     # i test di integrazione della CR gireranno contro un DB reale.
@@ -169,7 +181,7 @@ jobs:
         run: npm test --if-present
 
   # --------------------------------------------------------------------------
-  # AUDIT — vulnerabilità delle dipendenze (livello high e superiori)
+  # AUDIT — vulnerabilità delle dipendenze (livello high e superiori).
   # --------------------------------------------------------------------------
   audit:
     name: audit
