@@ -13,6 +13,11 @@ export function LiveAnnouncer({ message, politeness = "polite", clearDelay = 300
 
   useEffect(() => {
     if (message) {
+      // Mirror voluto del prop `message` nello stato locale: la live region deve
+      // annunciare il messaggio agli screen reader e poi svuotarsi dopo
+      // `clearDelay`. La regola segnala solo un possibile render aggiuntivo, qui
+      // accettabile e necessario per il comportamento di annuncio/pulizia.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAnnouncement(message);
       const timer = setTimeout(() => setAnnouncement(""), clearDelay);
       return () => clearTimeout(timer);

@@ -592,7 +592,7 @@ export default function PrenotaPage() {
                 </div>
                 {filtroAccessibile && (
                   <p className="text-xs text-blue-600 mt-2 flex items-center gap-1 animate-in fade-in">
-                    <Info className="h-3 w-3" /> Mostra solo posti con spazio per sedia a rotelle e vicini all'ingresso
+                    <Info className="h-3 w-3" /> Mostra solo posti con spazio per sedia a rotelle e vicini all&rsquo;ingresso
                   </p>
                 )}
               </CardContent>

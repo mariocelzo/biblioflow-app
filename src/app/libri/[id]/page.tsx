@@ -581,7 +581,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
           <div className="p-4 bg-amber-50 rounded-xl my-4 border border-amber-100">
             <h3 className="font-semibold text-gray-900 mb-1">Nota per il bibliotecario</h3>
             <p className="text-sm text-gray-600">
-              "Vorrei trovare questo libro già pronto al banco prestiti per favore."
+              &ldquo;Vorrei trovare questo libro già pronto al banco prestiti per favore.&rdquo;
             </p>
           </div>
 

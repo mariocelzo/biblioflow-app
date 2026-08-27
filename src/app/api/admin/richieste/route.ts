@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Prisma, StatoRichiesta } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 // GET: Recupera tutte le richieste (filtrabili)
@@ -7,7 +8,12 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const stato = searchParams.get("stato");
 
-        const whereClause = stato ? { stato: stato as any } : {};
+        // Filtro opzionale per stato: il valore arriva come stringa dalla query
+        // string e va trattato come membro dell'enum StatoRichiesta di Prisma,
+        // non come "any".
+        const whereClause: Prisma.RichiestaPreparazioneWhereInput = stato
+            ? { stato: stato as StatoRichiesta }
+            : {};
 
         const richieste = await prisma.richiestaPreparazione.findMany({
             where: whereClause,
