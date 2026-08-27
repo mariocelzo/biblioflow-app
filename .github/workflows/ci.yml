@@ -1,0 +1,210 @@
+# ============================================================================
+# Pipeline CI — Progetto CR-BF-01 (BiblioFlow)
+# ----------------------------------------------------------------------------
+# Card Fase 0: "Pipeline CI su GitHub Actions".
+# Prima di questa pipeline nessun controllo bloccava una PR: qui viene creata
+# da zero. Cinque job indipendenti (girano in parallelo) così che, quando uno
+# fallisce, si veda subito quale controllo non passa.
+#
+#   lint       -> npm run lint            (ESLint)
+#   typecheck  -> npx tsc --noEmit        (TypeScript, nessun output)
+#   build      -> npm run build           (next build di produzione)
+#   test       -> npm test                (con PostgreSQL reale come service)
+#   audit      -> npm audit --audit-level=high  (riporta l'esito, non blocca)
+# ============================================================================
+
+name: CI
+
+# Trigger richiesti dalla card: ogni PR verso main e ogni push su main.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Se arrivano nuovi commit sullo stesso branch/PR, annulla i run ancora in corso:
+# evita code di build inutili e velocizza il feedback.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# La pipeline legge soltanto il codice: nessun permesso di scrittura sul repo.
+permissions:
+  contents: read
+
+# Solo valori NON sensibili. I placeholder che "sembrano" segreti stanno nelle
+# impostazioni del repository, non nel codice:
+#   - secrets: CI_NEXTAUTH_SECRET, CI_CRON_SECRET   (Settings > Secrets > Actions)
+#   - variables: CI_DATABASE_URL                    (Settings > Variables > Actions)
+# Nota: i secret NON sono disponibili nelle PR aperte da un fork; per il flusso
+# di lavoro del gruppo (branch nello stesso repo) sono sempre presenti.
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  NEXTAUTH_URL: "http://localhost:3000"
+  NEXT_PUBLIC_APP_NAME: BiblioFlow
+
+jobs:
+  # --------------------------------------------------------------------------
+  # LINT — analisi statica con ESLint (config in eslint.config.mjs).
+  # Non esegue codice applicativo: non servono variabili d'ambiente.
+  # --------------------------------------------------------------------------
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          # Cache automatica di ~/.npm basata su package-lock.json:
+          # sostituisce la cache manuale di node_modules ed è più affidabile.
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+  # --------------------------------------------------------------------------
+  # TYPECHECK — controllo dei tipi TypeScript senza generare file.
+  # "tsc --noEmit" non esegue i moduli: non servono variabili d'ambiente.
+  # --------------------------------------------------------------------------
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        # "npm ci" esegue anche il postinstall "prisma generate", che crea i
+        # tipi del client Prisma necessari al type-check.
+        run: npm ci
+
+      - name: TypeScript (tsc --noEmit)
+        run: npx tsc --noEmit
+
+  # --------------------------------------------------------------------------
+  # BUILD — build di produzione di Next.js.
+  # src/lib/env.ts valida le env all'import (viene importato da auth.ts) e fa
+  # process.exit(1) se mancano DATABASE_URL / NEXTAUTH_URL / NEXTAUTH_SECRET:
+  # i valori arrivano dai secrets/variables del repo (vedi blocco env sopra).
+  # --------------------------------------------------------------------------
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ vars.CI_DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.CI_NEXTAUTH_SECRET }}
+      CRON_SECRET: ${{ secrets.CI_CRON_SECRET }}
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        run: npm ci
+
+      - name: next build
+        run: npm run build
+
+  # --------------------------------------------------------------------------
+  # TEST — test automatici con un PostgreSQL reale (per i futuri test Prisma).
+  # --------------------------------------------------------------------------
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    env:
+      # CI_DATABASE_URL punta a localhost:5432/biblioflow_test, cioè al servizio
+      # PostgreSQL definito qui sotto.
+      DATABASE_URL: ${{ vars.CI_DATABASE_URL }}
+      NEXTAUTH_SECRET: ${{ secrets.CI_NEXTAUTH_SECRET }}
+      CRON_SECRET: ${{ secrets.CI_CRON_SECRET }}
+
+    # Database PostgreSQL containerizzato, come richiesto dalla card:
+    # i test di integrazione della CR gireranno contro un DB reale.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: biblioflow_test
+        ports:
+          - 5432:5432
+        # Aspetta che il DB sia pronto prima di far partire gli step.
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        run: npm ci
+
+      - name: Applica lo schema al DB di test
+        # Porta il DB di test allo schema corrente. È già utile ora e sarà
+        # indispensabile quando ci saranno i test di integrazione.
+        run: npx prisma migrate deploy
+
+      - name: Test
+        # Il framework di test non è ancora configurato (card Fase 0 di Renato):
+        # finché non esiste lo script "test" in package.json, "--if-present"
+        # fa uscire il job con esito 0 senza eseguire nulla. Il job resta
+        # comunque già predisposto con il servizio PostgreSQL.
+        run: npm test --if-present
+
+  # --------------------------------------------------------------------------
+  # AUDIT — vulnerabilità delle dipendenze (livello high e superiori).
+  # --------------------------------------------------------------------------
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+
+    # Deve "girare e riportare l'esito" ma NON bloccare la pipeline:
+    # la CR-BF-01 mette fuori perimetro la risoluzione indiscriminata delle
+    # vulnerabilità delle dipendenze (vedi proposta preliminare). L'esito
+    # resta visibile nel log e nella spunta del job.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        run: npm ci
+
+      - name: npm audit (livello high)
+        run: npm audit --audit-level=high
