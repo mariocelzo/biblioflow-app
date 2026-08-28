@@ -79,37 +79,98 @@ src/
 
 ## ⚙️ Installazione e Sviluppo Locale
 
-Requisiti: Node.js 18+, PostgreSQL (o Docker container).
+### Requisiti
 
-1. **Clone Repository**
+- Node.js 20.9 o successivo e npm;
+- Docker Desktop con Docker Compose;
+- Git.
+
+### Procedura completa
+
+1. **Clonare il repository**
+
    ```bash
    git clone https://github.com/mariocelzo/biblioflow-app.git
    cd biblioflow-app
    ```
 
-2. **Setup Dipendenze**
+2. **Installare le dipendenze**
+
    ```bash
    npm install
    ```
 
-3. **Configurazione Ambiente**
-   Creare un file `.env` basato su `.env.example` e popolare le variabili:
-   ```env
-   DATABASE_URL="postgresql://user:password@host:port/db"
-   NEXTAUTH_SECRET="your-secure-secret"
+3. **Creare la configurazione locale**
+
+   Su PowerShell:
+
+   ```powershell
+   Copy-Item .env.example .env
    ```
 
-4. **Database Migration**
+   Su macOS o Linux:
+
    ```bash
-   npx prisma generate
-   npx prisma db push
+   cp .env.example .env
    ```
 
-5. **Avvio Server**
+   Aprire `.env`, sostituire `CHANGEME_LOCAL_ONLY` con una password usata
+   esclusivamente dal PostgreSQL locale e aggiornare la stessa password dentro
+   `DATABASE_URL`.
+
+   Generare poi i valori di `NEXTAUTH_SECRET`, `QR_SECRET` e `CRON_SECRET`:
+
+   ```bash
+   npm run generate:secrets
+   ```
+
+   Copiare nel file `.env` i tre valori stampati dal comando. Le variabili Google,
+   Sentry e VAPID sono opzionali per l'avvio locale e possono restare vuote.
+
+4. **Avviare PostgreSQL e Redis**
+
+   ```bash
+   docker compose up -d postgres redis
+   ```
+
+   PostgreSQL sarà disponibile su `localhost:5432`; Redis su `localhost:6379`.
+   Per verificare lo stato dei container:
+
+   ```bash
+   docker compose ps
+   ```
+
+5. **Preparare e popolare il database**
+
+   ```bash
+   npx prisma migrate deploy
+   npx prisma db push
+   npm run db:seed
+   ```
+
+   Le migrazioni della baseline non descrivono ancora tutto lo schema Prisma corrente:
+   `migrate deploy` applica quelle versionate e `db push` completa il database locale
+   senza creare file di migrazione non autorizzati. Chi lavora sullo schema, dopo il
+   suo riallineamento da parte del responsabile, crea le nuove migrazioni con:
+
+   ```bash
+   npx prisma migrate dev
+   ```
+
+   `npm install` esegue già `prisma generate` tramite lo script `postinstall`.
+
+6. **Avviare l'applicazione**
+
    ```bash
    npm run dev
    ```
-   L'applicazione sarà accessibile su `http://localhost:3000`.
+
+   Aprire [http://localhost:3000](http://localhost:3000). Per arrestare i servizi
+   locali al termine del lavoro:
+
+   ```bash
+   docker compose down
+   ```
 
 ---
 
