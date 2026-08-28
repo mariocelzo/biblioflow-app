@@ -22,6 +22,30 @@ services:
       timeout: 5s
       retries: 5
 
+  # PostgreSQL isolato per i test di integrazione.
+  # Avvia e prepara schema + fixture con: npm run test:db:prepare
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: biblioflow-test-db
+    profiles: ["test"]
+    restart: "no"
+    environment:
+      POSTGRES_USER: biblioflow_test
+      POSTGRES_DB: biblioflow_test
+      # Il DB e' effimero ed esposto soltanto su loopback: non persiste
+      # credenziali e non richiede password hardcoded nei file versionati.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:5433:5432"
+    # I dati di test non devono sopravvivere alla rimozione del container.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biblioflow_test -d biblioflow_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
   # Redis per caching e real-time
   redis:
     image: redis:7-alpine
