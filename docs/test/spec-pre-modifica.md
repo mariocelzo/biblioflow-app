@@ -80,6 +80,155 @@ Il database e' effimero e viene rimosso al termine della verifica.
 
 ---
 
+# Specifica dei casi di test pre-modifica — area prenotazioni
+
+## Scopo e baseline
+
+Questo documento descrive il comportamento dell'area prenotazioni prima delle modifiche di CR-BF-01. È il primo deliverable di testing richiesto dal corso e non dimostra ancora alcun criterio di accettazione della change request.
+
+- Task: [BIB-19 — Specifica casi di test pre-modifica - area prenotazioni](https://mariospaceforuni.atlassian.net/browse/BIB-19)
+- Baseline funzionale: tag Git `baseline-pre-cr-bf-01`
+- Riferimento di esecuzione: `main` al commit `7469969`, che aggiunge l'infrastruttura di test senza modificare i flussi qui caratterizzati
+- Implementazione eseguibile: `tests/pre-modifica/prenotazioni.test.ts`
+- Comando: `npm test`
+
+I test invocano direttamente i route handler Next.js e isolano l'accesso a Prisma con mock. In questo modo fissano il contratto applicativo della baseline, sono deterministici e non condividono dati con le altre suite pre-modifica.
+
+## Dati e convenzioni comuni
+
+- Utente studente: `pre-user-1`
+- Posto: `pre-posto-a1`, numero `A1`, stato `DISPONIBILE`
+- Sala: aperta dalle `08:00` alle `18:00`
+- Data ordinaria: `2030-01-15`
+- Stato iniziale della prenotazione, salvo diversa indicazione: `CONFERMATA`
+- Una risposta non deve produrre scritture quando il caso è rifiutato.
+
+Le date `@db.Date` sono rappresentate da Prisma con la data effettiva, mentre gli orari `@db.Time` hanno data convenzionale `1970-01-01`. I casi TC-PRE-007 e TC-PRE-010 conservano esplicitamente questa rappresentazione perché fanno emergere due anomalie della baseline.
+
+## Matrice di copertura
+
+| ID | Funzione | Tipo | Esito baseline |
+| --- | --- | --- | --- |
+| TC-PRE-001 | Creazione | Positivo | Prenotazione confermata, log e notifica creati |
+| TC-PRE-002 | Creazione / validazione | Negativo | Campi obbligatori mancanti rifiutati |
+| TC-PRE-003 | Validazione orari | Negativo | Intervallo fuori apertura rifiutato |
+| TC-PRE-004 | Validazione orari | Caratterizzazione difetto | Intervallo con fine precedente all'inizio accettato |
+| TC-PRE-005 | Creazione / sovrapposizione | Negativo | Posto già occupato nello slot rifiutato |
+| TC-PRE-006 | Cancellazione | Positivo | Stato aggiornato e log creato |
+| TC-PRE-007 | Check-in dedicato | Caratterizzazione difetto | Check-in valido sulla data della prenotazione considerato scaduto |
+| TC-PRE-008 | Check-in legacy | Positivo | Stato prenotazione e posto aggiornati |
+| TC-PRE-009 | Estensione | Negativo | Estensione sovrapposta rifiutata |
+| TC-PRE-010 | Estensione | Caratterizzazione difetto | Estensione libera rifiutata per durata calcolata tra date incompatibili |
+
+## Casi di test
+
+### TC-PRE-001 — Creazione valida
+
+**Precondizioni.** L'utente, il posto e la sala esistono. L'utente e il posto non hanno prenotazioni attive sovrapposte.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni` con utente e posto validi, data `2030-01-15`, intervallo `09:00–11:00`.
+2. Ispezionare risposta e scritture richieste al livello di persistenza.
+
+**Risultato atteso.** HTTP 201; prenotazione in stato `CONFERMATA`; creazione di un evento `PRENOTAZIONE_CREATA` e di una notifica `PRENOTAZIONE`.
+
+### TC-PRE-002 — Campo obbligatorio mancante
+
+**Precondizioni.** Nessuna.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni` senza `oraFine`.
+
+**Risultato atteso.** HTTP 400 con indicazione dei campi obbligatori; nessuna prenotazione creata.
+
+### TC-PRE-003 — Intervallo fuori apertura
+
+**Precondizioni.** Sala aperta `08:00–18:00`; utente e posto esistenti e liberi.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni` per `07:30–09:00`.
+
+**Risultato atteso.** HTTP 400 con gli orari della sala; nessuna prenotazione creata.
+
+### TC-PRE-004 — Intervallo invertito
+
+**Precondizioni.** Utente e posto esistenti e liberi.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni` per `11:00–09:00`.
+
+**Risultato atteso sulla baseline.** HTTP 201. Il sistema non verifica che `oraFine` sia successiva a `oraInizio`. Il caso è una caratterizzazione di un difetto, non il comportamento desiderato dalla CR.
+
+### TC-PRE-005 — Sovrapposizione sul posto
+
+**Precondizioni.** Il posto A1 ha una prenotazione attiva `10:00–12:00`; il nuovo utente non ha sovrapposizioni personali.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni` sullo stesso posto per `09:00–11:00`.
+
+**Risultato atteso.** HTTP 409 con indicazione che il posto è già prenotato; nessuna nuova prenotazione.
+
+### TC-PRE-006 — Cancellazione logica
+
+**Precondizioni.** Prenotazione esistente in stato `CONFERMATA`.
+
+**Passi.**
+
+1. Inviare `PATCH /api/prenotazioni/{id}` con azione `cancella`.
+
+**Risultato atteso.** HTTP 200; stato aggiornato a `CANCELLATA`; evento `PRENOTAZIONE_CANCELLATA` associato alla prenotazione.
+
+### TC-PRE-007 — Check-in mediante endpoint dedicato
+
+**Precondizioni.** Sessione dell'intestatario; prenotazione `CONFERMATA` il `2030-01-15` alle `09:00`; timestamp richiesto `08:50`, dentro la finestra dichiarata di quindici minuti.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni/{id}/check-in` con timestamp `2030-01-15T08:50:00.000Z`.
+
+**Risultato atteso sulla baseline.** HTTP 400, “Il periodo di check-in è scaduto”. L'endpoint confronta il timestamp completo con un campo `@db.Time` ancorato al 1970. Nessun aggiornamento. È un difetto caratterizzato.
+
+### TC-PRE-008 — Check-in mediante azione legacy
+
+**Precondizioni.** Prenotazione esistente in stato `CONFERMATA`.
+
+**Passi.**
+
+1. Inviare `PATCH /api/prenotazioni/{id}` con azione `check-in`.
+
+**Risultato atteso.** HTTP 200; prenotazione in `CHECK_IN`; posto in `OCCUPATO`; evento `CHECK_IN` creato.
+
+### TC-PRE-009 — Estensione in conflitto
+
+**Precondizioni.** Prenotazione attiva `09:00–11:00`; altra prenotazione attiva sullo stesso posto nello slot richiesto.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni/{id}/estendi` con `nuovaOraFine: 13:00`.
+
+**Risultato atteso.** HTTP 409 con indicazione di indisponibilità; orario originale invariato.
+
+### TC-PRE-010 — Estensione libera con rappresentazione Prisma reale
+
+**Precondizioni.** Prenotazione attiva del `2030-01-15`, orari Prisma `09:00–11:00` ancorati al `1970-01-01`; nessuna sovrapposizione.
+
+**Passi.**
+
+1. Inviare `POST /api/prenotazioni/{id}/estendi` con `nuovaOraFine: 13:00`.
+
+**Risultato atteso sulla baseline.** HTTP 400 per durata superiore a otto ore; nessun aggiornamento. La durata usa la data reale per la nuova fine e il 1970 per l'inizio. È un difetto caratterizzato.
+
+## Osservazioni per le fasi successive
+
+La baseline presenta due percorsi di check-in con contratti differenti. L'endpoint dedicato applica sessione, ownership e finestra temporale ma soffre il confronto tra data e `@db.Time`; la `PATCH` legacy completa il check-in senza tali controlli. Anche l'estensione combina data reale e orari ancorati al 1970. Queste evidenze dovranno essere riprese nell'impact analysis e confrontate con i casi post-modifica, senza correggerle durante la Fase 1.
+
+---
+
 # Specifica dei casi di test pre-modifica — admin e UI
 
 ## Scopo e tracciabilità
