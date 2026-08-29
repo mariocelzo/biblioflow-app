@@ -54,6 +54,9 @@ enum TipoNotifica {
   PROMO
   ALERT // Per alert scadenze e avvisi urgenti
   INFO // Per info generiche (posto liberato, etc)
+  CODA_INGRESSO
+  CODA_PROMOZIONE
+  CODA_SCADENZA
 }
 
 enum TipoEvento {
@@ -67,6 +70,10 @@ enum TipoEvento {
   OVERRIDE_BIBLIOTECARIO
   AUTOMATION // Per eventi da automazioni
   NO_SHOW_AUTO // Per rilascio automatico no-show
+  CODA_INGRESSO
+  CODA_PROMOZIONE
+  CODA_SCADENZA
+  CODA_ANNULLATA
 }
 
 enum StatoRichiesta {
