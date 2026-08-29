@@ -77,6 +77,13 @@ enum StatoRichiesta {
   CANCELLATA
 }
 
+enum StatoListaAttesa {
+  IN_ATTESA
+  PROMOSSA
+  SCADUTA
+  ANNULLATA
+}
+
 enum TokenType {
   VERIF
   RESET
@@ -123,6 +130,7 @@ model User {
   
   // Relazioni
   prenotazioni  Prenotazione[]
+  listaAttesa   ListaAttesa[]
   prestiti      Prestito[]
   notifiche     Notifica[]
   richiestePreparazione RichiestaPreparazione[]
@@ -187,6 +195,7 @@ model Posto {
   
   // Relazioni
   prenotazioni Prenotazione[]
+  listaAttesa  ListaAttesa[]
   
   @@unique([salaId, numero])
   @@index([stato])
@@ -233,6 +242,30 @@ model Prenotazione {
   @@index([postoId])
   @@index([data])
   @@index([stato])
+}
+
+// Lista d'attesa per posto e intervallo
+model ListaAttesa {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id])
+  postoId   String
+  posto     Posto             @relation(fields: [postoId], references: [id])
+
+  // Quando
+  data      DateTime          @db.Date
+  oraInizio DateTime          @db.Time()
+  oraFine   DateTime          @db.Time()
+
+  // Stato
+  stato     StatoListaAttesa  @default(IN_ATTESA)
+
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, postoId, data, oraInizio])
+  @@index([postoId, data, createdAt])
 }
 
 // Libri nel catalogo
