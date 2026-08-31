@@ -103,6 +103,11 @@ export type CodaIntervalloInput = IntervalloInput & {
   postoId: string;
 };
 
+export type PromozioneCoda = {
+  richiestaId: string;
+  prenotazione: Prenotazione;
+};
+
 export type PrismaTransactionRunner = Pick<PrismaClient, "$transaction">;
 
 function dataCalendario(value: DataPrenotazione): Date {
@@ -400,6 +405,66 @@ export function isViolazioneUnicita(error: unknown): boolean {
   return code === "P2002" || code === "23505";
 }
 
+async function creaPrenotazioneNellaTransazione(
+  input: CreaPrenotazioneAtomicaInput,
+  tx: Prisma.TransactionClient,
+): Promise<Prenotazione> {
+  const intervallo = validaIntervallo(input);
+  const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
+  const oraFine = oraPrisma(intervallo.oraFineMinuti);
+
+  const [posto, prenotazioniEsistenti] = await Promise.all([
+    tx.posto.findUnique({
+      where: { id: input.postoId },
+      select: {
+        id: true,
+        attivo: true,
+        stato: true,
+        sala: {
+          select: {
+            attiva: true,
+            orarioApertura: true,
+            orarioChiusura: true,
+          },
+        },
+      },
+    }),
+    tx.prenotazione.findMany({
+      where: {
+        data: intervallo.data,
+        stato: { in: ["CONFERMATA", "CHECK_IN"] },
+        oraInizio: { lt: oraFine },
+        oraFine: { gt: oraInizio },
+        OR: [{ postoId: input.postoId }, { userId: input.userId }],
+      },
+      select: {
+        id: true,
+        userId: true,
+        postoId: true,
+        data: true,
+        oraInizio: true,
+        oraFine: true,
+        stato: true,
+      },
+    }),
+  ]);
+
+  validaPrenotazione({ ...input, posto, prenotazioniEsistenti });
+
+  return tx.prenotazione.create({
+    data: {
+      userId: input.userId,
+      postoId: input.postoId,
+      data: intervallo.data,
+      oraInizio,
+      oraFine,
+      marginePendolare: input.marginePendolare ?? false,
+      minutiMarginePendolare: input.minutiMarginePendolare ?? 30,
+      note: input.note ?? null,
+    },
+  });
+}
+
 /**
  * Mantiene verifica DB e inserimento nella stessa transazione Serializable.
  * Il vincolo di esclusione BIB-24 resta l'ultima garanzia contro due richieste
@@ -411,66 +476,7 @@ export async function creaPrenotazioneAtomica(
 ): Promise<Prenotazione> {
   try {
     return await client.$transaction(
-      async (tx) => {
-        const intervallo = validaIntervallo(input);
-        const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
-        const oraFine = oraPrisma(intervallo.oraFineMinuti);
-
-        const [posto, prenotazioniEsistenti] = await Promise.all([
-          tx.posto.findUnique({
-            where: { id: input.postoId },
-            select: {
-              id: true,
-              attivo: true,
-              stato: true,
-              sala: {
-                select: {
-                  attiva: true,
-                  orarioApertura: true,
-                  orarioChiusura: true,
-                },
-              },
-            },
-          }),
-          tx.prenotazione.findMany({
-            where: {
-              data: intervallo.data,
-              stato: { in: ["CONFERMATA", "CHECK_IN"] },
-              oraInizio: { lt: oraFine },
-              oraFine: { gt: oraInizio },
-              OR: [{ postoId: input.postoId }, { userId: input.userId }],
-            },
-            select: {
-              id: true,
-              userId: true,
-              postoId: true,
-              data: true,
-              oraInizio: true,
-              oraFine: true,
-              stato: true,
-            },
-          }),
-        ]);
-
-        validaPrenotazione({
-          ...input,
-          posto,
-          prenotazioniEsistenti,
-        });
-
-        return tx.prenotazione.create({
-          data: {
-            userId: input.userId,
-            postoId: input.postoId,
-            data: intervallo.data,
-            oraInizio,
-            oraFine,
-            marginePendolare: input.marginePendolare ?? false,
-            minutiMarginePendolare: input.minutiMarginePendolare ?? 30,
-            note: input.note ?? null,
-          },
-        });
-      },
+      (tx) => creaPrenotazioneNellaTransazione(input, tx),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
   } catch (error) {
@@ -644,4 +650,99 @@ export async function posizioneInCoda(
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
   );
+}
+
+export async function promuoviPrimoInCoda(
+  input: Omit<CodaIntervalloInput, "userId">,
+  client: PrismaTransactionRunner,
+): Promise<PromozioneCoda | null> {
+  const intervallo = validaIntervallo(input);
+  const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
+  const oraFine = oraPrisma(intervallo.oraFineMinuti);
+  const dataSql = intervallo.data.toISOString().slice(0, 10);
+  const oraInizioSql = oraInizio.toISOString().slice(11, 16);
+  const oraFineSql = oraFine.toISOString().slice(11, 16);
+
+  try {
+    return await client.$transaction(
+      async (tx) => {
+        const prenotazioneAttiva = await tx.prenotazione.findFirst({
+          where: {
+            postoId: input.postoId,
+            data: intervallo.data,
+            stato: { in: ["CONFERMATA", "CHECK_IN"] },
+            oraInizio: { lt: oraFine },
+            oraFine: { gt: oraInizio },
+          },
+          select: { id: true },
+        });
+
+        if (prenotazioneAttiva) {
+          return null;
+        }
+
+        const [richiesta] = await tx.$queryRaw<ListaAttesa[]>(Prisma.sql`
+          SELECT *
+          FROM "ListaAttesa"
+          WHERE "postoId" = ${input.postoId}
+            AND "data" = ${dataSql}::date
+            AND "oraInizio" = ${oraInizioSql}::time
+            AND "oraFine" = ${oraFineSql}::time
+            AND "stato" = 'IN_ATTESA'
+          ORDER BY "createdAt" ASC, "id" ASC
+          FOR UPDATE SKIP LOCKED
+          LIMIT 1
+        `);
+
+        if (!richiesta) {
+          return null;
+        }
+
+        const prenotazione = await creaPrenotazioneNellaTransazione(
+          {
+            userId: richiesta.userId,
+            postoId: richiesta.postoId,
+            data: richiesta.data,
+            oraInizio: richiesta.oraInizio,
+            oraFine: richiesta.oraFine,
+          },
+          tx,
+        );
+
+        const promossa = await tx.listaAttesa.updateMany({
+          where: { id: richiesta.id, stato: "IN_ATTESA" },
+          data: { stato: "PROMOSSA" },
+        });
+
+        if (promossa.count !== 1) {
+          return null;
+        }
+
+        await tx.logEvento.create({
+          data: {
+            tipo: "CODA_PROMOZIONE",
+            targetUserId: richiesta.userId,
+            prenotazioneId: prenotazione.id,
+            descrizione: "Promozione dalla lista d'attesa",
+            dettagli: {
+              ...dettagliCoda(richiesta),
+              prenotazioneId: prenotazione.id,
+            },
+          },
+        });
+
+        return { richiestaId: richiesta.id, prenotazione };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (
+      error instanceof ConflittoDisponibilita ||
+      isConflittoConcorrenza(error)
+    ) {
+      return null;
+    }
+
+    throw error;
+  }
 }
