@@ -5,7 +5,8 @@
 // di prenotazione posti biblioteca universitaria
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -51,8 +52,8 @@ enum TipoNotifica {
   SCADENZA_PRESTITO
   SISTEMA
   PROMO
-  ALERT   // Per alert scadenze e avvisi urgenti
-  INFO    // Per info generiche (posto liberato, etc)
+  ALERT // Per alert scadenze e avvisi urgenti
+  INFO // Per info generiche (posto liberato, etc)
 }
 
 enum TipoEvento {
@@ -64,8 +65,8 @@ enum TipoEvento {
   PRESTITO_CREATO
   PRESTITO_RESTITUITO
   OVERRIDE_BIBLIOTECARIO
-  AUTOMATION       // Per eventi da automazioni
-  NO_SHOW_AUTO     // Per rilascio automatico no-show
+  AUTOMATION // Per eventi da automazioni
+  NO_SHOW_AUTO // Per rilascio automatico no-show
 }
 
 enum StatoRichiesta {
@@ -95,49 +96,49 @@ enum TokenType {
 
 // Utenti del sistema
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String?   // Null se usa OAuth
-  nome          String
-  cognome       String
-  matricola     String?   @unique // Solo per studenti
-  ruolo         UserRole  @default(STUDENTE)
-  
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String? // Null se usa OAuth
+  nome         String
+  cognome      String
+  matricola    String?  @unique // Solo per studenti
+  ruolo        UserRole @default(STUDENTE)
+
   // Preferenze
   isPendolare       Boolean @default(false)
   tragittoPendolare String? // JSON con dettagli tragitto
   postoPreferito    String?
   salaPreferita     String?
-  
+
   // Accessibilità
-  necessitaAccessibilita Boolean @default(false)
+  necessitaAccessibilita  Boolean @default(false)
   preferenzeAccessibilita String? // JSON con preferenze specifiche
-  altoContrasto          Boolean @default(false)
-  riduzioneMovimento     Boolean @default(false)
-  darkMode               Boolean @default(false)
-  dimensioneTesto        Int     @default(16) // 16-24px
-  
+  altoContrasto           Boolean @default(false)
+  riduzioneMovimento      Boolean @default(false)
+  darkMode                Boolean @default(false)
+  dimensioneTesto         Int     @default(16) // 16-24px
+
   // Notifiche
-  notifichePush   Boolean @default(true)
-  notificheEmail  Boolean @default(true)
-  
+  notifichePush  Boolean @default(true)
+  notificheEmail Boolean @default(true)
+
   // Account
   emailVerificata Boolean   @default(false)
   attivo          Boolean   @default(true)
   ultimoAccesso   DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-  
+
   // Relazioni
-  prenotazioni  Prenotazione[]
-  listaAttesa   ListaAttesa[]
-  prestiti      Prestito[]
-  notifiche     Notifica[]
+  prenotazioni          Prenotazione[]
+  listaAttesa           ListaAttesa[]
+  prestiti              Prestito[]
+  notifiche             Notifica[]
   richiestePreparazione RichiestaPreparazione[]
-  eventiLog     LogEvento[]    @relation("UtenteEvento")
-  eventiTarget  LogEvento[]    @relation("TargetEvento")
-  authTokens     AuthToken[]
-  
+  eventiLog             LogEvento[]             @relation("UtenteEvento")
+  eventiTarget          LogEvento[]             @relation("TargetEvento")
+  authTokens            AuthToken[]
+
   @@index([email])
   @@index([matricola])
   @@index([ruolo])
@@ -149,54 +150,54 @@ model Sala {
   nome        String
   piano       Int
   descrizione String?
-  
+
   // Caratteristiche
-  isSilenziosa   Boolean @default(false)
-  isGruppi       Boolean @default(false)
-  capienzaMax    Int
-  
+  isSilenziosa Boolean @default(false)
+  isGruppi     Boolean @default(false)
+  capienzaMax  Int
+
   // Orari
   orarioApertura String @default("08:00")
   orarioChiusura String @default("22:00")
-  
+
   // Stato
   attiva    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relazioni
   posti Posto[]
-  
+
   @@index([piano])
 }
 
 // Posti nella biblioteca
 model Posto {
-  id        String     @id @default(cuid())
-  numero    String     // Es: "15B"
-  salaId    String
-  sala      Sala       @relation(fields: [salaId], references: [id])
-  
+  id     String @id @default(cuid())
+  numero String // Es: "15B"
+  salaId String
+  sala   Sala   @relation(fields: [salaId], references: [id])
+
   // Posizione sulla mappa
   coordinataX Float
   coordinataY Float
-  
+
   // Caratteristiche
-  haPresaElettrica  Boolean @default(false)
-  haFinestra        Boolean @default(false)
-  isAccessibile     Boolean @default(false) // Sedia a rotelle
-  tavoloRegolabile  Boolean @default(false)
-  
+  haPresaElettrica Boolean @default(false)
+  haFinestra       Boolean @default(false)
+  isAccessibile    Boolean @default(false) // Sedia a rotelle
+  tavoloRegolabile Boolean @default(false)
+
   // Stato
   stato     StatoPosto @default(DISPONIBILE)
   attivo    Boolean    @default(true)
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
-  
+
   // Relazioni
   prenotazioni Prenotazione[]
   listaAttesa  ListaAttesa[]
-  
+
   @@unique([salaId, numero])
   @@index([stato])
   @@index([salaId])
@@ -204,40 +205,40 @@ model Posto {
 
 // Prenotazioni posti
 model Prenotazione {
-  id        String             @id @default(cuid())
-  userId    String
-  user      User               @relation(fields: [userId], references: [id])
-  postoId   String
-  posto     Posto              @relation(fields: [postoId], references: [id])
-  
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  postoId String
+  posto   Posto  @relation(fields: [postoId], references: [id])
+
   // Quando
-  data          DateTime @db.Date
-  oraInizio     DateTime @db.Time()
-  oraFine       DateTime @db.Time()
-  
+  data      DateTime @db.Date
+  oraInizio DateTime @db.Time()
+  oraFine   DateTime @db.Time()
+
   // Stato
-  stato         StatoPrenotazione @default(CONFERMATA)
-  
+  stato StatoPrenotazione @default(CONFERMATA)
+
   // Check-in/out
-  checkInAt     DateTime?
-  checkOutAt    DateTime?
-  
+  checkInAt  DateTime?
+  checkOutAt DateTime?
+
   // Opzioni
-  marginePendolare    Boolean @default(false)
-  minutiMarginePendolare Int @default(30)
-  
+  marginePendolare       Boolean @default(false)
+  minutiMarginePendolare Int     @default(30)
+
   // Estensioni
-  estesa          Boolean @default(false)
+  estesa           Boolean   @default(false)
   oraFineOriginale DateTime? @db.Time()
-  
+
   // Metadata
   note      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   // Relazioni
   eventi LogEvento[]
-  
+
   @@index([userId])
   @@index([postoId])
   @@index([data])
@@ -246,56 +247,59 @@ model Prenotazione {
 
 // Lista d'attesa per posto e intervallo
 model ListaAttesa {
-  id        String            @id @default(cuid())
-  userId    String
-  user      User              @relation(fields: [userId], references: [id])
-  postoId   String
-  posto     Posto             @relation(fields: [postoId], references: [id])
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  postoId String
+  posto   Posto  @relation(fields: [postoId], references: [id])
 
   // Quando
-  data      DateTime          @db.Date
-  oraInizio DateTime          @db.Time()
-  oraFine   DateTime          @db.Time()
+  data      DateTime @db.Date
+  oraInizio DateTime @db.Time()
+  oraFine   DateTime @db.Time()
 
   // Stato
-  stato     StatoListaAttesa  @default(IN_ATTESA)
+  stato StatoListaAttesa @default(IN_ATTESA)
 
   // Metadata
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([userId, postoId, data, oraInizio])
-  @@index([postoId, data, createdAt])
+  // Un utente puo' rientrare nello stesso intervallo dopo uno stato terminale;
+  // il duplicato e' vietato soltanto mentre la richiesta e' IN_ATTESA.
+  @@unique([userId, postoId, data, oraInizio, oraFine], map: "ListaAttesa_in_attesa_user_intervallo_key", where: { stato: "IN_ATTESA" })
+  // createdAt puo' coincidere: id e' il tie-breaker stabile del FIFO.
+  @@index([postoId, data, oraInizio, oraFine, stato, createdAt, id], map: "ListaAttesa_fifo_idx", where: { stato: "IN_ATTESA" })
 }
 
 // Libri nel catalogo
 model Libro {
-  id            String  @id @default(cuid())
-  isbn          String  @unique
-  titolo        String
-  autore        String
-  editore       String?
-  anno          Int?
-  categoria     String?
-  descrizione   String?
-  
+  id          String  @id @default(cuid())
+  isbn        String  @unique
+  titolo      String
+  autore      String
+  editore     String?
+  anno        Int?
+  categoria   String?
+  descrizione String?
+
   // Posizione
-  scaffale      String?
-  piano         Int?
-  
+  scaffale String?
+  piano    Int?
+
   // Copie
-  copieTotali     Int @default(1)
+  copieTotali      Int @default(1)
   copieDisponibili Int @default(1)
-  
+
   // Metadata
-  copertina   String? // URL immagine
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
+  copertina String? // URL immagine
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   // Relazioni
-  prestiti Prestito[]
+  prestiti              Prestito[]
   richiestePreparazione RichiestaPreparazione[]
-  
+
   @@index([titolo])
   @@index([autore])
   @@index([isbn])
@@ -303,27 +307,27 @@ model Libro {
 
 // Prestiti libri
 model Prestito {
-  id        String        @id @default(cuid())
-  userId    String
-  user      User          @relation(fields: [userId], references: [id])
-  libroId   String
-  libro     Libro         @relation(fields: [libroId], references: [id])
-  
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  libroId String
+  libro   Libro  @relation(fields: [libroId], references: [id])
+
   // Date
-  dataPrestito    DateTime @default(now())
-  dataScadenza    DateTime
+  dataPrestito     DateTime  @default(now())
+  dataScadenza     DateTime
   dataRestituzione DateTime?
-  
+
   // Stato
-  stato     StatoPrestito @default(ATTIVO)
-  rinnovi   Int           @default(0)
-  maxRinnovi Int          @default(2)
-  
+  stato      StatoPrestito @default(ATTIVO)
+  rinnovi    Int           @default(0)
+  maxRinnovi Int           @default(2)
+
   // Metadata
   note      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   @@index([userId])
   @@index([libroId])
   @@index([stato])
@@ -332,25 +336,25 @@ model Prestito {
 
 // Notifiche utente
 model Notifica {
-  id        String       @id @default(cuid())
-  userId    String
-  user      User         @relation(fields: [userId], references: [id])
-  
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
   tipo      TipoNotifica
   titolo    String
   messaggio String
-  
+
   // Link azione
-  actionUrl String?
+  actionUrl   String?
   actionLabel String?
-  
+
   // Stato
-  letta     Boolean  @default(false)
-  lettaAt   DateTime?
-  
+  letta   Boolean   @default(false)
+  lettaAt DateTime?
+
   // Metadata
   createdAt DateTime @default(now())
-  
+
   @@index([userId])
   @@index([letta])
   @@index([createdAt])
@@ -358,29 +362,29 @@ model Notifica {
 
 // Log eventi per audit
 model LogEvento {
-  id        String     @id @default(cuid())
-  tipo      TipoEvento
-  
+  id   String     @id @default(cuid())
+  tipo TipoEvento
+
   // Chi ha fatto l'azione
-  userId    String?
-  user      User?      @relation("UtenteEvento", fields: [userId], references: [id])
-  
+  userId String?
+  user   User?   @relation("UtenteEvento", fields: [userId], references: [id])
+
   // Su chi/cosa è stata fatta
   targetUserId String?
   targetUser   User?   @relation("TargetEvento", fields: [targetUserId], references: [id])
-  
+
   prenotazioneId String?
   prenotazione   Prenotazione? @relation(fields: [prenotazioneId], references: [id])
-  
+
   // Dettagli
   descrizione String?
-  dettagli    Json?    // Dati aggiuntivi
-  
+  dettagli    Json? // Dati aggiuntivi
+
   // Metadata
   ip        String?
   userAgent String?
   createdAt DateTime @default(now())
-  
+
   @@index([tipo])
   @@index([userId])
   @@index([createdAt])
@@ -388,13 +392,13 @@ model LogEvento {
 
 // Configurazione sistema
 model ConfigurazioneSistema {
-  id        String   @id @default(cuid())
-  chiave    String   @unique
-  valore    String
-  tipo      String   @default("string") // string, number, boolean, json
+  id          String   @id @default(cuid())
+  chiave      String   @unique
+  valore      String
+  tipo        String   @default("string") // string, number, boolean, json
   descrizione String?
-  updatedAt DateTime @updatedAt
-  
+  updatedAt   DateTime @updatedAt
+
   @@index([chiave])
 }
 
@@ -407,31 +411,29 @@ model AuthToken {
   type      TokenType
   used      Boolean   @default(false)
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([userId])
   @@index([type])
   @@index([expiresAt])
 }
 
-
-
 // Richieste preparazione libri (Click & Collect)
 model RichiestaPreparazione {
-  id        String          @id @default(cuid())
-  userId    String
-  user      User            @relation(fields: [userId], references: [id])
-  libroId   String
-  libro     Libro           @relation(fields: [libroId], references: [id])
-  
-  stato     StatoRichiesta  @default(PENDENTE)
-  note      String?         // Messaggio utente
-  
+  id      String @id @default(cuid())
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+  libroId String
+  libro   Libro  @relation(fields: [libroId], references: [id])
+
+  stato StatoRichiesta @default(PENDENTE)
+  note  String? // Messaggio utente
+
   // Timestamps
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
-  evasaAt   DateTime?       // Quando diventa PRONTA o altro
-  
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  evasaAt   DateTime? // Quando diventa PRONTA o altro
+
   @@index([userId])
   @@index([libroId])
   @@index([stato])

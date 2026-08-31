@@ -17,10 +17,15 @@ CREATE TABLE "ListaAttesa" (
 );
 
 -- CreateIndex
-CREATE INDEX "ListaAttesa_postoId_data_createdAt_idx" ON "ListaAttesa"("postoId", "data", "createdAt");
+CREATE INDEX "ListaAttesa_fifo_idx"
+ON "ListaAttesa"("postoId", "data", "oraInizio", "oraFine", "stato", "createdAt", "id")
+WHERE "stato" = 'IN_ATTESA';
 
--- CreateIndex
-CREATE UNIQUE INDEX "ListaAttesa_userId_postoId_data_oraInizio_key" ON "ListaAttesa"("userId", "postoId", "data", "oraInizio");
+-- Impedisce soltanto duplicati attivi dello stesso intervallo. Le richieste
+-- ANNULLATA, SCADUTA o PROMOSSA restano nello storico e non bloccano il rientro.
+CREATE UNIQUE INDEX "ListaAttesa_in_attesa_user_intervallo_key"
+ON "ListaAttesa"("userId", "postoId", "data", "oraInizio", "oraFine")
+WHERE "stato" = 'IN_ATTESA';
 
 -- AddForeignKey
 ALTER TABLE "ListaAttesa" ADD CONSTRAINT "ListaAttesa_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
