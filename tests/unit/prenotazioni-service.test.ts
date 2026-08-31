@@ -1,16 +1,32 @@
 import { describe, expect, it } from "vitest";
 import {
+  ConflittoDisponibilita,
   DURATA_MASSIMA_PRENOTAZIONE_MINUTI,
   DURATA_MINIMA_PRENOTAZIONE_MINUTI,
+  TIME_ZONE_BIBLIOTECA,
   intervalliSiSovrappongono,
+  trovaSovrapposizioni,
+  validaIntervallo,
+  validaPostoPrenotabile,
   validaPrenotazione,
 } from "@/lib/prenotazioni-service";
 
 const oggi = new Date("2030-01-15T12:00:00.000Z");
-const posto = { id: "posto-bib27-001", attivo: true, stato: "DISPONIBILE" };
+const sala = {
+  attiva: true,
+  orarioApertura: "08:00",
+  orarioChiusura: "18:00",
+};
+const posto = {
+  id: "posto-bib27-001",
+  attivo: true,
+  stato: "DISPONIBILE",
+  sala,
+};
 
 function inputValido() {
   return {
+    userId: "utente-bib27-001",
     posto,
     data: "2030-01-15",
     oraInizio: "09:00",
@@ -29,11 +45,11 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     });
   });
 
-  it("[TC-BIB27-002] rifiuta una data nel passato", () => {
+  it("[TC-BIB27-002] rifiuta una data nel passato con 422", () => {
     expect(() =>
       validaPrenotazione({ ...inputValido(), data: "2030-01-14" }),
     ).toThrowError(
-      expect.objectContaining({ code: "DATA_NEL_PASSATO", status: 400 }),
+      expect.objectContaining({ code: "DATA_NEL_PASSATO", status: 422 }),
     );
   });
 
@@ -101,14 +117,84 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     ).toThrowError(expect.objectContaining({ code: "POSTO_IN_MANUTENZIONE" }));
   });
 
-  it("[TC-BIB27-011] rifiuta una sovrapposizione attiva sullo stesso posto", () => {
+  it("[TC-BIB27-011] restituisce 404 quando il posto non esiste", () => {
+    expect(() => validaPostoPrenotabile(null)).toThrowError(
+      expect.objectContaining({ code: "POSTO_NON_TROVATO", status: 404 }),
+    );
+  });
+
+  it("[TC-BIB27-012] rifiuta una sala non attiva", () => {
+    expect(() =>
+      validaPrenotazione({
+        ...inputValido(),
+        posto: { ...posto, sala: { ...sala, attiva: false } },
+      }),
+    ).toThrowError(expect.objectContaining({ code: "SALA_NON_ATTIVA" }));
+  });
+
+  it("[TC-BIB27-013] applica gli orari di apertura della sala", () => {
+    expect(() =>
+      validaPrenotazione({
+        ...inputValido(),
+        oraInizio: "07:00",
+        oraFine: "09:00",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "FUORI_ORARIO_SALA" }));
+  });
+
+  it("[TC-BIB27-014] usa Europe/Rome per determinare il giorno corrente", () => {
+    expect(TIME_ZONE_BIBLIOTECA).toBe("Europe/Rome");
+    expect(() =>
+      validaPrenotazione({
+        ...inputValido(),
+        data: "2030-01-14",
+        adesso: new Date("2030-01-15T00:30:00+01:00"),
+      }),
+    ).toThrowError(expect.objectContaining({ code: "DATA_NEL_PASSATO" }));
+  });
+
+  it("[TC-BIB27-015] rifiuta una sovrapposizione sullo stesso posto e suggerisce la coda", () => {
+    let errore: unknown;
+    try {
+      validaPrenotazione({
+        ...inputValido(),
+        prenotazioniEsistenti: [
+          {
+            id: "prenotazione-bib27-posto",
+            userId: "altro-utente",
+            postoId: posto.id,
+            data: "2030-01-15",
+            oraInizio: "10:00",
+            oraFine: "12:00",
+            stato: "CHECK_IN",
+          },
+        ],
+      });
+    } catch (value) {
+      errore = value;
+    }
+
+    expect(errore).toBeInstanceOf(ConflittoDisponibilita);
+    expect(errore).toMatchObject({
+      code: "POSTO_GIA_PRENOTATO",
+      status: 409,
+      suggerisciCoda: true,
+    });
+    expect((errore as ConflittoDisponibilita).toResponseBody()).toMatchObject({
+      code: "POSTO_GIA_PRENOTATO",
+      suggerisciCoda: true,
+    });
+  });
+
+  it("[TC-BIB27-016] rifiuta allo stesso utente un altro posto sovrapposto", () => {
     expect(() =>
       validaPrenotazione({
         ...inputValido(),
         prenotazioniEsistenti: [
           {
-            id: "prenotazione-bib27-001",
-            postoId: posto.id,
+            id: "prenotazione-bib27-utente",
+            userId: inputValido().userId,
+            postoId: "posto-bib27-altro",
             data: "2030-01-15",
             oraInizio: "10:00",
             oraFine: "12:00",
@@ -117,16 +203,21 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
         ],
       }),
     ).toThrowError(
-      expect.objectContaining({ code: "POSTO_GIA_PRENOTATO", status: 409 }),
+      expect.objectContaining({
+        code: "UTENTE_GIA_PRENOTATO",
+        status: 409,
+        suggerisciCoda: false,
+      }),
     );
   });
 
-  it("[TC-BIB27-012] accetta slot adiacenti e prenotazioni non attive", () => {
+  it("[TC-BIB27-017] accetta slot adiacenti e prenotazioni terminali", () => {
     expect(() =>
       validaPrenotazione({
         ...inputValido(),
         prenotazioniEsistenti: [
           {
+            userId: inputValido().userId,
             postoId: posto.id,
             data: "2030-01-15",
             oraInizio: "07:00",
@@ -134,6 +225,7 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
             stato: "CHECK_IN",
           },
           {
+            userId: inputValido().userId,
             postoId: posto.id,
             data: "2030-01-15",
             oraInizio: "10:00",
@@ -145,7 +237,7 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     ).not.toThrow();
   });
 
-  it("[TC-BIB27-013] ignora altri posti, giorni e la prenotazione corrente", () => {
+  it("[TC-BIB27-018] ignora altri giorni e la prenotazione corrente", () => {
     expect(() =>
       validaPrenotazione({
         ...inputValido(),
@@ -153,6 +245,7 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
         prenotazioniEsistenti: [
           {
             id: "prenotazione-bib27-current",
+            userId: inputValido().userId,
             postoId: posto.id,
             data: "2030-01-15",
             oraInizio: "09:00",
@@ -160,13 +253,7 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
             stato: "CONFERMATA",
           },
           {
-            postoId: "posto-bib27-altro",
-            data: "2030-01-15",
-            oraInizio: "09:00",
-            oraFine: "11:00",
-            stato: "CONFERMATA",
-          },
-          {
+            userId: inputValido().userId,
             postoId: posto.id,
             data: "2030-01-16",
             oraInizio: "09:00",
@@ -178,7 +265,28 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     ).not.toThrow();
   });
 
-  it("[TC-BIB27-014] usa intervalli semiaperti per la sovrapposizione", () => {
+  it("[TC-BIB27-019] espone separatamente conflitti posto e utente", () => {
+    const intervallo = validaIntervallo(inputValido());
+    const prenotazione = {
+      userId: inputValido().userId,
+      postoId: posto.id,
+      data: "2030-01-15",
+      oraInizio: "10:00",
+      oraFine: "12:00",
+      stato: "CONFERMATA",
+    };
+
+    expect(
+      trovaSovrapposizioni({
+        userId: inputValido().userId,
+        postoId: posto.id,
+        intervallo,
+        prenotazioniEsistenti: [prenotazione],
+      }),
+    ).toEqual({ posto: [prenotazione], utente: [prenotazione] });
+  });
+
+  it("[TC-BIB27-020] usa intervalli semiaperti", () => {
     expect(intervalliSiSovrappongono(9 * 60, 11 * 60, 11 * 60, 13 * 60)).toBe(
       false,
     );

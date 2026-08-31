@@ -1,41 +1,45 @@
+import {
+  ConflittoDisponibilita,
+  ConflittoPrenotazioneUtente,
+  NonTrovato,
+  ValidazioneError,
+} from "@/lib/prenotazioni-errors";
+
+export {
+  ConflittoDisponibilita,
+  ConflittoPrenotazioneUtente,
+  NonTrovato,
+  PrenotazioneError,
+  ValidazioneError,
+  type PrenotazioneErrorBody,
+  type PrenotazioneErrorCode,
+} from "@/lib/prenotazioni-errors";
+
 export const DURATA_MINIMA_PRENOTAZIONE_MINUTI = 60;
 export const DURATA_MASSIMA_PRENOTAZIONE_MINUTI = 8 * 60;
+export const TIME_ZONE_BIBLIOTECA = "Europe/Rome";
 
 const STATI_PRENOTAZIONE_ATTIVI = new Set(["CONFERMATA", "CHECK_IN"]);
 
-export type PrenotazioneErrorCode =
-  | "DATA_NON_VALIDA"
-  | "DATA_NEL_PASSATO"
-  | "ORARIO_NON_VALIDO"
-  | "INTERVALLO_NON_VALIDO"
-  | "DURATA_TROPPO_BREVE"
-  | "DURATA_TROPPO_LUNGA"
-  | "POSTO_NON_ATTIVO"
-  | "POSTO_IN_MANUTENZIONE"
-  | "POSTO_GIA_PRENOTATO";
-
-export class PrenotazioneError extends Error {
-  constructor(
-    public readonly code: PrenotazioneErrorCode,
-    message: string,
-    public readonly status: 400 | 409 = 400,
-  ) {
-    super(message);
-    this.name = "PrenotazioneError";
-  }
-}
-
 export type DataPrenotazione = Date | string;
 export type OraPrenotazione = Date | string;
+
+export type SalaPrenotabile = {
+  attiva: boolean;
+  orarioApertura: string;
+  orarioChiusura: string;
+};
 
 export type PostoPrenotabile = {
   id: string;
   attivo: boolean;
   stato: string;
+  sala: SalaPrenotabile;
 };
 
 export type IntervalloPrenotazione = {
   id?: string;
+  userId: string;
   postoId: string;
   data: DataPrenotazione;
   oraInizio: OraPrenotazione;
@@ -43,16 +47,20 @@ export type IntervalloPrenotazione = {
   stato?: string;
 };
 
-export type ValidazionePrenotazioneInput = {
-  posto: PostoPrenotabile;
+export type IntervalloInput = {
   data: DataPrenotazione;
   oraInizio: OraPrenotazione;
   oraFine: OraPrenotazione;
-  prenotazioniEsistenti?: readonly IntervalloPrenotazione[];
-  prenotazioneIdDaEscludere?: string;
   adesso?: Date;
   durataMinimaMinuti?: number;
   durataMassimaMinuti?: number;
+};
+
+export type ValidazionePrenotazioneInput = IntervalloInput & {
+  userId: string;
+  posto: PostoPrenotabile | null | undefined;
+  prenotazioniEsistenti?: readonly IntervalloPrenotazione[];
+  prenotazioneIdDaEscludere?: string;
 };
 
 export type IntervalloValidato = {
@@ -62,20 +70,21 @@ export type IntervalloValidato = {
   durataMinuti: number;
 };
 
-function giornoUtc(value: DataPrenotazione): Date {
+export type Sovrapposizioni = {
+  posto: IntervalloPrenotazione[];
+  utente: IntervalloPrenotazione[];
+};
+
+function dataCalendario(value: DataPrenotazione): Date {
   if (typeof value === "string") {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     if (!match) {
-      throw new PrenotazioneError(
-        "DATA_NON_VALIDA",
-        "Inserisci una data valida",
-      );
+      throw new ValidazioneError("DATA_NON_VALIDA", "Inserisci una data valida");
     }
 
-    const [, annoTesto, meseTesto, giornoTesto] = match;
-    const anno = Number(annoTesto);
-    const mese = Number(meseTesto);
-    const giorno = Number(giornoTesto);
+    const anno = Number(match[1]);
+    const mese = Number(match[2]);
+    const giorno = Number(match[3]);
     const data = new Date(Date.UTC(anno, mese - 1, giorno));
 
     if (
@@ -83,32 +92,44 @@ function giornoUtc(value: DataPrenotazione): Date {
       data.getUTCMonth() !== mese - 1 ||
       data.getUTCDate() !== giorno
     ) {
-      throw new PrenotazioneError(
-        "DATA_NON_VALIDA",
-        "Inserisci una data valida",
-      );
+      throw new ValidazioneError("DATA_NON_VALIDA", "Inserisci una data valida");
     }
 
     return data;
   }
 
   if (Number.isNaN(value.getTime())) {
-    throw new PrenotazioneError(
-      "DATA_NON_VALIDA",
-      "Inserisci una data valida",
-    );
+    throw new ValidazioneError("DATA_NON_VALIDA", "Inserisci una data valida");
   }
 
+  // Prisma rappresenta @db.Date come mezzanotte UTC.
   return new Date(
     Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
   );
+}
+
+function dataCorrenteBiblioteca(adesso: Date): Date {
+  if (Number.isNaN(adesso.getTime())) {
+    throw new ValidazioneError("DATA_NON_VALIDA", "Inserisci una data valida");
+  }
+
+  const parti = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TIME_ZONE_BIBLIOTECA,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(adesso);
+  const valore = (tipo: Intl.DateTimeFormatPartTypes): number =>
+    Number(parti.find((parte) => parte.type === tipo)?.value);
+
+  return new Date(Date.UTC(valore("year"), valore("month") - 1, valore("day")));
 }
 
 function minutiDaMezzanotte(value: OraPrenotazione): number {
   if (typeof value === "string") {
     const match = /^(\d{2}):(\d{2})$/.exec(value);
     if (!match) {
-      throw new PrenotazioneError(
+      throw new ValidazioneError(
         "ORARIO_NON_VALIDO",
         "Inserisci un orario valido",
       );
@@ -117,7 +138,7 @@ function minutiDaMezzanotte(value: OraPrenotazione): number {
     const ore = Number(match[1]);
     const minuti = Number(match[2]);
     if (ore > 23 || minuti > 59) {
-      throw new PrenotazioneError(
+      throw new ValidazioneError(
         "ORARIO_NON_VALIDO",
         "Inserisci un orario valido",
       );
@@ -127,17 +148,14 @@ function minutiDaMezzanotte(value: OraPrenotazione): number {
   }
 
   if (Number.isNaN(value.getTime())) {
-    throw new PrenotazioneError(
+    throw new ValidazioneError(
       "ORARIO_NON_VALIDO",
       "Inserisci un orario valido",
     );
   }
 
+  // Prisma rappresenta @db.Time usando la data fittizia 1970-01-01 UTC.
   return value.getUTCHours() * 60 + value.getUTCMinutes();
-}
-
-function stessoGiorno(prima: Date, seconda: Date): boolean {
-  return prima.getTime() === seconda.getTime();
 }
 
 export function intervalliSiSovrappongono(
@@ -149,11 +167,9 @@ export function intervalliSiSovrappongono(
   return primoInizio < secondoFine && primoFine > secondoInizio;
 }
 
-export function validaPrenotazione(
-  input: ValidazionePrenotazioneInput,
-): IntervalloValidato {
-  const data = giornoUtc(input.data);
-  const oggi = giornoUtc(input.adesso ?? new Date());
+export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
+  const data = dataCalendario(input.data);
+  const oggi = dataCorrenteBiblioteca(input.adesso ?? new Date());
   const oraInizioMinuti = minutiDaMezzanotte(input.oraInizio);
   const oraFineMinuti = minutiDaMezzanotte(input.oraFine);
   const durataMinima =
@@ -162,14 +178,14 @@ export function validaPrenotazione(
     input.durataMassimaMinuti ?? DURATA_MASSIMA_PRENOTAZIONE_MINUTI;
 
   if (data < oggi) {
-    throw new PrenotazioneError(
+    throw new ValidazioneError(
       "DATA_NEL_PASSATO",
       "Scegli una data di oggi o successiva",
     );
   }
 
   if (oraFineMinuti <= oraInizioMinuti) {
-    throw new PrenotazioneError(
+    throw new ValidazioneError(
       "INTERVALLO_NON_VALIDO",
       "L'ora di fine deve essere successiva all'ora di inizio",
     );
@@ -177,61 +193,148 @@ export function validaPrenotazione(
 
   const durataMinuti = oraFineMinuti - oraInizioMinuti;
   if (durataMinuti < durataMinima) {
-    throw new PrenotazioneError(
+    throw new ValidazioneError(
       "DURATA_TROPPO_BREVE",
       `La prenotazione deve durare almeno ${durataMinima} minuti`,
     );
   }
 
   if (durataMinuti > durataMassima) {
-    throw new PrenotazioneError(
+    throw new ValidazioneError(
       "DURATA_TROPPO_LUNGA",
       `La prenotazione non puo' durare piu' di ${durataMassima / 60} ore`,
     );
   }
 
-  if (!input.posto.attivo) {
-    throw new PrenotazioneError(
+  return { data, oraInizioMinuti, oraFineMinuti, durataMinuti };
+}
+
+export function validaPostoPrenotabile(
+  posto: PostoPrenotabile | null | undefined,
+): PostoPrenotabile {
+  if (!posto) {
+    throw new NonTrovato();
+  }
+
+  if (!posto.attivo) {
+    throw new ValidazioneError(
       "POSTO_NON_ATTIVO",
       "Questo posto non e' disponibile per la prenotazione",
     );
   }
 
-  if (input.posto.stato === "MANUTENZIONE") {
-    throw new PrenotazioneError(
+  if (posto.stato === "MANUTENZIONE") {
+    throw new ValidazioneError(
       "POSTO_IN_MANUTENZIONE",
       "Questo posto e' temporaneamente in manutenzione",
     );
   }
 
-  const sovrapposizione = (input.prenotazioniEsistenti ?? []).some(
+  if (!posto.sala.attiva) {
+    throw new ValidazioneError(
+      "SALA_NON_ATTIVA",
+      "Questa sala non e' disponibile per la prenotazione",
+    );
+  }
+
+  return posto;
+}
+
+export function validaOrarioSala(
+  intervallo: IntervalloValidato,
+  sala: SalaPrenotabile,
+): void {
+  let apertura: number;
+  let chiusura: number;
+  try {
+    apertura = minutiDaMezzanotte(sala.orarioApertura);
+    chiusura = minutiDaMezzanotte(sala.orarioChiusura);
+  } catch {
+    throw new ValidazioneError(
+      "CONFIGURAZIONE_SALA_NON_VALIDA",
+      "Gli orari della sala non sono configurati correttamente",
+    );
+  }
+
+  if (chiusura <= apertura) {
+    throw new ValidazioneError(
+      "CONFIGURAZIONE_SALA_NON_VALIDA",
+      "Gli orari della sala non sono configurati correttamente",
+    );
+  }
+
+  if (
+    intervallo.oraInizioMinuti < apertura ||
+    intervallo.oraFineMinuti > chiusura
+  ) {
+    throw new ValidazioneError(
+      "FUORI_ORARIO_SALA",
+      `La sala e' aperta dalle ${sala.orarioApertura} alle ${sala.orarioChiusura}`,
+    );
+  }
+}
+
+export function trovaSovrapposizioni(input: {
+  userId: string;
+  postoId: string;
+  intervallo: IntervalloValidato;
+  prenotazioniEsistenti: readonly IntervalloPrenotazione[];
+  prenotazioneIdDaEscludere?: string;
+}): Sovrapposizioni {
+  const attiveSovrapposte = input.prenotazioniEsistenti.filter(
     (prenotazione) => {
       if (
-        prenotazione.postoId !== input.posto.id ||
-        prenotazione.id === input.prenotazioneIdDaEscludere ||
+        (input.prenotazioneIdDaEscludere !== undefined &&
+          prenotazione.id === input.prenotazioneIdDaEscludere) ||
         (prenotazione.stato !== undefined &&
           !STATI_PRENOTAZIONE_ATTIVI.has(prenotazione.stato)) ||
-        !stessoGiorno(giornoUtc(prenotazione.data), data)
+        dataCalendario(prenotazione.data).getTime() !==
+          input.intervallo.data.getTime()
       ) {
         return false;
       }
 
       return intervalliSiSovrappongono(
-        oraInizioMinuti,
-        oraFineMinuti,
+        input.intervallo.oraInizioMinuti,
+        input.intervallo.oraFineMinuti,
         minutiDaMezzanotte(prenotazione.oraInizio),
         minutiDaMezzanotte(prenotazione.oraFine),
       );
     },
   );
 
-  if (sovrapposizione) {
-    throw new PrenotazioneError(
-      "POSTO_GIA_PRENOTATO",
-      "Il posto e' gia' prenotato nell'orario scelto",
-      409,
-    );
+  return {
+    posto: attiveSovrapposte.filter(
+      (prenotazione) => prenotazione.postoId === input.postoId,
+    ),
+    utente: attiveSovrapposte.filter(
+      (prenotazione) => prenotazione.userId === input.userId,
+    ),
+  };
+}
+
+export function validaPrenotazione(
+  input: ValidazionePrenotazioneInput,
+): IntervalloValidato {
+  const posto = validaPostoPrenotabile(input.posto);
+  const intervallo = validaIntervallo(input);
+  validaOrarioSala(intervallo, posto.sala);
+
+  const sovrapposizioni = trovaSovrapposizioni({
+    userId: input.userId,
+    postoId: posto.id,
+    intervallo,
+    prenotazioniEsistenti: input.prenotazioniEsistenti ?? [],
+    prenotazioneIdDaEscludere: input.prenotazioneIdDaEscludere,
+  });
+
+  if (sovrapposizioni.posto.length > 0) {
+    throw new ConflittoDisponibilita();
   }
 
-  return { data, oraInizioMinuti, oraFineMinuti, durataMinuti };
+  if (sovrapposizioni.utente.length > 0) {
+    throw new ConflittoPrenotazioneUtente();
+  }
+
+  return intervallo;
 }
