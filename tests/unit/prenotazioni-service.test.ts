@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ConflittoDisponibilita,
   DURATA_MASSIMA_PRENOTAZIONE_MINUTI,
   DURATA_MINIMA_PRENOTAZIONE_MINUTI,
   TIME_ZONE_BIBLIOTECA,
+  annullaRichiestaCoda,
+  creaPrenotazioneAtomica,
+  entraInCoda,
   intervalliSiSovrappongono,
+  posizioneInCoda,
+  promuoviPrimoInCoda,
   trovaSovrapposizioni,
   validaIntervallo,
   validaPostoPrenotabile,
   validaPrenotazione,
+  type PrismaTransactionRunner,
 } from "@/lib/prenotazioni-service";
 
 const oggi = new Date("2030-01-15T12:00:00.000Z");
@@ -293,5 +299,233 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     expect(intervalliSiSovrappongono(9 * 60, 11 * 60, 10 * 60, 12 * 60)).toBe(
       true,
     );
+  });
+});
+
+const dataDb = new Date("2030-01-15T00:00:00.000Z");
+const oraInizioDb = new Date("1970-01-01T09:00:00.000Z");
+const oraFineDb = new Date("1970-01-01T11:00:00.000Z");
+const timestampDb = new Date("2030-01-01T09:00:00.000Z");
+
+const richiestaCoda = {
+  id: "richiesta-bib31-001",
+  userId: "utente-bib31-001",
+  postoId: posto.id,
+  data: dataDb,
+  oraInizio: oraInizioDb,
+  oraFine: oraFineDb,
+  stato: "IN_ATTESA" as const,
+  createdAt: timestampDb,
+  updatedAt: timestampDb,
+};
+
+const prenotazioneCreata = {
+  id: "prenotazione-bib31-001",
+  userId: richiestaCoda.userId,
+  postoId: posto.id,
+  data: dataDb,
+  oraInizio: oraInizioDb,
+  oraFine: oraFineDb,
+  stato: "CONFERMATA" as const,
+  checkInAt: null,
+  checkOutAt: null,
+  marginePendolare: false,
+  minutiMarginePendolare: 30,
+  estesa: false,
+  oraFineOriginale: null,
+  note: null,
+  createdAt: timestampDb,
+  updatedAt: timestampDb,
+};
+
+function transactionRunner<T extends object>(tx: T) {
+  const transaction = vi.fn(async (callback: unknown) =>
+    (callback as (value: T) => Promise<unknown>)(tx),
+  );
+
+  return {
+    client: { $transaction: transaction } as unknown as PrismaTransactionRunner,
+    transaction,
+  };
+}
+
+function inputAtomico() {
+  return {
+    userId: richiestaCoda.userId,
+    postoId: posto.id,
+    data: "2030-01-15",
+    oraInizio: "09:00",
+    oraFine: "11:00",
+    adesso: oggi,
+  };
+}
+
+describe("servizio di dominio BIB-28—BIB-31", () => {
+  it("[TC-BIB31-001] crea la prenotazione in transazione Serializable", async () => {
+    const tx = {
+      posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+      prenotazione: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue(prenotazioneCreata),
+      },
+    };
+    const { client, transaction } = transactionRunner(tx);
+
+    await expect(
+      creaPrenotazioneAtomica(inputAtomico(), client),
+    ).resolves.toEqual(prenotazioneCreata);
+    expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
+      isolationLevel: "Serializable",
+    });
+    expect(tx.prenotazione.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("[TC-BIB31-002] traduce la violazione DB in conflitto proponibile come coda", async () => {
+    const tx = {
+      posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+      prenotazione: {
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockRejectedValue({ code: "23P01" }),
+      },
+    };
+    const { client } = transactionRunner(tx);
+
+    await expect(creaPrenotazioneAtomica(inputAtomico(), client)).rejects.toMatchObject({
+      code: "POSTO_GIA_PRENOTATO",
+      status: 409,
+      suggerisciCoda: true,
+    });
+  });
+
+  it("[TC-BIB31-003] rifiuta una richiesta di coda duplicata", async () => {
+    const tx = {
+      listaAttesa: {
+        findFirst: vi.fn().mockResolvedValue({ id: richiestaCoda.id }),
+        create: vi.fn(),
+      },
+      logEvento: { create: vi.fn() },
+    };
+    const { client } = transactionRunner(tx);
+
+    await expect(entraInCoda(inputAtomico(), client)).rejects.toMatchObject({
+      code: "RICHIESTA_CODA_DUPLICATA",
+      status: 409,
+    });
+    expect(tx.listaAttesa.create).not.toHaveBeenCalled();
+    expect(tx.logEvento.create).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB31-004] registra ingresso e LogEvento nella stessa transazione", async () => {
+    const tx = {
+      listaAttesa: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue(richiestaCoda),
+      },
+      logEvento: { create: vi.fn().mockResolvedValue({ id: "evento-ingresso" }) },
+    };
+    const { client } = transactionRunner(tx);
+
+    await expect(entraInCoda(inputAtomico(), client)).resolves.toEqual(
+      richiestaCoda,
+    );
+    expect(tx.logEvento.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_INGRESSO",
+        targetUserId: richiestaCoda.userId,
+      }),
+    });
+  });
+
+  it("[TC-BIB31-005] nasconde la richiesta di coda appartenente a un altro utente", async () => {
+    const tx = {
+      listaAttesa: {
+        findUnique: vi.fn().mockResolvedValue({
+          ...richiestaCoda,
+          userId: "altro-utente",
+        }),
+        updateMany: vi.fn(),
+      },
+      logEvento: { create: vi.fn() },
+    };
+    const { client } = transactionRunner(tx);
+
+    await expect(
+      annullaRichiestaCoda(
+        richiestaCoda.userId,
+        richiestaCoda.id,
+        client,
+      ),
+    ).rejects.toMatchObject({
+      code: "RICHIESTA_CODA_NON_TROVATA",
+      status: 404,
+    });
+    expect(tx.listaAttesa.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB31-006] calcola la posizione FIFO con id come tie-breaker", async () => {
+    const tx = {
+      listaAttesa: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: "richiesta-b",
+          createdAt: timestampDb,
+        }),
+        count: vi.fn().mockResolvedValue(1),
+      },
+    };
+    const { client } = transactionRunner(tx);
+
+    await expect(posizioneInCoda(inputAtomico(), client)).resolves.toBe(2);
+    expect(tx.listaAttesa.count).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        OR: [
+          { createdAt: { lt: timestampDb } },
+          { createdAt: timestampDb, id: { lt: "richiesta-b" } },
+        ],
+      }),
+    });
+  });
+
+  it("[TC-BIB31-007] due promozioni producono una prenotazione e un LogEvento", async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([richiestaCoda]),
+      posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+      prenotazione: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValueOnce(null)
+          .mockResolvedValueOnce({ id: prenotazioneCreata.id }),
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue(prenotazioneCreata),
+      },
+      listaAttesa: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      logEvento: {
+        create: vi.fn().mockResolvedValue({ id: "evento-promozione" }),
+      },
+    };
+    const { client } = transactionRunner(tx);
+    const input = {
+      postoId: posto.id,
+      data: "2030-01-15",
+      oraInizio: "09:00",
+      oraFine: "11:00",
+      adesso: oggi,
+    };
+
+    await expect(promuoviPrimoInCoda(input, client)).resolves.toMatchObject({
+      richiestaId: richiestaCoda.id,
+      prenotazione: prenotazioneCreata,
+    });
+    await expect(promuoviPrimoInCoda(input, client)).resolves.toBeNull();
+
+    expect(tx.prenotazione.create).toHaveBeenCalledTimes(1);
+    expect(tx.listaAttesa.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.logEvento.create).toHaveBeenCalledTimes(1);
+    expect(tx.logEvento.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_PROMOZIONE",
+        prenotazioneId: prenotazioneCreata.id,
+        targetUserId: richiestaCoda.userId,
+      }),
+    });
   });
 });
