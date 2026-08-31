@@ -204,8 +204,9 @@ model Posto {
 }
 
 // Prenotazioni posti
-// Il vincolo PostgreSQL di esclusione per le sovrapposizioni CONFERMATE e'
-// definito nella migrazione SQL custom, perche' Prisma non lo esprime nativamente.
+// Il vincolo PostgreSQL di esclusione per le sovrapposizioni attive
+// (CONFERMATA/CHECK_IN) e' definito nella migrazione SQL custom, perche'
+// Prisma non lo esprime nativamente.
 model Prenotazione {
   id      String @id @default(cuid())
   userId  String
