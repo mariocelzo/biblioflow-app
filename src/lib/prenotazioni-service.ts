@@ -1,3 +1,5 @@
+import { Prisma, type Prenotazione, type PrismaClient } from "@prisma/client";
+
 import {
   ConflittoDisponibilita,
   ConflittoPrenotazioneUtente,
@@ -20,6 +22,8 @@ export const DURATA_MASSIMA_PRENOTAZIONE_MINUTI = 8 * 60;
 export const TIME_ZONE_BIBLIOTECA = "Europe/Rome";
 
 const STATI_PRENOTAZIONE_ATTIVI = new Set(["CONFERMATA", "CHECK_IN"]);
+const CODICI_CONFLITTO_POSTGRES = new Set(["23P01", "40001", "40P01"]);
+const CODICI_CONFLITTO_PRISMA = new Set(["P2002", "P2004", "P2034"]);
 
 export type DataPrenotazione = Date | string;
 export type OraPrenotazione = Date | string;
@@ -74,6 +78,16 @@ export type Sovrapposizioni = {
   posto: IntervalloPrenotazione[];
   utente: IntervalloPrenotazione[];
 };
+
+export type CreaPrenotazioneAtomicaInput = IntervalloInput & {
+  userId: string;
+  postoId: string;
+  marginePendolare?: boolean;
+  minutiMarginePendolare?: number;
+  note?: string | null;
+};
+
+export type PrismaTransactionRunner = Pick<PrismaClient, "$transaction">;
 
 function dataCalendario(value: DataPrenotazione): Date {
   if (typeof value === "string") {
@@ -337,4 +351,114 @@ export function validaPrenotazione(
   }
 
   return intervallo;
+}
+
+function oraPrisma(minuti: number): Date {
+  return new Date(Date.UTC(1970, 0, 1, Math.floor(minuti / 60), minuti % 60));
+}
+
+function codiceErrore(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const candidate = error as { code?: unknown; cause?: unknown };
+  if (typeof candidate.code === "string") {
+    return candidate.code;
+  }
+
+  return codiceErrore(candidate.cause);
+}
+
+export function isConflittoConcorrenza(error: unknown): boolean {
+  const code = codiceErrore(error);
+  return (
+    code !== undefined &&
+    (CODICI_CONFLITTO_PRISMA.has(code) ||
+      CODICI_CONFLITTO_POSTGRES.has(code))
+  );
+}
+
+/**
+ * Mantiene verifica DB e inserimento nella stessa transazione Serializable.
+ * Il vincolo di esclusione BIB-24 resta l'ultima garanzia contro due richieste
+ * concorrenti che superano entrambe la lettura iniziale.
+ */
+export async function creaPrenotazioneAtomica(
+  input: CreaPrenotazioneAtomicaInput,
+  client: PrismaTransactionRunner,
+): Promise<Prenotazione> {
+  try {
+    return await client.$transaction(
+      async (tx) => {
+        const intervallo = validaIntervallo(input);
+        const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
+        const oraFine = oraPrisma(intervallo.oraFineMinuti);
+
+        const [posto, prenotazioniEsistenti] = await Promise.all([
+          tx.posto.findUnique({
+            where: { id: input.postoId },
+            select: {
+              id: true,
+              attivo: true,
+              stato: true,
+              sala: {
+                select: {
+                  attiva: true,
+                  orarioApertura: true,
+                  orarioChiusura: true,
+                },
+              },
+            },
+          }),
+          tx.prenotazione.findMany({
+            where: {
+              data: intervallo.data,
+              stato: { in: ["CONFERMATA", "CHECK_IN"] },
+              oraInizio: { lt: oraFine },
+              oraFine: { gt: oraInizio },
+              OR: [{ postoId: input.postoId }, { userId: input.userId }],
+            },
+            select: {
+              id: true,
+              userId: true,
+              postoId: true,
+              data: true,
+              oraInizio: true,
+              oraFine: true,
+              stato: true,
+            },
+          }),
+        ]);
+
+        validaPrenotazione({
+          ...input,
+          posto,
+          prenotazioniEsistenti,
+        });
+
+        return tx.prenotazione.create({
+          data: {
+            userId: input.userId,
+            postoId: input.postoId,
+            data: intervallo.data,
+            oraInizio,
+            oraFine,
+            marginePendolare: input.marginePendolare ?? false,
+            minutiMarginePendolare: input.minutiMarginePendolare ?? 30,
+            note: input.note ?? null,
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (isConflittoConcorrenza(error)) {
+      throw new ConflittoDisponibilita(
+        "Il posto e' stato assegnato a un'altra richiesta; puoi entrare in lista d'attesa",
+      );
+    }
+
+    throw error;
+  }
 }
