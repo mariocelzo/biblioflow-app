@@ -1,9 +1,17 @@
-import { Prisma, type Prenotazione, type PrismaClient } from "@prisma/client";
+import {
+  Prisma,
+  type ListaAttesa,
+  type Prenotazione,
+  type PrismaClient,
+} from "@prisma/client";
 
 import {
   ConflittoDisponibilita,
   ConflittoPrenotazioneUtente,
   NonTrovato,
+  RichiestaCodaDuplicata,
+  RichiestaCodaNonAnnullabile,
+  RichiestaCodaNonTrovata,
   ValidazioneError,
 } from "@/lib/prenotazioni-errors";
 
@@ -12,6 +20,9 @@ export {
   ConflittoPrenotazioneUtente,
   NonTrovato,
   PrenotazioneError,
+  RichiestaCodaDuplicata,
+  RichiestaCodaNonAnnullabile,
+  RichiestaCodaNonTrovata,
   ValidazioneError,
   type PrenotazioneErrorBody,
   type PrenotazioneErrorCode,
@@ -85,6 +96,11 @@ export type CreaPrenotazioneAtomicaInput = IntervalloInput & {
   marginePendolare?: boolean;
   minutiMarginePendolare?: number;
   note?: string | null;
+};
+
+export type CodaIntervalloInput = IntervalloInput & {
+  userId: string;
+  postoId: string;
 };
 
 export type PrismaTransactionRunner = Pick<PrismaClient, "$transaction">;
@@ -379,6 +395,11 @@ export function isConflittoConcorrenza(error: unknown): boolean {
   );
 }
 
+export function isViolazioneUnicita(error: unknown): boolean {
+  const code = codiceErrore(error);
+  return code === "P2002" || code === "23505";
+}
+
 /**
  * Mantiene verifica DB e inserimento nella stessa transazione Serializable.
  * Il vincolo di esclusione BIB-24 resta l'ultima garanzia contro due richieste
@@ -461,4 +482,166 @@ export async function creaPrenotazioneAtomica(
 
     throw error;
   }
+}
+
+function dettagliCoda(
+  richiesta: Pick<
+    ListaAttesa,
+    "id" | "postoId" | "data" | "oraInizio" | "oraFine"
+  >,
+): Prisma.InputJsonObject {
+  return {
+    listaAttesaId: richiesta.id,
+    postoId: richiesta.postoId,
+    data: richiesta.data.toISOString().slice(0, 10),
+    oraInizio: richiesta.oraInizio.toISOString().slice(11, 16),
+    oraFine: richiesta.oraFine.toISOString().slice(11, 16),
+  };
+}
+
+export async function entraInCoda(
+  input: CodaIntervalloInput,
+  client: PrismaTransactionRunner,
+): Promise<ListaAttesa> {
+  const intervallo = validaIntervallo(input);
+  const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
+  const oraFine = oraPrisma(intervallo.oraFineMinuti);
+
+  try {
+    return await client.$transaction(
+      async (tx) => {
+        const duplicata = await tx.listaAttesa.findFirst({
+          where: {
+            userId: input.userId,
+            postoId: input.postoId,
+            data: intervallo.data,
+            oraInizio,
+            oraFine,
+            stato: "IN_ATTESA",
+          },
+          select: { id: true },
+        });
+
+        if (duplicata) {
+          throw new RichiestaCodaDuplicata();
+        }
+
+        const richiesta = await tx.listaAttesa.create({
+          data: {
+            userId: input.userId,
+            postoId: input.postoId,
+            data: intervallo.data,
+            oraInizio,
+            oraFine,
+          },
+        });
+
+        await tx.logEvento.create({
+          data: {
+            tipo: "CODA_INGRESSO",
+            userId: input.userId,
+            targetUserId: input.userId,
+            descrizione: "Ingresso in lista d'attesa",
+            dettagli: dettagliCoda(richiesta),
+          },
+        });
+
+        return richiesta;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+  } catch (error) {
+    if (isViolazioneUnicita(error)) {
+      throw new RichiestaCodaDuplicata();
+    }
+    throw error;
+  }
+}
+
+export async function annullaRichiestaCoda(
+  userId: string,
+  richiestaId: string,
+  client: PrismaTransactionRunner,
+): Promise<ListaAttesa> {
+  return client.$transaction(
+    async (tx) => {
+      const richiesta = await tx.listaAttesa.findUnique({
+        where: { id: richiestaId },
+      });
+
+      // La risposta 404 evita di rivelare richieste appartenenti ad altri utenti.
+      if (!richiesta || richiesta.userId !== userId) {
+        throw new RichiestaCodaNonTrovata();
+      }
+
+      const risultato = await tx.listaAttesa.updateMany({
+        where: { id: richiestaId, userId, stato: "IN_ATTESA" },
+        data: { stato: "ANNULLATA" },
+      });
+
+      if (risultato.count !== 1) {
+        throw new RichiestaCodaNonAnnullabile();
+      }
+
+      const annullata = { ...richiesta, stato: "ANNULLATA" as const };
+      await tx.logEvento.create({
+        data: {
+          tipo: "CODA_ANNULLATA",
+          userId,
+          targetUserId: userId,
+          descrizione: "Uscita dalla lista d'attesa",
+          dettagli: dettagliCoda(annullata),
+        },
+      });
+
+      return annullata;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  );
+}
+
+export async function posizioneInCoda(
+  input: CodaIntervalloInput,
+  client: PrismaTransactionRunner,
+): Promise<number> {
+  const intervallo = validaIntervallo(input);
+  const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
+  const oraFine = oraPrisma(intervallo.oraFineMinuti);
+
+  return client.$transaction(
+    async (tx) => {
+      const richiesta = await tx.listaAttesa.findFirst({
+        where: {
+          userId: input.userId,
+          postoId: input.postoId,
+          data: intervallo.data,
+          oraInizio,
+          oraFine,
+          stato: "IN_ATTESA",
+        },
+        select: { id: true, createdAt: true },
+      });
+
+      if (!richiesta) {
+        throw new RichiestaCodaNonTrovata();
+      }
+
+      const davanti = await tx.listaAttesa.count({
+        where: {
+          postoId: input.postoId,
+          data: intervallo.data,
+          oraInizio,
+          oraFine,
+          stato: "IN_ATTESA",
+          OR: [
+            { createdAt: { lt: richiesta.createdAt } },
+            { createdAt: richiesta.createdAt, id: { lt: richiesta.id } },
+          ],
+        },
+      });
+
+      return davanti + 1;
+    },
+    { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+  );
 }

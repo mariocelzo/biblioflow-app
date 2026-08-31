@@ -12,7 +12,10 @@ export type PrenotazioneErrorCode =
   | "CONFIGURAZIONE_SALA_NON_VALIDA"
   | "FUORI_ORARIO_SALA"
   | "POSTO_GIA_PRENOTATO"
-  | "UTENTE_GIA_PRENOTATO";
+  | "UTENTE_GIA_PRENOTATO"
+  | "RICHIESTA_CODA_DUPLICATA"
+  | "RICHIESTA_CODA_NON_TROVATA"
+  | "RICHIESTA_CODA_NON_ANNULLABILE";
 
 export type PrenotazioneErrorStatus = 404 | 409 | 422;
 
@@ -72,5 +75,26 @@ export class NonTrovato extends PrenotazioneError {
   ) {
     super(code, message, 404);
     this.name = "NonTrovato";
+  }
+}
+
+export class RichiestaCodaDuplicata extends PrenotazioneError {
+  constructor(message = "Sei gia' in lista d'attesa per questo intervallo") {
+    super("RICHIESTA_CODA_DUPLICATA", message, 409);
+    this.name = "RichiestaCodaDuplicata";
+  }
+}
+
+export class RichiestaCodaNonTrovata extends PrenotazioneError {
+  constructor(message = "La richiesta in lista d'attesa non esiste") {
+    super("RICHIESTA_CODA_NON_TROVATA", message, 404);
+    this.name = "RichiestaCodaNonTrovata";
+  }
+}
+
+export class RichiestaCodaNonAnnullabile extends PrenotazioneError {
+  constructor(message = "La richiesta non e' piu' annullabile") {
+    super("RICHIESTA_CODA_NON_ANNULLABILE", message, 409);
+    this.name = "RichiestaCodaNonAnnullabile";
   }
 }
