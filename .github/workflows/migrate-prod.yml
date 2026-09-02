@@ -7,12 +7,15 @@
 #
 # Parte SOLO quando un merge su `main` tocca `prisma/migrations/**`
 # (filtro `paths` nativo di GitHub Actions: se il merge non cambia le
-# migrazioni, il job non viene nemmeno schedulato).
+# migrazioni, il job non viene nemmeno schedulato). Puo' anche essere
+# lanciato a mano da Actions -> "Run workflow" (workflow_dispatch).
 #
 # Richiede il secret di repository `PROD_DATABASE_URL`: la connection string
-# DIRETTA di Supabase (porta 5432 / session pooler, NON la transaction pooler
-# 6543, e senza `?pgbouncer=true`). Contiene la password -> deve essere un
-# secret, non una variable.
+# **Session pooler** di Supabase — host `...pooler.supabase.com`, porta **5432**,
+# SENZA `?pgbouncer=true`. NON la Transaction pooler (6543: pgBouncer in
+# transaction mode, incompatibile col motore migrazioni di Prisma) e NON la
+# Direct connection `db.<ref>.supabase.co` (solo IPv6, irraggiungibile dai
+# runner GitHub che sono IPv4). Contiene la password -> secret, non variable.
 # ============================================================================
 
 name: Migrate prod DB
@@ -22,6 +25,7 @@ on:
     branches: [main]
     paths:
       - "prisma/migrations/**"
+  workflow_dispatch: {}
 
 # Non applicare due deploy di migrazioni in parallelo e non interrompere mai
 # un `migrate deploy` gia' in corso: lascia che il secondo aspetti il primo.
@@ -37,6 +41,9 @@ jobs:
   migrate:
     name: prisma migrate deploy
     runs-on: ubuntu-latest
+    # Se la connection string e' sbagliata Prisma resta appeso sulla connessione:
+    # meglio fallire in fretta che tenere il job occupato per ore.
+    timeout-minutes: 10
     env:
       DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
     steps:
