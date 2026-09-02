@@ -199,6 +199,194 @@ export async function sendLoanExpiryAlerts() {
 }
 
 /**
+ * 🔔 NOTIFICHE DEGLI EVENTI DELLA LISTA D'ATTESA (BIB-42 / CA-05)
+ *
+ * I tre eventi della coda per cui l'utente riceve una notifica. I nomi
+ * coincidono con i valori già presenti sia in `TipoNotifica` sia in
+ * `TipoEvento` dello schema Prisma (qui NON si tocca `prisma/schema.prisma`),
+ * così lo stesso valore serve per la `Notifica` e per il `LogEvento`.
+ *  - `CODA_INGRESSO`   — conferma di ingresso in lista d'attesa.
+ *  - `CODA_PROMOZIONE` — l'utente è stato promosso: esiste una prenotazione sua.
+ *  - `CODA_SCADENZA`   — la richiesta è decaduta senza esito.
+ */
+type TipoEventoCoda = 'CODA_INGRESSO' | 'CODA_PROMOZIONE' | 'CODA_SCADENZA';
+
+/** Esito della generazione di una notifica di coda: mai un throw verso il chiamante. */
+export interface NotificaEventoCodaResult {
+  /** `true` se sia la `Notifica` sia il `LogEvento` sono stati scritti. */
+  notificaCreata: boolean;
+  /** Messaggio d'errore quando la scrittura è fallita ed è stata assorbita. */
+  errore?: string;
+}
+
+/** Parametri per generare la notifica utente di un evento della lista d'attesa. */
+export interface NotificaEventoCodaInput {
+  /** Destinatario della notifica (utente in coda o appena promosso). */
+  userId: string;
+  /** Evento della coda da notificare. */
+  tipo: TipoEventoCoda;
+  /** Posto coinvolto: usato solo per rendere leggibile il testo del messaggio. */
+  posto?: { numero: string; salaNome?: string };
+  /** Prenotazione creata dalla promozione (solo per `CODA_PROMOZIONE`). */
+  prenotazioneId?: string;
+  /** Richiesta di lista d'attesa collegata (ingresso / scadenza). */
+  richiestaId?: string;
+}
+
+/** Frammento di testo che descrive il posto, con o senza nome sala. */
+function descriviPostoCoda(posto?: { numero: string; salaNome?: string }): string {
+  if (!posto) {
+    return 'il posto richiesto';
+  }
+  return posto.salaNome
+    ? `il posto ${posto.numero} (${posto.salaNome})`
+    : `il posto ${posto.numero}`;
+}
+
+/**
+ * Costruisce titolo, messaggio e link d'azione della notifica in base al tipo
+ * di evento. Testi in italiano, tono informativo.
+ * - promozione → `actionUrl` verso la prenotazione creata;
+ * - ingresso / scadenza → `actionUrl` verso la lista d'attesa.
+ */
+function contenutoNotificaCoda(input: NotificaEventoCodaInput): {
+  titolo: string;
+  messaggio: string;
+  actionUrl: string;
+  actionLabel: string;
+} {
+  const posto = descriviPostoCoda(input.posto);
+
+  switch (input.tipo) {
+    case 'CODA_INGRESSO':
+      return {
+        titolo: "📋 Sei in lista d'attesa",
+        messaggio: `Ti abbiamo inserito in lista d'attesa per ${posto}. Appena si libera per la tua fascia oraria creeremo la prenotazione e ti avviseremo.`,
+        actionUrl: '/prenotazioni/coda',
+        actionLabel: "Vedi lista d'attesa",
+      };
+    case 'CODA_PROMOZIONE':
+      return {
+        titolo: "🎉 Posto assegnato dalla lista d'attesa",
+        messaggio: `Buone notizie: ${posto} si è liberato e la prenotazione è ora tua. Ricordati di fare il check-in nei tempi previsti per non perderla.`,
+        // Se per qualunque motivo manca l'id si rimanda all'elenco prenotazioni.
+        actionUrl: input.prenotazioneId
+          ? `/prenotazioni/${input.prenotazioneId}`
+          : '/prenotazioni',
+        actionLabel: 'Vedi prenotazione',
+      };
+    case 'CODA_SCADENZA':
+      return {
+        titolo: "⌛ Richiesta in lista d'attesa scaduta",
+        messaggio: `La tua richiesta in lista d'attesa per ${posto} è decaduta senza esito. Se ti serve ancora puoi rimetterti in lista d'attesa.`,
+        actionUrl: '/prenotazioni/coda',
+        actionLabel: "Torna alla lista d'attesa",
+      };
+  }
+}
+
+/**
+ * ♻️ HELPER — GENERA LA NOTIFICA UTENTE DI UN EVENTO DELLA LISTA D'ATTESA
+ *
+ * Scrive due righe:
+ *  1. una `Notifica` per l'utente (`tipo` = valore di `TipoNotifica`);
+ *  2. un `LogEvento` di audit con lo *stesso* nome enum (lato `TipoEvento`),
+ *     `targetUserId` = destinatario e `dettagli` con i riferimenti utili.
+ *
+ * È volutamente *best-effort*: se la scrittura fallisce, l'errore viene loggato
+ * e assorbito (ritorno `{ notificaCreata: false, errore }`), così il giro delle
+ * automazioni non si interrompe per una notifica non riuscita (requisito di
+ * robustezza BIB-42). Per lo stesso motivo NON apre transazioni: `Notifica` e
+ * `LogEvento` sono informativi e indipendenti dal resto del flusso.
+ *
+ * Nota sull'audit: per l'ingresso in coda e per la promozione il servizio di
+ * dominio scrive già un proprio `LogEvento` dell'*azione*. Questo `LogEvento` è
+ * distinto e complementare: registra l'*invio della notifica*
+ * (`dettagli.evento = 'notifica'`), non duplica l'evento di dominio.
+ */
+export async function notificaEventoCoda(
+  input: NotificaEventoCodaInput,
+): Promise<NotificaEventoCodaResult> {
+  const { titolo, messaggio, actionUrl, actionLabel } =
+    contenutoNotificaCoda(input);
+
+  try {
+    // 1️⃣ Notifica visibile all'utente (compare in /notifiche e nel badge).
+    await prisma.notifica.create({
+      data: {
+        userId: input.userId,
+        tipo: input.tipo,
+        titolo,
+        messaggio,
+        actionUrl,
+        actionLabel,
+      },
+    });
+
+    // 2️⃣ Traccia di audit con lo stesso nome enum lato `TipoEvento`.
+    await prisma.logEvento.create({
+      data: {
+        tipo: input.tipo,
+        targetUserId: input.userId,
+        prenotazioneId: input.prenotazioneId ?? null,
+        descrizione: `Notifica evento coda inviata (${input.tipo})`,
+        dettagli: {
+          evento: 'notifica',
+          tipo: input.tipo,
+          posto: input.posto?.numero ?? null,
+          sala: input.posto?.salaNome ?? null,
+          prenotazioneId: input.prenotazioneId ?? null,
+          listaAttesaId: input.richiestaId ?? null,
+        },
+      },
+    });
+
+    return { notificaCreata: true };
+  } catch (err) {
+    // Assorbe l'errore: una notifica mancata non deve propagarsi al chiamante.
+    const errore = err instanceof Error ? err.message : String(err);
+    console.error('❌ Errore generazione notifica evento coda:', err);
+    return { notificaCreata: false, errore };
+  }
+}
+
+/**
+ * 🧩 WRAPPER PRONTO ALL'USO PER LA SCADENZA DELLA CODA (BIB-42 → usato da BIB-44)
+ *
+ * La logica di scadenza / finestra di conferma NON è implementata qui: è
+ * competenza di BIB-44. Questo wrapper esiste solo per offrire a quella card un
+ * unico punto d'ingresso tipizzato con cui avvisare l'utente quando la sua
+ * richiesta in lista d'attesa decade senza esito.
+ *
+ * @param userId destinatario dell'avviso
+ * @param ctx    riferimenti opzionali per arricchire testo e audit
+ */
+export async function notificaScadenzaCoda(
+  userId: string,
+  ctx: {
+    posto?: { numero: string; salaNome?: string };
+    richiestaId?: string;
+  } = {},
+): Promise<NotificaEventoCodaResult> {
+  return notificaEventoCoda({
+    userId,
+    tipo: 'CODA_SCADENZA',
+    posto: ctx.posto,
+    richiestaId: ctx.richiestaId,
+  });
+}
+
+// Valore di ritorno di `processaCodaPerPosto`. `promossa` e `prenotazioneId`
+// sono i campi storici di BIB-40 e restano invariati; `userId` è aggiunto da
+// BIB-42 / CA-05 per permettere al chiamante di notificare l'utente promosso
+// senza rileggere la prenotazione. È `undefined` a coda vuota o in caso d'errore.
+export type EsitoProcessaCoda = {
+  promossa: boolean;
+  prenotazioneId?: string;
+  userId?: string;
+};
+
+/**
  * ♻️ HELPER RIUSABILE — INNESCO PROMOZIONE LISTA D'ATTESA
  *
  * Quando un'automazione libera un posto per un certo slot (posto + data +
@@ -223,15 +411,16 @@ export async function sendLoanExpiryAlerts() {
  * finestra di conferma (BIB-44), che potrà riusarlo senza modifiche.
  *
  * @param slot posto e intervallo appena liberati
- * @returns `{ promossa, prenotazioneId? }` — `promossa` è true solo se è stata
- *          effettivamente creata una nuova prenotazione a partire dalla coda
+ * @returns `EsitoProcessaCoda` — `promossa` è true solo se è stata
+ *          effettivamente creata una nuova prenotazione a partire dalla coda;
+ *          `prenotazioneId`/`userId` valorizzati solo in quel caso
  */
 export async function processaCodaPerPosto(slot: {
   postoId: string;
   data: Date;
   oraInizio: Date;
   oraFine: Date;
-}): Promise<{ promossa: boolean; prenotazioneId?: string }> {
+}): Promise<EsitoProcessaCoda> {
   // Rappresentazione compatta e serializzabile dello slot, riusata in ogni
   // esito del LogEvento di innesco (utile per gli audit anche a coda vuota).
   const dettagliSlot = {
@@ -293,6 +482,8 @@ export async function processaCodaPerPosto(slot: {
   return {
     promossa: promozione !== null,
     prenotazioneId: promozione?.prenotazione.id,
+    // BIB-42 / CA-05: chi chiama usa questo id per la notifica CODA_PROMOZIONE.
+    userId: promozione?.prenotazione.userId,
   };
 }
 
@@ -386,6 +577,22 @@ export async function releaseNoShowReservations() {
     });
     if (esitoCoda.promossa) {
       promoted++;
+
+      // 🔔 CA-05 (BIB-42): l'utente promosso dalla lista d'attesa riceve una
+      // notifica dedicata che punta alla prenotazione appena creata.
+      // `notificaEventoCoda` è best-effort (gestisce da sé gli errori): un
+      // fallimento qui non deve fermare il giro delle automazioni.
+      if (esitoCoda.userId) {
+        await notificaEventoCoda({
+          userId: esitoCoda.userId,
+          tipo: 'CODA_PROMOZIONE',
+          posto: {
+            numero: prenotazione.posto.numero,
+            salaNome: prenotazione.posto.sala.nome,
+          },
+          prenotazioneId: esitoCoda.prenotazioneId,
+        });
+      }
     }
   }
 

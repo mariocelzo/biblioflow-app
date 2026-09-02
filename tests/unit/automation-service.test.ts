@@ -41,6 +41,8 @@ vi.mock("@/lib/prenotazioni-service", () => ({
 import { prisma } from "@/lib/prisma";
 import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
 import {
+  notificaEventoCoda,
+  notificaScadenzaCoda,
   processaCodaPerPosto,
   releaseNoShowReservations,
 } from "@/lib/automation-service";
@@ -145,9 +147,31 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
         }),
       }),
     });
-    // La CODA_PROMOZIONE la scrive il servizio di dominio: qui non deve comparire.
+    // L'evento di dominio "Promozione dalla lista d'attesa" lo scrive
+    // `promuoviPrimoInCoda` (qui mockato): `releaseNoShowReservations` non lo
+    // riscrive.
     expect(logEventoCreateMock).not.toHaveBeenCalledWith({
-      data: expect.objectContaining({ tipo: "CODA_PROMOZIONE" }),
+      data: expect.objectContaining({
+        descrizione: "Promozione dalla lista d'attesa",
+      }),
+    });
+
+    // BIB-42 / CA-05: l'utente promosso riceve la notifica `CODA_PROMOZIONE`
+    // con `actionUrl` verso la prenotazione creata, più il relativo LogEvento.
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "utente-2",
+        tipo: "CODA_PROMOZIONE",
+        actionUrl: "/prenotazioni/pren-coda-1",
+      }),
+    });
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_PROMOZIONE",
+        targetUserId: "utente-2",
+        prenotazioneId: "pren-coda-1",
+        dettagli: expect.objectContaining({ evento: "notifica" }),
+      }),
     });
   });
 
@@ -288,12 +312,20 @@ describe("processaCodaPerPosto — helper riusabile", () => {
       },
       prisma,
     );
-    expect(esito).toEqual({ promossa: true, prenotazioneId: "pren-coda-1" });
-    // Un solo LogEvento (di innesco), tipo AUTOMATION: nessuna CODA_PROMOZIONE duplicata.
+    // BIB-42 / CA-05: il ritorno espone anche `userId` dell'utente promosso,
+    // usato dal chiamante per la notifica. `promossa`/`prenotazioneId` invariati.
+    expect(esito).toEqual({
+      promossa: true,
+      prenotazioneId: "pren-coda-1",
+      userId: "utente-2",
+    });
+    // L'helper resta "puro": scrive solo il LogEvento di innesco (AUTOMATION).
+    // La notifica CODA_PROMOZIONE la manda il chiamante, non `processaCodaPerPosto`.
     expect(logEventoCreateMock).toHaveBeenCalledTimes(1);
     expect(logEventoCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ tipo: "AUTOMATION" }),
     });
+    expect(notificaCreateMock).not.toHaveBeenCalled();
   });
 
   it("[TC-BIB40-007] ritorno null gestito senza errori e tracciato come 'coda_vuota'", async () => {
@@ -306,6 +338,172 @@ describe("processaCodaPerPosto — helper riusabile", () => {
       data: expect.objectContaining({
         tipo: "AUTOMATION",
         dettagli: expect.objectContaining({ esito: "coda_vuota" }),
+      }),
+    });
+  });
+});
+
+/**
+ * Test unitari BIB-42 / CA-05 — generazione delle notifiche per i tre eventi
+ * della lista d'attesa (`notificaEventoCoda`) e wrapper `notificaScadenzaCoda`.
+ *
+ * Come sopra, `@/lib/prisma` è mockato: si verifica solo che l'helper crei la
+ * `Notifica` e il `LogEvento` giusti (tipo / actionUrl / titolo / dettagli) e
+ * che sia robusto (nessun throw se la scrittura fallisce).
+ */
+describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => {
+  const posto = { numero: "A1", salaNome: "Sala Studio" };
+
+  it("[TC-BIB42-001] CODA_INGRESSO: notifica + log verso la lista d'attesa", async () => {
+    const esito = await notificaEventoCoda({
+      userId: "utente-1",
+      tipo: "CODA_INGRESSO",
+      posto,
+      richiestaId: "lista-attesa-1",
+    });
+
+    expect(esito).toEqual({ notificaCreata: true });
+
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "utente-1",
+        tipo: "CODA_INGRESSO",
+        titolo: expect.stringContaining("lista d'attesa"),
+        messaggio: expect.stringContaining("A1"),
+        actionUrl: "/prenotazioni/coda",
+        actionLabel: expect.any(String),
+      }),
+    });
+
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_INGRESSO",
+        targetUserId: "utente-1",
+        prenotazioneId: null,
+        descrizione: expect.stringContaining("CODA_INGRESSO"),
+        dettagli: expect.objectContaining({
+          evento: "notifica",
+          tipo: "CODA_INGRESSO",
+          posto: "A1",
+          sala: "Sala Studio",
+          listaAttesaId: "lista-attesa-1",
+          prenotazioneId: null,
+        }),
+      }),
+    });
+  });
+
+  it("[TC-BIB42-002] CODA_PROMOZIONE: actionUrl verso la prenotazione creata", async () => {
+    const esito = await notificaEventoCoda({
+      userId: "utente-2",
+      tipo: "CODA_PROMOZIONE",
+      posto,
+      prenotazioneId: "pren-99",
+    });
+
+    expect(esito).toEqual({ notificaCreata: true });
+
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "utente-2",
+        tipo: "CODA_PROMOZIONE",
+        titolo: expect.stringContaining("Posto assegnato"),
+        actionUrl: "/prenotazioni/pren-99",
+        actionLabel: "Vedi prenotazione",
+      }),
+    });
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_PROMOZIONE",
+        targetUserId: "utente-2",
+        prenotazioneId: "pren-99",
+        dettagli: expect.objectContaining({
+          evento: "notifica",
+          prenotazioneId: "pren-99",
+        }),
+      }),
+    });
+  });
+
+  it("[TC-BIB42-003] CODA_PROMOZIONE senza id: actionUrl di ripiego su /prenotazioni", async () => {
+    await notificaEventoCoda({ userId: "utente-2", tipo: "CODA_PROMOZIONE" });
+
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_PROMOZIONE",
+        actionUrl: "/prenotazioni",
+        // Nessun posto passato → descrizione generica, nessun crash.
+        messaggio: expect.stringContaining("il posto richiesto"),
+      }),
+    });
+  });
+
+  it("[TC-BIB42-004] CODA_SCADENZA: notifica + log verso la lista d'attesa", async () => {
+    const esito = await notificaEventoCoda({
+      userId: "utente-3",
+      tipo: "CODA_SCADENZA",
+      posto,
+      richiestaId: "lista-attesa-7",
+    });
+
+    expect(esito).toEqual({ notificaCreata: true });
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "utente-3",
+        tipo: "CODA_SCADENZA",
+        titolo: expect.stringContaining("scaduta"),
+        actionUrl: "/prenotazioni/coda",
+      }),
+    });
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_SCADENZA",
+        targetUserId: "utente-3",
+        dettagli: expect.objectContaining({
+          evento: "notifica",
+          listaAttesaId: "lista-attesa-7",
+        }),
+      }),
+    });
+  });
+
+  it("[TC-BIB42-005] robustezza: se la scrittura fallisce non lancia e lo segnala", async () => {
+    notificaCreateMock.mockRejectedValueOnce(new Error("DB non raggiungibile"));
+
+    const esito = await notificaEventoCoda({
+      userId: "utente-1",
+      tipo: "CODA_INGRESSO",
+      richiestaId: "lista-attesa-1",
+    });
+
+    // Nessun throw: l'errore è assorbito e riportato nel risultato.
+    expect(esito).toEqual({
+      notificaCreata: false,
+      errore: "DB non raggiungibile",
+    });
+    // Il log non viene tentato dopo il fallimento della notifica.
+    expect(logEventoCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB42-006] notificaScadenzaCoda: wrapper che delega a CODA_SCADENZA", async () => {
+    const esito = await notificaScadenzaCoda("utente-4", {
+      posto,
+      richiestaId: "lista-attesa-9",
+    });
+
+    expect(esito).toEqual({ notificaCreata: true });
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: "utente-4",
+        tipo: "CODA_SCADENZA",
+        actionUrl: "/prenotazioni/coda",
+      }),
+    });
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_SCADENZA",
+        targetUserId: "utente-4",
+        dettagli: expect.objectContaining({ listaAttesaId: "lista-attesa-9" }),
       }),
     });
   });
