@@ -1,0 +1,72 @@
+# ============================================================================
+# Deploy delle migrazioni sul database di produzione (Supabase)
+# ----------------------------------------------------------------------------
+# Le migrazioni Prisma NON vengono applicate da nessun altro step: il build
+# Vercel fa solo `next build`, la CI `test` applica le migrazioni solo sul
+# Postgres effimero. Questo workflow colma il buco.
+#
+# Parte SOLO quando un merge su `main` tocca `prisma/migrations/**`
+# (filtro `paths` nativo di GitHub Actions: se il merge non cambia le
+# migrazioni, il job non viene nemmeno schedulato).
+#
+# Richiede il secret di repository `PROD_DATABASE_URL`: la connection string
+# DIRETTA di Supabase (porta 5432 / session pooler, NON la transaction pooler
+# 6543, e senza `?pgbouncer=true`). Contiene la password -> deve essere un
+# secret, non una variable.
+# ============================================================================
+
+name: Migrate prod DB
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "prisma/migrations/**"
+
+# Non applicare due deploy di migrazioni in parallelo e non interrompere mai
+# un `migrate deploy` gia' in corso: lascia che il secondo aspetti il primo.
+concurrency:
+  group: migrate-prod
+  cancel-in-progress: false
+
+# Il workflow legge soltanto il codice.
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    name: prisma migrate deploy
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        # `npm ci` esegue anche il postinstall `prisma generate`.
+        run: npm ci
+
+      - name: Migrazioni pendenti (stato)
+        # Elenca le migrazioni presenti nel repo ma non ancora applicate al DB.
+        # Fallisce se il DB non e' raggiungibile: e' un errore reale, giusto bloccare.
+        run: npx prisma migrate status
+
+      - name: SQL che verra' applicato (dry-run)
+        # Diff fra lo stato attuale del DB e lo stato atteso dalle migrazioni:
+        # stampa nel log l'SQL che `migrate deploy` eseguira'. Non tocca il DB.
+        continue-on-error: true
+        run: >-
+          npx prisma migrate diff
+          --from-url "$DATABASE_URL"
+          --to-migrations ./prisma/migrations
+          --script
+
+      - name: Applica le migrazioni
+        run: npx prisma migrate deploy
