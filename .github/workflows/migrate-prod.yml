@@ -72,10 +72,12 @@ jobs:
       - name: SQL che verra' applicato (dry-run)
         # Diff fra lo stato attuale del DB e lo stato atteso dalle migrazioni:
         # stampa nel log l'SQL che `migrate deploy` eseguira'. Non tocca il DB.
+        # Prisma 7 ha rimosso `--from-url`: la datasource (DATABASE_URL) viene
+        # letta da prisma.config.ts tramite `--from-config-datasource`.
         continue-on-error: true
         run: >-
           npx prisma migrate diff
-          --from-url "$DATABASE_URL"
+          --from-config-datasource
           --to-migrations ./prisma/migrations
           --script
 
