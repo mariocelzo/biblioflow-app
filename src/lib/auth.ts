@@ -299,3 +299,94 @@ export function hasRole(
 export function isStaff(userRole: UserRole): boolean {
   return hasRole(userRole, ["BIBLIOTECARIO", "ADMIN"]);
 }
+
+export type AuthErrorCode =
+  | "NON_AUTENTICATO"
+  | "RUOLO_NON_AUTORIZZATO"
+  | "RISORSA_NON_AUTORIZZATA"
+  | "RISORSA_NON_TROVATA";
+
+export class AuthError extends Error {
+  constructor(
+    public readonly status: 401 | 403 | 404,
+    public readonly code: AuthErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AuthError";
+  }
+}
+
+export type AuthenticatedUser = {
+  id: string;
+  email: string;
+  nome: string;
+  cognome: string;
+  ruolo: UserRole;
+  matricola?: string | null;
+  isPendolare: boolean;
+  necessitaAccessibilita: boolean;
+};
+
+export type OwnedResource = {
+  userId: string;
+};
+
+/** Restituisce l'identita' autenticata derivata dalla sessione. */
+export async function requireUser(): Promise<AuthenticatedUser> {
+  const session = await auth();
+
+  if (!session?.user?.id) {
+    throw new AuthError(
+      401,
+      "NON_AUTENTICATO",
+      "E' richiesta una sessione autenticata",
+    );
+  }
+
+  return session.user;
+}
+
+/** Richiede che l'utente autenticato abbia uno dei ruoli ammessi. */
+export async function requireRole(
+  allowedRoles: readonly UserRole[],
+): Promise<AuthenticatedUser> {
+  const user = await requireUser();
+
+  if (!allowedRoles.includes(user.ruolo)) {
+    throw new AuthError(
+      403,
+      "RUOLO_NON_AUTORIZZATO",
+      "Il ruolo dell'utente non consente questa operazione",
+    );
+  }
+
+  return user;
+}
+
+/**
+ * Verifica la proprieta' senza rivelare agli studenti risorse di altri utenti.
+ * Per i ruoli staff la matrice ruoli-operazioni richiede invece un diniego 403.
+ */
+export function assertOwnership(
+  resource: OwnedResource,
+  user: AuthenticatedUser,
+): void {
+  if (resource.userId === user.id) {
+    return;
+  }
+
+  if (user.ruolo === "STUDENTE") {
+    throw new AuthError(
+      404,
+      "RISORSA_NON_TROVATA",
+      "La risorsa richiesta non esiste",
+    );
+  }
+
+  throw new AuthError(
+    403,
+    "RISORSA_NON_AUTORIZZATA",
+    "L'utente non e' proprietario della risorsa",
+  );
+}
