@@ -378,41 +378,57 @@ function oraPrisma(minuti: number): Date {
   return new Date(Date.UTC(1970, 0, 1, Math.floor(minuti / 60), minuti % 60));
 }
 
-function codiceErrore(error: unknown): string | undefined {
+function codiciErrore(
+  error: unknown,
+  visitati = new Set<object>(),
+): Set<string> {
+  const codici = new Set<string>();
   if (typeof error !== "object" || error === null) {
-    return undefined;
+    return codici;
   }
+  if (visitati.has(error)) {
+    return codici;
+  }
+  visitati.add(error);
 
   const candidate = error as {
     code?: unknown;
     originalCode?: unknown;
     cause?: unknown;
+    meta?: unknown;
+    driverAdapterError?: unknown;
   };
   if (typeof candidate.code === "string") {
-    return candidate.code;
+    codici.add(candidate.code);
   }
 
   // Gli adapter driver di Prisma 7 incapsulano i codici PostgreSQL in
-  // DriverAdapterError.cause.originalCode (es. 40001 su serializzazione).
+  // meta.driverAdapterError.cause.originalCode (es. 40001 o 23P01).
   if (typeof candidate.originalCode === "string") {
-    return candidate.originalCode;
+    codici.add(candidate.originalCode);
   }
 
-  return codiceErrore(candidate.cause);
+  for (const nested of [
+    candidate.cause,
+    candidate.meta,
+    candidate.driverAdapterError,
+  ]) {
+    for (const code of codiciErrore(nested, visitati)) codici.add(code);
+  }
+
+  return codici;
 }
 
 export function isConflittoConcorrenza(error: unknown): boolean {
-  const code = codiceErrore(error);
-  return (
-    code !== undefined &&
-    (CODICI_CONFLITTO_PRISMA.has(code) ||
-      CODICI_CONFLITTO_POSTGRES.has(code))
+  return [...codiciErrore(error)].some(
+    (code) =>
+      CODICI_CONFLITTO_PRISMA.has(code) || CODICI_CONFLITTO_POSTGRES.has(code),
   );
 }
 
 export function isViolazioneUnicita(error: unknown): boolean {
-  const code = codiceErrore(error);
-  return code === "P2002" || code === "23505";
+  const codes = codiciErrore(error);
+  return codes.has("P2002") || codes.has("23505");
 }
 
 async function creaPrenotazioneNellaTransazione(
