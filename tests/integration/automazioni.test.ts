@@ -41,15 +41,22 @@
  *      con `40001`/`40P01` e far uscire `concorrenza.test.ts` con zero 201.
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * 🐞 BUG REALE TROVATO IN FASE 4 (vedi TC-BIB47-002, marcato `it.skip`)
- * `releaseNoShowReservations` (src/lib/automation-service.ts:545-563) seleziona
- * OGNI prenotazione `CONFERMATA` con `data <= now` e `oraInizio <= now-15min`,
- * senza escludere quelle appena create da una promozione di coda e senza
- * concedere al promosso una finestra di check-in. La prenotazione che nasce da
- * `processaCodaPerPosto` per uno slot già iniziato da oltre 15 minuti (l'unico
- * caso in cui il no-show promuove qualcuno) diventa quindi immediatamente
- * "no-show" alla successiva esecuzione di `runAllAutomations()`: la catena
- * no-show + promozione NON è idempotente fra due run ravvicinati.
+ * 🐞→✅ BUG DI IDEMPOTENZA TROVATO DA QUESTO FILE E CORRETTO (TC-BIB47-002)
+ * Sintomo originale: `releaseNoShowReservations` selezionava OGNI prenotazione
+ * `CONFERMATA` con `data <= now` e `oraInizio` passata, senza escludere quelle
+ * appena create da una promozione di coda. La prenotazione nata da
+ * `processaCodaPerPosto` è per uno slot già iniziato da oltre 15 minuti (l'unico
+ * caso in cui il no-show promuove qualcuno), quindi alla run successiva veniva
+ * subito marcata NO_SHOW: catena no-show + promozione NON idempotente, e la
+ * finestra di conferma di BIB-44 scavalcata.
+ * Correzione (src/lib/automation-service.ts):
+ *   1. `releaseNoShowReservations` aggiunge `createdAt <= now - FINESTRA_CONFERMA`
+ *      (grazia): una prenotazione appena creata — quindi quella da promozione —
+ *      non viene mai messa subito in no-show.
+ *   2. `runAllAutomations` esegue `scadiPromozioniNonConfermate` PRIMA del
+ *      rilascio no-show: dopo la finestra, la decadenza della promozione non
+ *      confermata è gestita una sola volta (→ SCADUTA), e il no-show — che
+ *      filtra `stato = CONFERMATA` — non la rivede.
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -152,6 +159,11 @@ async function seedNoShowConCoda() {
       data: DATA_OGGI,
       ...SLOT_PASSATO,
       stato: "CONFERMATA",
+      // Prenotazione reale di no-show: creata con largo anticipo, quindi ben
+      // oltre la finestra di grazia anti no-show-immediato di
+      // `releaseNoShowReservations` (BIB-47). Solo le prenotazioni "appena
+      // create" — cioè quelle nate da una promozione di coda — restano protette.
+      createdAt: new Date(NOW.getTime() - 3 * 60 * 60_000),
     },
   });
   const laU2 = await prisma.listaAttesa.create({
@@ -417,36 +429,37 @@ describe("BIB-47 · CA-04 — no-show automatico e promozione dalla coda", RETRY
   });
 
   /**
-   * ⛔️ SKIP — BUG BIB-47 (vedi header del file).
+   * ✅ Regressione del bug di idempotenza (vedi header del file).
    *
-   * Alla SECONDA `runAllAutomations()` ravvicinata, `releaseNoShowReservations`
-   * riseleziona la prenotazione appena creata dalla promozione (stesso slot
-   * passato, nessun check-in) e la porta a NO_SHOW: l'asserzione
-   * "prenotazioni CONFERMATA di U2 invariato (1)" fallisce (diventa 0).
-   * Le altre proprietà di idempotenza (nessuna promozione/notifica/log
-   * duplicati) invece reggono e sono verificate in TC-BIB47-002b.
-   *
-   * File/riga: src/lib/automation-service.ts:545-563 (`releaseNoShowReservations`,
-   * la `prisma.prenotazione.findMany` che seleziona i no-show).
-   * Sintomo: la catena no-show + promozione non è idempotente fra run
-   * consecutivi; il promosso perde il posto senza finestra di check-in.
+   * Con la finestra di grazia su `createdAt` in `releaseNoShowReservations` e
+   * l'inversione d'ordine in `runAllAutomations`, la prenotazione nata dalla
+   * promozione NON viene più mandata in NO_SHOW alla run successiva: resta
+   * `CONFERMATA` finché il promosso ha tempo di fare check-in (finestra BIB-44).
    */
-  it.skip("[TC-BIB47-002] doppia esecuzione ravvicinata: non duplica la promozione (BUG BIB-47: la 2ª run manda in NO_SHOW il promosso)", async () => {
+  it("[TC-BIB47-002] doppia esecuzione ravvicinata: il promosso conserva il posto (idempotenza no-show + promozione)", async () => {
     await seedNoShowConCoda();
 
     await eseguiAutomazioni();
     const secondaRun = await eseguiAutomazioni();
 
+    // La prenotazione della promozione di U2 sopravvive alla 2ª run.
     const prenU2Confermate = await prisma.prenotazione.count({
       where: { userId: "bib47-u2", stato: "CONFERMATA" },
     });
-    expect(prenU2Confermate).toBe(1); // ← FALLISCE per il bug: la 2ª run la porta a NO_SHOW
+    expect(prenU2Confermate).toBe(1);
+    // Nessuna prenotazione di U2 finita in NO_SHOW/SCADUTA per effetto della 2ª run.
+    expect(
+      await prisma.prenotazione.count({
+        where: { userId: "bib47-u2", stato: { in: ["NO_SHOW", "SCADUTA"] } },
+      }),
+    ).toBe(0);
 
     const notifPromozione = await prisma.notifica.count({
       where: { userId: "bib47-u2", tipo: "CODA_PROMOZIONE" },
     });
     expect(notifPromozione).toBe(1);
     expect(secondaRun.noShows.promoted).toBe(0);
+    expect(secondaRun.promozioniScadute.scadute).toBe(0);
   });
 
   it("[TC-BIB47-002b] doppia esecuzione ravvicinata: nessuna promozione/notifica/coda duplicata", async () => {

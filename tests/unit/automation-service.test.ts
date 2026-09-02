@@ -43,6 +43,7 @@ vi.mock("@/lib/prisma", () => {
     logEvento: {
       create: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
     },
     $transaction: vi.fn(async (callback: (tx: unknown) => unknown) =>
       callback(prisma),
@@ -82,6 +83,7 @@ const postoUpdateMock = vi.mocked(prisma.posto.update);
 const notificaCreateMock = vi.mocked(prisma.notifica.create);
 const logEventoCreateMock = vi.mocked(prisma.logEvento.create);
 const logEventoFindFirstMock = vi.mocked(prisma.logEvento.findFirst);
+const logEventoFindManyMock = vi.mocked(prisma.logEvento.findMany);
 const transactionMock = vi.mocked(prisma.$transaction);
 const promuoviPrimoInCodaMock = vi.mocked(promuoviPrimoInCoda);
 
@@ -128,6 +130,8 @@ beforeEach(() => {
   postoUpdateMock.mockResolvedValue({} as never);
   notificaCreateMock.mockResolvedValue({} as never);
   logEventoCreateMock.mockResolvedValue({} as never);
+  // BIB-47: di default nessuna prenotazione è protetta da un CODA_PROMOZIONE recente.
+  logEventoFindManyMock.mockResolvedValue([] as never);
   promuoviPrimoInCodaMock.mockResolvedValue(null);
 });
 
@@ -317,6 +321,48 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
       promoted: 0,
       message: expect.any(String),
     });
+  });
+
+  it("[TC-BIB47-U1] protegge dal no-show le prenotazioni con un CODA_PROMOZIONE recente", async () => {
+    // BIB-47: la prenotazione nata da una promozione di coda ha uno slot già
+    // iniziato → sarebbe un candidato no-show. Se ha un LogEvento CODA_PROMOZIONE
+    // entro la finestra di conferma NON deve essere messa in NO_SHOW.
+    findManyMock.mockResolvedValue([
+      prenotazioneNoShow({ id: "pren-promossa", postoId: "posto-1" }),
+      prenotazioneNoShow({
+        id: "pren-normale",
+        postoId: "posto-2",
+        posto: {
+          id: "posto-2",
+          numero: "B2",
+          sala: { id: "sala-1", nome: "Sala Studio" },
+        },
+      }),
+    ] as never);
+    // Solo la prima ha una promozione recente.
+    logEventoFindManyMock.mockResolvedValue([
+      { prenotazioneId: "pren-promossa" },
+    ] as never);
+
+    const result = await releaseNoShowReservations();
+
+    // La query di protezione cerca i CODA_PROMOZIONE recenti sui candidati.
+    expect(logEventoFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          tipo: "CODA_PROMOZIONE",
+          prenotazioneId: { in: ["pren-promossa", "pren-normale"] },
+          createdAt: { gte: expect.any(Date) },
+        }),
+      }),
+    );
+    // Solo la "normale" viene messa in NO_SHOW.
+    expect(prenotazioneUpdateMock).toHaveBeenCalledTimes(1);
+    expect(prenotazioneUpdateMock).toHaveBeenCalledWith({
+      where: { id: "pren-normale" },
+      data: { stato: "NO_SHOW" },
+    });
+    expect(result.released).toBe(1);
   });
 });
 

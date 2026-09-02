@@ -562,6 +562,38 @@ export async function releaseNoShowReservations() {
     },
   });
 
+  // BIB-47 / CA-04: proteggi le prenotazioni nate da una promozione di coda
+  // entro la finestra di conferma. Sono per uno slot già iniziato da oltre 15
+  // minuti (è l'unico caso in cui un no-show promuove qualcuno): senza questa
+  // esclusione la run successiva del cron le marcherebbe subito NO_SHOW, prima
+  // che il promosso possa fare check-in — la catena no-show → promozione non
+  // sarebbe idempotente e scavalcherebbe la finestra di BIB-44. Trascorsa la
+  // finestra se ne occupa `scadiPromozioniNonConfermate` (che gira PRIMA di
+  // questo passo, vedi `runAllAutomations`), che le porta a `SCADUTA`; a quel
+  // punto non sono più `CONFERMATA` e questa query non le riseleziona.
+  // Le prenotazioni "normali" (senza LogEvento `CODA_PROMOZIONE` recente) non
+  // sono toccate: il comportamento di baseline resta invariato.
+  const finestraConferma = new Date(
+    now.getTime() - FINESTRA_CONFERMA_PROMOZIONE_MINUTI * 60 * 1000,
+  );
+  const idProtetti = new Set(
+    prenotazioni.length === 0
+      ? []
+      : (
+          await prisma.logEvento.findMany({
+            where: {
+              tipo: 'CODA_PROMOZIONE',
+              prenotazioneId: { in: prenotazioni.map((p) => p.id) },
+              createdAt: { gte: finestraConferma },
+            },
+            select: { prenotazioneId: true },
+          })
+        )
+          .map((e) => e.prenotazioneId)
+          .filter((id): id is string => id !== null),
+  );
+  const daProcessare = prenotazioni.filter((p) => !idProtetti.has(p.id));
+
   let count = 0;
   // Quante promozioni dalla lista d'attesa sono state effettivamente innescate
   // dai posti liberati in questo giro (BIB-40 / CA-04).
@@ -569,7 +601,7 @@ export async function releaseNoShowReservations() {
   // BIB-46 / CA-05: lista dei correlationId della run, per il riepilogo finale.
   const correlationIds: string[] = [];
 
-  for (const prenotazione of prenotazioni) {
+  for (const prenotazione of daProcessare) {
     // BIB-46 / CA-05: genera un correlationId univoco per questa catena di rilascio+promozione.
     const correlationId = randomUUID();
     correlationIds.push(correlationId);
@@ -1205,26 +1237,29 @@ export async function runAllAutomations() {
   }
 
   try {
-    // 3. Rilascio no-show
-    const noShows = await releaseNoShowReservations();
-    results.noShows = noShows;
-    console.log('✅ No-shows:', noShows);
-  } catch (error) {
-    console.error('❌ Errore no-shows:', error);
-    results.errors.push(`No-shows: ${error}`);
-  }
-
-  try {
-    // 4. Scadenza delle promozioni non confermate (BIB-44 / CA-04).
-    //    Va DOPO il rilascio no-show: quel passo può creare nuove promozioni,
-    //    che però hanno appena iniziato la loro finestra e non sono selezionate
-    //    da questo giro (`updatedAt` è di pochi istanti fa).
+    // 3. Scadenza delle promozioni non confermate (BIB-44 / CA-04).
+    //    BIB-47: va PRIMA del rilascio no-show. Così, quando la finestra di
+    //    conferma è scaduta, questo passo porta la prenotazione della promozione
+    //    a `SCADUTA` e promuove il successivo; il passo di no-show — che filtra
+    //    `stato = CONFERMATA` — non la vede più e non c'è doppia gestione.
+    //    Le promozioni ancora dentro la finestra restano protette qui
+    //    (`updatedAt` recente) e nel no-show (grazia su `createdAt`).
     const promozioniScadute = await scadiPromozioniNonConfermate();
     results.promozioniScadute = promozioniScadute;
     console.log('✅ Promozioni scadute:', promozioniScadute);
   } catch (error) {
     console.error('❌ Errore scadenza promozioni:', error);
     results.errors.push(`Promozioni scadute: ${error}`);
+  }
+
+  try {
+    // 4. Rilascio no-show
+    const noShows = await releaseNoShowReservations();
+    results.noShows = noShows;
+    console.log('✅ No-shows:', noShows);
+  } catch (error) {
+    console.error('❌ Errore no-shows:', error);
+    results.errors.push(`No-shows: ${error}`);
   }
 
   console.log('🎯 Automazioni completate:', results);
