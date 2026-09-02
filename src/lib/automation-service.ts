@@ -1,15 +1,24 @@
 /**
  * 🤖 Automation Service
- * 
+ *
  * Gestisce tutte le automazioni periodiche del sistema:
  * - Reminder check-in (15 min prima)
  * - Alert scadenza prestiti (3 giorni prima + giorno scadenza)
  * - Rilascio automatico no-show (15 min dopo ora inizio)
  * - Notifica posto liberato
+ * - Innesco della promozione dalla lista d'attesa quando un posto si libera
+ *   automaticamente (BIB-40 / CA-04)
  */
 
 import { prisma } from '@/lib/prisma';
 import { StatoPrenotazione, StatoPosto, TipoNotifica } from '@prisma/client';
+// La promozione dalla coda NON viene reimplementata qui: si invoca la funzione
+// di dominio già pronta (transazionale Serializable + FOR UPDATE SKIP LOCKED,
+// idempotente, e che scrive da sé il LogEvento `CODA_PROMOZIONE`).
+import {
+  promuoviPrimoInCoda,
+  type PromozioneCoda,
+} from '@/lib/prenotazioni-service';
 
 /**
  * 1️⃣ REMINDER CHECK-IN
@@ -190,6 +199,104 @@ export async function sendLoanExpiryAlerts() {
 }
 
 /**
+ * ♻️ HELPER RIUSABILE — INNESCO PROMOZIONE LISTA D'ATTESA
+ *
+ * Quando un'automazione libera un posto per un certo slot (posto + data +
+ * intervallo orario), questo helper "innesca" l'elaborazione della lista
+ * d'attesa per quello stesso slot.
+ *
+ * Cosa fa (e cosa NON fa):
+ * - INVOCA `promuoviPrimoInCoda` del servizio di dominio. Quella funzione è già
+ *   transazionale e idempotente: crea la prenotazione per il primo utente
+ *   IN_ATTESA, marca la richiesta di coda come PROMOSSA e scrive da sé il
+ *   LogEvento `CODA_PROMOZIONE`. Qui NON si riscrive nulla di tutto ciò.
+ * - Aggiunge soltanto un LogEvento di *innesco* (`tipo: 'AUTOMATION'`), così
+ *   resta traccia del tentativo anche quando la coda è vuota, quando il posto
+ *   risulta ancora occupato, o quando la promozione fallisce per un dato
+ *   sporco. La `CODA_PROMOZIONE` NON viene duplicata.
+ *
+ * `promuoviPrimoInCoda` ritorna `null` (senza lanciare) se la coda è vuota o il
+ * posto è ancora occupato: è un esito atteso, non un errore.
+ *
+ * L'helper è pensato per essere richiamato da più automazioni: oggi dal
+ * rilascio no-show (BIB-40 / CA-04), in futuro dal percorso "SCADUTA" della
+ * finestra di conferma (BIB-44), che potrà riusarlo senza modifiche.
+ *
+ * @param slot posto e intervallo appena liberati
+ * @returns `{ promossa, prenotazioneId? }` — `promossa` è true solo se è stata
+ *          effettivamente creata una nuova prenotazione a partire dalla coda
+ */
+export async function processaCodaPerPosto(slot: {
+  postoId: string;
+  data: Date;
+  oraInizio: Date;
+  oraFine: Date;
+}): Promise<{ promossa: boolean; prenotazioneId?: string }> {
+  // Rappresentazione compatta e serializzabile dello slot, riusata in ogni
+  // esito del LogEvento di innesco (utile per gli audit anche a coda vuota).
+  const dettagliSlot = {
+    postoId: slot.postoId,
+    data: slot.data.toISOString().slice(0, 10), // "YYYY-MM-DD"
+    oraInizio: slot.oraInizio.toISOString().slice(11, 16), // "HH:MM"
+    oraFine: slot.oraFine.toISOString().slice(11, 16), // "HH:MM"
+  };
+
+  let promozione: PromozioneCoda | null = null;
+  let errore: string | undefined;
+
+  try {
+    // Unica responsabilità: invocare il dominio. `prisma` fa da
+    // PrismaTransactionRunner (espone `$transaction`).
+    promozione = await promuoviPrimoInCoda(
+      {
+        postoId: slot.postoId,
+        data: slot.data,
+        oraInizio: slot.oraInizio,
+        oraFine: slot.oraFine,
+      },
+      prisma,
+    );
+  } catch (err) {
+    // Un singolo slot problematico (es. prenotazione stantia con data ormai
+    // nel passato, che fa fallire la validazione dell'intervallo) non deve
+    // interrompere il resto del giro di automazioni: lo si registra e basta.
+    errore = err instanceof Error ? err.message : String(err);
+    console.error('❌ Errore innesco promozione coda:', err);
+  }
+
+  // Esito leggibile per descrizione e dettagli del log.
+  const esito: 'promossa' | 'coda_vuota' | 'errore' = errore
+    ? 'errore'
+    : promozione
+      ? 'promossa'
+      : 'coda_vuota';
+
+  // LogEvento di *innesco*: sempre scritto, così ogni tentativo lascia traccia.
+  await prisma.logEvento.create({
+    data: {
+      tipo: 'AUTOMATION',
+      // Si collega utente/prenotazione promossi solo se esistono davvero.
+      targetUserId: promozione?.prenotazione.userId ?? null,
+      prenotazioneId: promozione?.prenotazione.id ?? null,
+      descrizione: `Innesco promozione lista d'attesa per posto ${slot.postoId} (esito: ${esito})`,
+      dettagli: {
+        ...dettagliSlot,
+        esito,
+        prenotazioneId: promozione?.prenotazione.id ?? null,
+        listaAttesaId: promozione?.richiestaId ?? null,
+        utenteId: promozione?.prenotazione.userId ?? null,
+        errore: errore ?? null,
+      },
+    },
+  });
+
+  return {
+    promossa: promozione !== null,
+    prenotazioneId: promozione?.prenotazione.id,
+  };
+}
+
+/**
  * 3️⃣ RILASCIO AUTOMATICO NO-SHOW
  * Libera i posti di prenotazioni confermate senza check-in dopo 15 minuti dall'ora di inizio
  */
@@ -219,6 +326,9 @@ export async function releaseNoShowReservations() {
   });
 
   let count = 0;
+  // Quante promozioni dalla lista d'attesa sono state effettivamente innescate
+  // dai posti liberati in questo giro (BIB-40 / CA-04).
+  let promoted = 0;
 
   for (const prenotazione of prenotazioni) {
     // Aggiorna prenotazione a NO_SHOW
@@ -264,9 +374,26 @@ export async function releaseNoShowReservations() {
     });
 
     count++;
+
+    // 🔁 CA-04 (BIB-40): il posto è appena tornato DISPONIBILE per questo slot.
+    // Si innesca l'elaborazione della lista d'attesa invocando la funzione di
+    // dominio tramite l'helper riusabile (nessun errore se la coda è vuota).
+    const esitoCoda = await processaCodaPerPosto({
+      postoId: prenotazione.postoId,
+      data: prenotazione.data,
+      oraInizio: prenotazione.oraInizio,
+      oraFine: prenotazione.oraFine,
+    });
+    if (esitoCoda.promossa) {
+      promoted++;
+    }
   }
 
-  return { released: count, message: `${count} posti liberati per no-show` };
+  return {
+    released: count,
+    promoted,
+    message: `${count} posti liberati per no-show, ${promoted} promozioni dalla lista d'attesa`,
+  };
 }
 
 /**
@@ -353,7 +480,9 @@ export async function runAllAutomations() {
     timestamp: new Date(),
     reminders: { sent: 0 },
     loanAlerts: { sent: 0 },
-    noShows: { released: 0 },
+    // `promoted`: promozioni dalla lista d'attesa innescate dai no-show liberati
+    // (BIB-40 / CA-04). `released` resta invariato per retro-compatibilità.
+    noShows: { released: 0, promoted: 0 },
     errors: [] as string[],
   };
 
