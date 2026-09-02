@@ -1,62 +1,65 @@
 import { NextRequest, NextResponse } from "next/server";
+
+import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  creaPrenotazioneAtomica,
+  PrenotazioneError,
+} from "@/lib/prenotazioni-service";
 import { readApiRateLimiter } from "@/lib/rate-limit";
 
-// GET /api/prenotazioni - Lista prenotazioni
+function errorResponse(error: unknown, fallback: string) {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
+
+  if (error instanceof PrenotazioneError) {
+    return NextResponse.json(
+      { success: false, ...error.toResponseBody() },
+      { status: error.status },
+    );
+  }
+
+  console.error(fallback, error);
+  return NextResponse.json(
+    { success: false, error: fallback },
+    { status: 500 },
+  );
+}
+
+// GET /api/prenotazioni - restituisce esclusivamente le prenotazioni della sessione.
 export async function GET(request: NextRequest) {
   try {
-    // Rate limiting: 300 req/min per letture
+    const user = await requireUser();
     const rateLimitResult = await readApiRateLimiter(request);
     if (rateLimitResult) return rateLimitResult;
-    
+
     const { searchParams } = new URL(request.url);
-    
-    // Parametri di filtro
-    const userId = searchParams.get("userId");
     const postoId = searchParams.get("postoId");
     const stato = searchParams.get("stato");
-    const data = searchParams.get("data"); // formato: YYYY-MM-DD
+    const data = searchParams.get("data");
     const dataInizio = searchParams.get("dataInizio");
     const dataFine = searchParams.get("dataFine");
-    
-    console.log('[API PRENOTAZIONI GET] Parametri:', { userId, postoId, stato, data, dataInizio, dataFine });
-    
-    const where: Record<string, unknown> = {};
-    
-    if (userId) {
-      where.userId = userId;
-    }
-    
-    if (postoId) {
-      where.postoId = postoId;
-    }
-    
-    if (stato) {
-      where.stato = stato;
-    }
-    
+    const where: Record<string, unknown> = { userId: user.id };
+
+    if (postoId) where.postoId = postoId;
+    if (stato) where.stato = stato;
+
     if (data) {
-      const dataDate = new Date(data);
-      dataDate.setHours(0, 0, 0, 0);
+      const dataDate = new Date(`${data}T00:00:00.000Z`);
       const nextDay = new Date(dataDate);
-      nextDay.setDate(nextDay.getDate() + 1);
-      
-      where.data = {
-        gte: dataDate,
-        lt: nextDay,
-      };
+      nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+      where.data = { gte: dataDate, lt: nextDay };
     } else if (dataInizio || dataFine) {
-      where.data = {};
-      if (dataInizio) {
-        (where.data as Record<string, Date>).gte = new Date(dataInizio);
-      }
-      if (dataFine) {
-        (where.data as Record<string, Date>).lte = new Date(dataFine);
-      }
+      const intervallo: Record<string, Date> = {};
+      if (dataInizio) intervallo.gte = new Date(dataInizio);
+      if (dataFine) intervallo.lte = new Date(dataFine);
+      where.data = intervallo;
     }
-    
-    console.log('[API PRENOTAZIONI GET] Where clause:', JSON.stringify(where, null, 2));
-    
+
     const prenotazioni = await prisma.prenotazione.findMany({
       where,
       include: {
@@ -76,238 +79,93 @@ export async function GET(request: NextRequest) {
             haPresaElettrica: true,
             haFinestra: true,
             isAccessibile: true,
-            sala: {
-              select: {
-                id: true,
-                nome: true,
-                piano: true,
-              },
-            },
+            sala: { select: { id: true, nome: true, piano: true } },
           },
         },
       },
-      orderBy: [
-        { data: "desc" },
-        { oraInizio: "asc" },
-      ],
+      orderBy: [{ data: "desc" }, { oraInizio: "asc" }],
     });
-    
-    console.log('[API PRENOTAZIONI GET] Trovate:', prenotazioni.length, 'prenotazioni');
-    
+
     return NextResponse.json({
       success: true,
       data: prenotazioni,
       count: prenotazioni.length,
     });
   } catch (error) {
-    console.error("Errore GET /api/prenotazioni:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nel recupero delle prenotazioni" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nel recupero delle prenotazioni");
   }
 }
 
-// POST /api/prenotazioni - Crea nuova prenotazione
+// POST /api/prenotazioni - crea usando sempre l'identita' della sessione.
 export async function POST(request: NextRequest) {
   try {
+    const user = await requireUser();
     const body = await request.json();
-    
-    const { userId, postoId, data, oraInizio, oraFine, marginePendolare, minutiMarginePendolare, note } = body;
-    
-    // Validazione campi obbligatori
-    if (!userId || !postoId || !data || !oraInizio || !oraFine) {
+    const {
+      postoId,
+      data,
+      oraInizio,
+      oraFine,
+      marginePendolare,
+      minutiMarginePendolare,
+      note,
+    } = body;
+
+    if (!postoId || !data || !oraInizio || !oraFine) {
       return NextResponse.json(
-        { success: false, error: "Campi obbligatori mancanti: userId, postoId, data, oraInizio, oraFine" },
-        { status: 400 }
-      );
-    }
-    
-    // Verifica che l'utente esista
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      return NextResponse.json(
-        { success: false, error: "Utente non trovato" },
-        { status: 404 }
-      );
-    }
-    
-    // Verifica che il posto esista e sia disponibile
-    const posto = await prisma.posto.findUnique({ 
-      where: { id: postoId },
-      include: { sala: true },
-    });
-    if (!posto) {
-      return NextResponse.json(
-        { success: false, error: "Posto non trovato" },
-        { status: 404 }
-      );
-    }
-    
-    // Converti le date - IMPORTANTE: usare UTC per evitare problemi di timezone
-    // La stringa data è nel formato "2026-01-07", la convertiamo in UTC mezzanotte
-    const [anno, mese, giorno] = data.split("-").map(Number);
-    const dataPrenotazione = new Date(Date.UTC(anno, mese - 1, giorno, 0, 0, 0, 0));
-    
-    console.log(`[API PRENOTAZIONI] Data input: ${data}, Data salvata: ${dataPrenotazione.toISOString()}`);
-    
-    // Crea oggetti Date per gli orari (usando data fittizia 1970-01-01)
-    const [oreInizio, minutiInizio] = oraInizio.split(":").map(Number);
-    const [oreFine, minutiFine] = oraFine.split(":").map(Number);
-    
-    const oraInizioDate = new Date(1970, 0, 1, oreInizio, minutiInizio, 0, 0);
-    const oraFineDate = new Date(1970, 0, 1, oreFine, minutiFine, 0, 0);
-    
-    // VERIFICA 1: L'utente non deve avere già una prenotazione che si sovrappone per quel giorno
-    const prenotazioniUtente = await prisma.prenotazione.findMany({
-      where: {
-        userId,
-        data: dataPrenotazione,
-        stato: {
-          in: ["CONFERMATA", "CHECK_IN"],
+        {
+          success: false,
+          code: "CAMPI_OBBLIGATORI_MANCANTI",
+          error: "Campi obbligatori mancanti: postoId, data, oraInizio, oraFine",
+          suggerisciCoda: false,
         },
-      },
-      include: {
-        posto: {
-          select: {
-            numero: true,
-          },
-        },
-      },
-    });
-    
-    // Controlla sovrapposizioni con prenotazioni dell'utente
-    const nuovoInizio = oreInizio * 60 + minutiInizio;
-    const nuovoFine = oreFine * 60 + minutiFine;
-    
-    for (const p of prenotazioniUtente) {
-      const pInizio = p.oraInizio.getHours() * 60 + p.oraInizio.getMinutes();
-      const pFine = p.oraFine.getHours() * 60 + p.oraFine.getMinutes();
-      
-      if (nuovoInizio < pFine && nuovoFine > pInizio) {
-        return NextResponse.json(
-          { 
-            success: false, 
-            error: `Hai già una prenotazione per il posto ${p.posto.numero} in questo orario (${p.oraInizio.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}-${p.oraFine.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })})` 
-          },
-          { status: 409 }
-        );
-      }
+        { status: 422 },
+      );
     }
-    
-    // VERIFICA 2: Il posto non deve essere già prenotato da altri
-    const prenotazioniPosto = await prisma.prenotazione.findMany({
-      where: {
+
+    // Qualunque userId inviato dal client viene deliberatamente ignorato (CA-01).
+    const creata = await creaPrenotazioneAtomica(
+      {
+        userId: user.id,
         postoId,
-        data: dataPrenotazione,
-        stato: {
-          in: ["CONFERMATA", "CHECK_IN"],
-        },
-      },
-    });
-    
-    // Controlla sovrapposizioni di orari per il posto
-    for (const p of prenotazioniPosto) {
-      const pInizio = p.oraInizio.getHours() * 60 + p.oraInizio.getMinutes();
-      const pFine = p.oraFine.getHours() * 60 + p.oraFine.getMinutes();
-      
-      if (nuovoInizio < pFine && nuovoFine > pInizio) {
-        return NextResponse.json(
-          { success: false, error: "Il posto è già prenotato per questo orario" },
-          { status: 409 }
-        );
-      }
-    }
-    
-    // Verifica orari apertura sala
-    const [oreApertura, minutiApertura] = posto.sala.orarioApertura.split(":").map(Number);
-    const [oreChiusura, minutiChiusura] = posto.sala.orarioChiusura.split(":").map(Number);
-    
-    const aperturaMinuti = oreApertura * 60 + minutiApertura;
-    const chiusuraMinuti = oreChiusura * 60 + minutiChiusura;
-    const inizioMinuti = oreInizio * 60 + minutiInizio;
-    const fineMinuti = oreFine * 60 + minutiFine;
-    
-    if (inizioMinuti < aperturaMinuti || fineMinuti > chiusuraMinuti) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          error: `La sala è aperta dalle ${posto.sala.orarioApertura} alle ${posto.sala.orarioChiusura}` 
-        },
-        { status: 400 }
-      );
-    }
-    
-    // Crea la prenotazione
-    const prenotazione = await prisma.prenotazione.create({
-      data: {
-        userId,
-        postoId,
-        data: dataPrenotazione,
-        oraInizio: oraInizioDate,
-        oraFine: oraFineDate,
-        stato: "CONFERMATA",
-        marginePendolare: marginePendolare || false,
-        minutiMarginePendolare: minutiMarginePendolare || 30,
+        data,
+        oraInizio,
+        oraFine,
+        marginePendolare,
+        minutiMarginePendolare,
         note,
       },
-      include: {
-        user: {
-          select: {
-            id: true,
-            nome: true,
-            cognome: true,
-            email: true,
-          },
-        },
-        posto: {
-          select: {
-            id: true,
-            numero: true,
-            sala: {
-              select: {
-                id: true,
-                nome: true,
-                piano: true,
-              },
-            },
-          },
-        },
-      },
-    });
-    
-    // Crea log evento
-    await prisma.logEvento.create({
-      data: {
-        tipo: "PRENOTAZIONE_CREATA",
-        userId,
-        prenotazioneId: prenotazione.id,
-        descrizione: `Prenotazione creata per posto ${posto.numero}`,
-      },
-    });
-    
-    // Crea notifica
-    await prisma.notifica.create({
-      data: {
-        userId,
-        tipo: "PRENOTAZIONE",
-        titolo: "Prenotazione confermata",
-        messaggio: `La tua prenotazione per il posto ${posto.numero} è stata confermata per il ${dataPrenotazione.toLocaleDateString("it-IT")} dalle ${oraInizio} alle ${oraFine}.`,
-        actionUrl: "/prenotazioni",
-        actionLabel: "Vedi prenotazione",
-      },
-    });
-    
-    return NextResponse.json({
-      success: true,
-      data: prenotazione,
-    }, { status: 201 });
-    
-  } catch (error) {
-    console.error("Errore POST /api/prenotazioni:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nella creazione della prenotazione" },
-      { status: 500 }
+      prisma,
     );
+
+    const posto = await prisma.posto.findUnique({
+      where: { id: creata.postoId },
+      select: { numero: true },
+    });
+
+    await Promise.all([
+      prisma.logEvento.create({
+        data: {
+          tipo: "PRENOTAZIONE_CREATA",
+          userId: user.id,
+          prenotazioneId: creata.id,
+          descrizione: `Prenotazione creata per posto ${posto?.numero ?? creata.postoId}`,
+        },
+      }),
+      prisma.notifica.create({
+        data: {
+          userId: user.id,
+          tipo: "PRENOTAZIONE",
+          titolo: "Prenotazione confermata",
+          messaggio: `La prenotazione per il posto ${posto?.numero ?? creata.postoId} e' stata confermata.`,
+          actionUrl: "/prenotazioni",
+          actionLabel: "Vedi prenotazione",
+        },
+      }),
+    ]);
+
+    return NextResponse.json({ success: true, data: creata }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error, "Errore nella creazione della prenotazione");
   }
 }
