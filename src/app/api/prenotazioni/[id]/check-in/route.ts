@@ -1,102 +1,104 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
-import { auth } from "@/lib/auth";
+
+import {
+  assertOwnership,
+  AuthError,
+  requireUser,
+} from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+
+function errorResponse(error: unknown) {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
+
+  console.error("Errore durante il check-in:", error);
+  return NextResponse.json(
+    { success: false, error: "Errore interno del server" },
+    { status: 500 },
+  );
+}
+
+function istanteInizio(data: Date, oraInizio: Date): Date {
+  return new Date(
+    Date.UTC(
+      data.getUTCFullYear(),
+      data.getUTCMonth(),
+      data.getUTCDate(),
+      oraInizio.getUTCHours(),
+      oraInizio.getUTCMinutes(),
+    ),
+  );
+}
 
 export async function POST(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
   try {
-    // Verifica autenticazione
-    const session = await auth();
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: "Non autenticato" },
-        { status: 401 }
-      );
-    }
-
+    const user = await requireUser();
     const { id: prenotazioneId } = await context.params;
-    const body = await request.json();
-    const { timestamp } = body;
-
-    // Trova la prenotazione
+    const { timestamp } = await request.json();
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id: prenotazioneId },
-      include: {
-        user: true,
-        posto: {
-          include: {
-            sala: true,
-          },
-        },
-      },
+      include: { user: true, posto: { include: { sala: true } } },
     });
 
     if (!prenotazione) {
       return NextResponse.json(
-        { error: "Prenotazione non trovata" },
-        { status: 404 }
+        { success: false, error: "Prenotazione non trovata" },
+        { status: 404 },
       );
     }
 
-    // Verifica che la prenotazione appartenga all'utente
-    if (prenotazione.userId !== session.user.id) {
-      return NextResponse.json(
-        { error: "Non autorizzato" },
-        { status: 403 }
-      );
-    }
+    assertOwnership(prenotazione, user);
 
-    // Verifica che la prenotazione sia in stato CONFERMATA
+    // Una voce ListaAttesa non e' una Prenotazione; inoltre solo CONFERMATA e' ammessa.
     if (prenotazione.stato !== "CONFERMATA") {
       return NextResponse.json(
-        { error: `Impossibile effettuare il check-in. Stato attuale: ${prenotazione.stato}` },
-        { status: 400 }
+        {
+          success: false,
+          code: "STATO_CHECK_IN_NON_VALIDO",
+          error: `Impossibile effettuare il check-in. Stato attuale: ${prenotazione.stato}`,
+        },
+        { status: 422 },
       );
     }
 
-    // Verifica che il check-in sia nel periodo valido
-    const now = new Date(timestamp || Date.now());
-    const oraInizio = new Date(prenotazione.oraInizio);
-    const checkInScadenza = new Date(oraInizio.getTime() - 15 * 60 * 1000); // 15 minuti prima
-    
-    if (now > oraInizio) {
+    const now = new Date(timestamp ?? Date.now());
+    if (Number.isNaN(now.getTime())) {
       return NextResponse.json(
-        { error: "Il periodo di check-in è scaduto" },
-        { status: 400 }
+        { success: false, error: "Timestamp non valido" },
+        { status: 422 },
       );
     }
 
-    if (now < checkInScadenza) {
+    const inizio = istanteInizio(prenotazione.data, prenotazione.oraInizio);
+    const aperturaCheckIn = new Date(inizio.getTime() - 15 * 60 * 1000);
+    if (now > inizio) {
       return NextResponse.json(
-        { error: "È troppo presto per effettuare il check-in" },
-        { status: 400 }
+        { success: false, error: "Il periodo di check-in e' scaduto" },
+        { status: 400 },
+      );
+    }
+    if (now < aperturaCheckIn) {
+      return NextResponse.json(
+        { success: false, error: "E' troppo presto per effettuare il check-in" },
+        { status: 400 },
       );
     }
 
-    // Aggiorna lo stato della prenotazione a CHECK_IN
     const prenotazioneAggiornata = await prisma.prenotazione.update({
       where: { id: prenotazioneId },
-      data: {
-        stato: "CHECK_IN",
-        checkInAt: now,
-      },
-      include: {
-        posto: {
-          include: {
-            sala: true,
-          },
-        },
-      },
+      data: { stato: "CHECK_IN", checkInAt: now },
+      include: { posto: { include: { sala: true } } },
     });
-
-    // Aggiorna lo stato del posto a OCCUPATO
     await prisma.posto.update({
       where: { id: prenotazione.postoId },
-      data: {
-        stato: "OCCUPATO",
-      },
+      data: { stato: "OCCUPATO" },
     });
 
     return NextResponse.json({
@@ -115,10 +117,6 @@ export async function POST(
       },
     });
   } catch (error) {
-    console.error("Errore durante il check-in:", error);
-    return NextResponse.json(
-      { error: "Errore interno del server" },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }
