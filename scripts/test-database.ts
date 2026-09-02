@@ -42,6 +42,12 @@ function run(executable: string, args: string[], extraEnv = process.env): void {
 }
 
 function localExecutable(name: string): string {
+  // Durante uno script npm, node_modules/.bin e' gia' nel PATH. Su Windows
+  // usare il solo nome evita che cmd tronchi i percorsi assoluti con spazi.
+  if (process.platform === "win32") {
+    return `${name}${executableExtension}`;
+  }
+
   return path.resolve(
     process.cwd(),
     "node_modules",
@@ -51,6 +57,13 @@ function localExecutable(name: string): string {
 }
 
 function prepareDatabase(): void {
+  // Il servizio usa tmpfs ed e' esclusivamente il DB *_test validato sopra.
+  // Ricrearlo garantisce una base vuota senza invocare migrate reset.
+  run(
+    "docker",
+    ["compose", "--profile", "test", "rm", "-f", "-s", "postgres-test"],
+    composeEnv,
+  );
   run(
     "docker",
     [
@@ -71,8 +84,10 @@ function prepareDatabase(): void {
     NODE_ENV: "test",
   };
 
-  // Il DB e' effimero: lo sincronizziamo con lo schema Prisma corrente senza
-  // generare o modificare migrazioni destinate alla produzione.
+  // migrate deploy applica anche le migrazioni SQL custom (es. exclusion
+  // constraint), che db push non ricrea. Il successivo db push colma invece
+  // le tabelle legacy ancora non rappresentate dalle migrazioni storiche.
+  run(localExecutable("prisma"), ["migrate", "deploy"], testEnv);
   run(localExecutable("prisma"), ["db", "push"], testEnv);
   run(localExecutable("tsx"), ["tests/fixtures/seed.ts"], testEnv);
 }

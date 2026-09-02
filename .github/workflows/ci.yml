@@ -169,9 +169,14 @@ jobs:
         run: npm ci
 
       - name: Applica lo schema al DB di test
-        # Porta il DB di test allo schema corrente. È già utile ora e sarà
-        # indispensabile quando ci saranno i test di integrazione.
-        run: npx prisma migrate deploy
+        # Le migrazioni applicano anche i vincoli SQL custom (per esempio
+        # l'exclusion constraint anti-sovrapposizione). Lo storico iniziale,
+        # però, non copre tutte le colonne legacy già presenti nello schema
+        # Prisma: su questo DB effimero completiamo quindi il riallineamento
+        # prima di eseguire i test di integrazione.
+        run: |
+          npx prisma migrate deploy
+          npx prisma db push --accept-data-loss
 
       - name: Test
         # Il framework di test non è ancora configurato (card Fase 0 di Renato):
