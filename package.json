@@ -13,7 +13,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "generate:secrets": "node scripts/generate-secrets.js",
-    "test": "vitest run --passWithNoTests --exclude tests/pre-modifica/**",
+    "test": "vitest run --passWithNoTests --exclude \"tests/pre-modifica/**\"",
     "test:pre": "vitest run --passWithNoTests tests/pre-modifica",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage --passWithNoTests",
