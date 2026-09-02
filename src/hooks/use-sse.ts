@@ -118,6 +118,19 @@ export function useSSE<T = unknown>(
         }
       };
 
+      // Gestione dei tipi di evento non riconosciuti (BIB-45, CA-06):
+      // è un no-op silenzioso, per costruzione, senza bisogno di codice extra.
+      // - `onmessage` scatta SOLO per i messaggi SSE senza campo `event:`
+      //   (tipo "message"); gli eventi nominati (`posto-update`, e i nuovi
+      //   `coda-ingresso` / `coda-promozione`) non lo attivano mai.
+      // - Gli eventi nominati vengono consegnati solo se il loro nome è in
+      //   `events` e quindi registrato con `addEventListener` qui sotto.
+      // - Nessun ramo fa `throw` o `console.warn` su un tipo sconosciuto:
+      //   il warn di parsing scatta solo per un JSON malformato su un evento
+      //   che stiamo già ascoltando.
+      // Un client che non conosce i nuovi eventi della coda non va quindi in
+      // errore e non produce log rumorosi.
+
       // Handler generico per tutti gli eventi
       eventSource.onmessage = (e) => {
         try {

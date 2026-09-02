@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { AuthError, requireUser } from "@/lib/auth";
+// BIB-42 / CA-05: alla conferma di ingresso in coda si genera la notifica
+// utente `CODA_INGRESSO`. L'helper è best-effort e non altera la risposta.
+import { notificaEventoCoda } from "@/lib/automation-service";
 import { prisma } from "@/lib/prisma";
 import {
   annullaRichiestaCoda,
@@ -114,10 +117,14 @@ export async function POST(request: NextRequest) {
       where: { id: codaInput.postoId },
       select: {
         id: true,
+        // `numero` e `sala.nome`: servono solo a comporre il testo della
+        // notifica CODA_INGRESSO (BIB-42). Non incidono sulla validazione.
+        numero: true,
         attivo: true,
         stato: true,
         sala: {
           select: {
+            nome: true,
             attiva: true,
             orarioApertura: true,
             orarioChiusura: true,
@@ -128,6 +135,19 @@ export async function POST(request: NextRequest) {
     validaPostoPrenotabile(posto);
 
     const richiesta = await entraInCoda(codaInput, prisma);
+
+    // BIB-42 / CA-05: richiesta IN_ATTESA creata con successo → notifica utente
+    // di ingresso in lista d'attesa. Chiamata prima della risposta ma senza
+    // modificarne la forma; l'helper assorbe da sé eventuali errori.
+    if (posto) {
+      await notificaEventoCoda({
+        userId: user.id,
+        tipo: "CODA_INGRESSO",
+        posto: { numero: posto.numero, salaNome: posto.sala.nome },
+        richiestaId: richiesta.id,
+      });
+    }
+
     const posizione = await posizioneInCoda(
       {
         userId: user.id,
