@@ -777,7 +777,9 @@ describe("scadiPromozioniNonConfermate — finestra di conferma (BIB-44 / CA-04)
     // `$transaction(cb)` → `cb(prisma)`: le scritture "in transazione" finiscono
     // sulle stesse spie del mock. (`restoreMocks` azzera l'impl del factory.)
     transactionMock.mockImplementation(
-      async (cb: (tx: unknown) => unknown) => cb(prisma),
+      // `$transaction` è sovraccaricato (array | callback): il cast tiene il
+      // mock allineato allo stile del file (`as never`) senza introdurre `any`.
+      (async (cb: (tx: unknown) => unknown) => cb(prisma)) as never,
     );
     listaAttesaFindManyMock.mockResolvedValue([] as never);
     listaAttesaUpdateManyMock.mockResolvedValue({ count: 1 } as never);
