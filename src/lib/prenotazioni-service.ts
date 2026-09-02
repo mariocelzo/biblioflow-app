@@ -383,9 +383,19 @@ function codiceErrore(error: unknown): string | undefined {
     return undefined;
   }
 
-  const candidate = error as { code?: unknown; cause?: unknown };
+  const candidate = error as {
+    code?: unknown;
+    originalCode?: unknown;
+    cause?: unknown;
+  };
   if (typeof candidate.code === "string") {
     return candidate.code;
+  }
+
+  // Gli adapter driver di Prisma 7 incapsulano i codici PostgreSQL in
+  // DriverAdapterError.cause.originalCode (es. 40001 su serializzazione).
+  if (typeof candidate.originalCode === "string") {
+    return candidate.originalCode;
   }
 
   return codiceErrore(candidate.cause);
