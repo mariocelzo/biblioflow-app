@@ -740,3 +740,227 @@ describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)
     });
   });
 });
+
+/**
+ * Test unitari BIB-44 / CA-04 — finestra di conferma della promozione.
+ *
+ * `scadiPromozioniNonConfermate` porta a SCADUTA le richieste PROMOSSA da oltre
+ * la finestra e non confermate (= senza check-in sulla prenotazione nata dalla
+ * promozione), libera il posto e rioffre lo slot al successivo in coda.
+ *
+ * Mock: come sopra `@/lib/prisma` è tutto spie e `$transaction` esegue la
+ * callback passandole lo stesso mock come `tx`, così le scritture in
+ * transazione restano ispezionabili.
+ */
+describe("scadiPromozioniNonConfermate — finestra di conferma (BIB-44 / CA-04)", () => {
+  // Promossa "molto tempo fa": ben oltre la finestra di conferma.
+  const promossaAlle = new Date(
+    Date.now() - (FINESTRA_CONFERMA_PROMOZIONE_MINUTI + 30) * 60 * 1000,
+  );
+
+  /** Richiesta PROMOSSA nella forma restituita da findMany (include posto+sala). */
+  function richiestaPromossa(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "la-1",
+      userId: "u-1",
+      postoId: "p-1",
+      data: dataDb,
+      oraInizio: oraInizioDb,
+      oraFine: oraFineDb,
+      updatedAt: promossaAlle,
+      posto: { numero: "A1", sala: { nome: "Sala Studio" } },
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    // `$transaction(cb)` → `cb(prisma)`: le scritture "in transazione" finiscono
+    // sulle stesse spie del mock. (`restoreMocks` azzera l'impl del factory.)
+    transactionMock.mockImplementation(
+      async (cb: (tx: unknown) => unknown) => cb(prisma),
+    );
+    listaAttesaFindManyMock.mockResolvedValue([] as never);
+    listaAttesaUpdateManyMock.mockResolvedValue({ count: 1 } as never);
+    prenotazioneUpdateManyMock.mockResolvedValue({ count: 1 } as never);
+    prenotazioneFindUniqueMock.mockResolvedValue(null as never);
+    prenotazioneFindFirstMock.mockResolvedValue(null as never);
+    logEventoFindFirstMock.mockResolvedValue(null as never);
+  });
+
+  it("[TC-BIB44-001] promozione non confermata entro la finestra: scade, libera il posto e promuove il successivo", async () => {
+    listaAttesaFindManyMock.mockResolvedValue([richiestaPromossa()] as never);
+    // La prenotazione della promozione esiste, è CONFERMATA e senza check-in.
+    logEventoFindFirstMock.mockResolvedValue({ prenotazioneId: "pren-prom" } as never);
+    prenotazioneFindUniqueMock.mockResolvedValue({
+      id: "pren-prom",
+      stato: "CONFERMATA",
+      checkInAt: null,
+    } as never);
+    // Il successivo in coda viene promosso.
+    promuoviPrimoInCodaMock.mockResolvedValue(
+      promozioneOk("pren-next", "u-2", "la-2"),
+    );
+
+    const result = await scadiPromozioniNonConfermate();
+
+    expect(result).toEqual({
+      scadute: 1,
+      promozioniInnescate: 1,
+      message: expect.any(String),
+    });
+
+    // Richiesta di coda: PROMOSSA → SCADUTA con guardia sullo stato.
+    expect(listaAttesaUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: "la-1", stato: "PROMOSSA" },
+      data: { stato: "SCADUTA" },
+    });
+    // Prenotazione della promozione: CONFERMATA+senza check-in → SCADUTA.
+    expect(prenotazioneUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: "pren-prom", stato: "CONFERMATA", checkInAt: null },
+      data: { stato: "SCADUTA" },
+    });
+    // Posto liberato.
+    expect(postoUpdateMock).toHaveBeenCalledWith({
+      where: { id: "p-1" },
+      data: { stato: "DISPONIBILE" },
+    });
+    // Audit della decadenza.
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_SCADENZA",
+        targetUserId: "u-1",
+        dettagli: expect.objectContaining({
+          finestraMinuti: FINESTRA_CONFERMA_PROMOZIONE_MINUTI,
+          attore: { tipo: "automazione", processo: "cron-automations" },
+        }),
+      }),
+    });
+    // Notifica di scadenza all'utente decaduto + notifica di promozione al successivo.
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: "u-1", tipo: "CODA_SCADENZA" }),
+    });
+    expect(notificaCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ userId: "u-2", tipo: "CODA_PROMOZIONE" }),
+    });
+    // Il successivo in coda è stato ripescato sullo slot liberato.
+    expect(promuoviPrimoInCodaMock).toHaveBeenCalledWith(
+      {
+        postoId: "p-1",
+        data: dataDb,
+        oraInizio: oraInizioDb,
+        oraFine: oraFineDb,
+      },
+      prisma,
+    );
+  });
+
+  it("[TC-BIB44-002] promozione confermata (check-in): nessuna scadenza, nessun effetto", async () => {
+    listaAttesaFindManyMock.mockResolvedValue([richiestaPromossa()] as never);
+    logEventoFindFirstMock.mockResolvedValue({ prenotazioneId: "pren-prom" } as never);
+    prenotazioneFindUniqueMock.mockResolvedValue({
+      id: "pren-prom",
+      stato: "CHECK_IN",
+      checkInAt: new Date(),
+    } as never);
+
+    const result = await scadiPromozioniNonConfermate();
+
+    expect(result).toEqual({
+      scadute: 0,
+      promozioniInnescate: 0,
+      message: expect.any(String),
+    });
+    expect(listaAttesaUpdateManyMock).not.toHaveBeenCalled();
+    expect(postoUpdateMock).not.toHaveBeenCalled();
+    expect(notificaCreateMock).not.toHaveBeenCalled();
+    expect(promuoviPrimoInCodaMock).not.toHaveBeenCalled();
+    // Nessun riepilogo run quando non è scaduto nulla (idempotenza end-to-end).
+    expect(logEventoCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB44-003] idempotenza: se un'altra esecuzione ha già chiuso la richiesta, nessun effetto", async () => {
+    listaAttesaFindManyMock.mockResolvedValue([richiestaPromossa()] as never);
+    logEventoFindFirstMock.mockResolvedValue({ prenotazioneId: "pren-prom" } as never);
+    prenotazioneFindUniqueMock.mockResolvedValue({
+      id: "pren-prom",
+      stato: "CONFERMATA",
+      checkInAt: null,
+    } as never);
+    // La guardia sullo stato PROMOSSA non aggiorna nulla: già gestita altrove.
+    listaAttesaUpdateManyMock.mockResolvedValue({ count: 0 } as never);
+
+    const result = await scadiPromozioniNonConfermate();
+
+    expect(result).toEqual({
+      scadute: 0,
+      promozioniInnescate: 0,
+      message: expect.any(String),
+    });
+    expect(prenotazioneUpdateManyMock).not.toHaveBeenCalled();
+    expect(postoUpdateMock).not.toHaveBeenCalled();
+    expect(notificaCreateMock).not.toHaveBeenCalled();
+    expect(promuoviPrimoInCodaMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB44-004] conferma sopraggiunta durante la valutazione: rollback, niente scadenza", async () => {
+    listaAttesaFindManyMock.mockResolvedValue([richiestaPromossa()] as never);
+    logEventoFindFirstMock.mockResolvedValue({ prenotazioneId: "pren-prom" } as never);
+    prenotazioneFindUniqueMock.mockResolvedValue({
+      id: "pren-prom",
+      stato: "CONFERMATA",
+      checkInAt: null,
+    } as never);
+    // Fra lettura e transazione l'utente fa check-in: la guardia B non aggiorna.
+    prenotazioneUpdateManyMock.mockResolvedValue({ count: 0 } as never);
+
+    const result = await scadiPromozioniNonConfermate();
+
+    expect(result).toEqual({
+      scadute: 0,
+      promozioniInnescate: 0,
+      message: expect.any(String),
+    });
+    // Nessuna scadenza propagata: niente rilascio posto, niente notifiche, niente promozione.
+    expect(postoUpdateMock).not.toHaveBeenCalled();
+    expect(notificaCreateMock).not.toHaveBeenCalled();
+    expect(promuoviPrimoInCodaMock).not.toHaveBeenCalled();
+    // Tracciata la corsa come "confermata".
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "AUTOMATION",
+        dettagli: expect.objectContaining({ esito: "confermata" }),
+      }),
+    });
+  });
+
+  it("[TC-BIB44-005] nessuna promozione oltre la finestra: no-op senza riepilogo", async () => {
+    listaAttesaFindManyMock.mockResolvedValue([] as never);
+
+    const result = await scadiPromozioniNonConfermate();
+
+    expect(result).toEqual({
+      scadute: 0,
+      promozioniInnescate: 0,
+      message: expect.any(String),
+    });
+    expect(listaAttesaUpdateManyMock).not.toHaveBeenCalled();
+    expect(logEventoCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB44-006] runAllAutomations esegue scadiPromozioniNonConfermate e il campo promozioniScadute è additivo", async () => {
+    // Nessun reminder, nessun prestito, nessun no-show, nessuna promozione scaduta.
+    findManyMock.mockResolvedValue([] as never);
+    prestitoFindManyMock.mockResolvedValue([] as never);
+    listaAttesaFindManyMock.mockResolvedValue([] as never);
+
+    const results = await runAllAutomations();
+
+    // I campi preesistenti restano al loro posto (retro-compatibilità).
+    expect(results.noShows).toMatchObject({ released: 0, promoted: 0 });
+    // Il nuovo campo è presente e coerente.
+    expect(results.promozioniScadute).toMatchObject({
+      scadute: 0,
+      promozioniInnescate: 0,
+    });
+  });
+});
