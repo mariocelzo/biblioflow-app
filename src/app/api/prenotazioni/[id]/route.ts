@@ -1,15 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
+
+import {
+  assertOwnership,
+  AuthError,
+  requireUser,
+} from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
-// GET /api/prenotazioni/[id] - Dettaglio prenotazione
-export async function GET(request: NextRequest, { params }: RouteParams) {
+function errorResponse(error: unknown, fallback: string) {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
+
+  console.error(fallback, error);
+  return NextResponse.json(
+    { success: false, error: fallback },
+    { status: 500 },
+  );
+}
+
+// Policy CA-01: agli studenti una risorsa altrui risulta inesistente (404).
+export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
+    const user = await requireUser();
     const { id } = await params;
-    
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id },
       include: {
@@ -42,232 +63,168 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             },
           },
         },
-        eventi: {
-          orderBy: { createdAt: "desc" },
-          take: 10,
-        },
+        eventi: { orderBy: { createdAt: "desc" }, take: 10 },
       },
     });
-    
+
     if (!prenotazione) {
       return NextResponse.json(
         { success: false, error: "Prenotazione non trovata" },
-        { status: 404 }
+        { status: 404 },
       );
     }
-    
-    return NextResponse.json({
-      success: true,
-      data: prenotazione,
-    });
+
+    assertOwnership(prenotazione, user);
+    return NextResponse.json({ success: true, data: prenotazione });
   } catch (error) {
-    console.error("Errore GET /api/prenotazioni/[id]:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nel recupero della prenotazione" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nel recupero della prenotazione");
   }
 }
 
-// PATCH /api/prenotazioni/[id] - Aggiorna prenotazione (check-in, check-out, cancellazione)
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
+    const user = await requireUser();
     const { id } = await params;
-    const body = await request.json();
-    
-    const { azione, userId } = body;
-    
-    // Verifica che la prenotazione esista
+    const { azione } = await request.json();
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id },
       include: { posto: true },
     });
-    
+
     if (!prenotazione) {
       return NextResponse.json(
         { success: false, error: "Prenotazione non trovata" },
-        { status: 404 }
+        { status: 404 },
       );
     }
-    
-    let updateData: Record<string, unknown> = {};
+
+    assertOwnership(prenotazione, user);
+
+    let updateData: Record<string, unknown>;
     let logTipo: "CHECK_IN" | "CHECK_OUT" | "PRENOTAZIONE_CANCELLATA";
     let logDescrizione: string;
-    
+
     switch (azione) {
       case "check-in":
         if (prenotazione.stato !== "CONFERMATA") {
           return NextResponse.json(
             { success: false, error: "Impossibile fare check-in: stato non valido" },
-            { status: 400 }
+            { status: 400 },
           );
         }
-        
-        updateData = {
-          stato: "CHECK_IN",
-          checkInAt: new Date(),
-        };
-        
-        // Aggiorna stato posto
+        updateData = { stato: "CHECK_IN", checkInAt: new Date() };
         await prisma.posto.update({
           where: { id: prenotazione.postoId },
           data: { stato: "OCCUPATO" },
         });
-        
         logTipo = "CHECK_IN";
         logDescrizione = `Check-in effettuato per posto ${prenotazione.posto.numero}`;
         break;
-        
+
       case "check-out":
         if (prenotazione.stato !== "CHECK_IN") {
           return NextResponse.json(
             { success: false, error: "Impossibile fare check-out: non hai fatto check-in" },
-            { status: 400 }
+            { status: 400 },
           );
         }
-        
-        updateData = {
-          stato: "COMPLETATA",
-          checkOutAt: new Date(),
-        };
-        
-        // Libera il posto
+        updateData = { stato: "COMPLETATA", checkOutAt: new Date() };
         await prisma.posto.update({
           where: { id: prenotazione.postoId },
           data: { stato: "DISPONIBILE" },
         });
-        
         logTipo = "CHECK_OUT";
         logDescrizione = `Check-out effettuato per posto ${prenotazione.posto.numero}`;
         break;
-        
+
       case "cancella":
         if (!["CONFERMATA", "CHECK_IN"].includes(prenotazione.stato)) {
           return NextResponse.json(
-            { success: false, error: "Impossibile cancellare: prenotazione già conclusa" },
-            { status: 400 }
+            { success: false, error: "Impossibile cancellare: prenotazione gia' conclusa" },
+            { status: 400 },
           );
         }
-        
-        updateData = {
-          stato: "CANCELLATA",
-        };
-        
-        // Se era in check-in, libera il posto
+        updateData = { stato: "CANCELLATA" };
         if (prenotazione.stato === "CHECK_IN") {
           await prisma.posto.update({
             where: { id: prenotazione.postoId },
             data: { stato: "DISPONIBILE" },
           });
         }
-        
         logTipo = "PRENOTAZIONE_CANCELLATA";
         logDescrizione = `Prenotazione cancellata per posto ${prenotazione.posto.numero}`;
         break;
-        
+
       default:
         return NextResponse.json(
           { success: false, error: "Azione non valida. Usa: check-in, check-out, cancella" },
-          { status: 400 }
+          { status: 400 },
         );
     }
-    
-    // Aggiorna prenotazione
+
     const prenotazioneAggiornata = await prisma.prenotazione.update({
       where: { id },
       data: updateData,
       include: {
-        user: {
-          select: {
-            id: true,
-            nome: true,
-            cognome: true,
-          },
-        },
+        user: { select: { id: true, nome: true, cognome: true } },
         posto: {
           select: {
             id: true,
             numero: true,
-            sala: {
-              select: {
-                nome: true,
-              },
-            },
+            sala: { select: { nome: true } },
           },
         },
       },
     });
-    
-    // Crea log evento
+
     await prisma.logEvento.create({
       data: {
         tipo: logTipo,
-        userId: userId || prenotazione.userId,
+        userId: user.id,
         prenotazioneId: id,
         descrizione: logDescrizione,
       },
     });
-    
+
     return NextResponse.json({
       success: true,
       data: prenotazioneAggiornata,
       message: logDescrizione,
     });
-    
   } catch (error) {
-    console.error("Errore PATCH /api/prenotazioni/[id]:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nell'aggiornamento della prenotazione" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nell'aggiornamento della prenotazione");
   }
 }
 
-// DELETE /api/prenotazioni/[id] - Elimina prenotazione
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
+    const user = await requireUser();
     const { id } = await params;
-    
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id },
       include: { posto: true },
     });
-    
+
     if (!prenotazione) {
       return NextResponse.json(
         { success: false, error: "Prenotazione non trovata" },
-        { status: 404 }
+        { status: 404 },
       );
     }
-    
-    // Se era attiva, libera il posto
+
+    assertOwnership(prenotazione, user);
     if (prenotazione.stato === "CHECK_IN") {
       await prisma.posto.update({
         where: { id: prenotazione.postoId },
         data: { stato: "DISPONIBILE" },
       });
     }
-    
-    // Elimina log eventi collegati
-    await prisma.logEvento.deleteMany({
-      where: { prenotazioneId: id },
-    });
-    
-    // Elimina prenotazione
-    await prisma.prenotazione.delete({
-      where: { id },
-    });
-    
-    return NextResponse.json({
-      success: true,
-      message: "Prenotazione eliminata",
-    });
-    
+
+    await prisma.logEvento.deleteMany({ where: { prenotazioneId: id } });
+    await prisma.prenotazione.delete({ where: { id } });
+
+    return NextResponse.json({ success: true, message: "Prenotazione eliminata" });
   } catch (error) {
-    console.error("Errore DELETE /api/prenotazioni/[id]:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nell'eliminazione della prenotazione" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nell'eliminazione della prenotazione");
   }
 }
