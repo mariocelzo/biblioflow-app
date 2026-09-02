@@ -11,23 +11,19 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { 
-  Bell, 
-  BellOff, 
-  BookOpen, 
-  Calendar, 
-  Check, 
-  CheckCheck, 
-  Clock,
-  Info,
-  Megaphone,
+import {
+  Bell,
+  BellOff,
+  Check,
+  CheckCheck,
   Trash2,
   ExternalLink
 } from "lucide-react";
+import { getTipoConfig } from "./tipo-config";
 
 interface Notifica {
   id: string;
-  tipo: "PRENOTAZIONE" | "CHECK_IN_REMINDER" | "SCADENZA_PRESTITO" | "SISTEMA" | "PROMO";
+  tipo: string; // Supporta sia tipi storici che nuovi (es. CODA_INGRESSO, ALERT, ecc.)
   titolo: string;
   messaggio: string;
   actionUrl?: string;
@@ -36,30 +32,6 @@ interface Notifica {
   lettaAt?: string;
   createdAt: string;
 }
-
-const ICONE_TIPO: Record<string, React.ReactNode> = {
-  PRENOTAZIONE: <Calendar className="h-5 w-5 text-blue-500" />,
-  CHECK_IN_REMINDER: <Clock className="h-5 w-5 text-orange-500" />,
-  SCADENZA_PRESTITO: <BookOpen className="h-5 w-5 text-red-500" />,
-  SISTEMA: <Info className="h-5 w-5 text-gray-500" />,
-  PROMO: <Megaphone className="h-5 w-5 text-purple-500" />,
-};
-
-const COLORI_TIPO: Record<string, string> = {
-  PRENOTAZIONE: "bg-blue-100 text-blue-800",
-  CHECK_IN_REMINDER: "bg-orange-100 text-orange-800",
-  SCADENZA_PRESTITO: "bg-red-100 text-red-800",
-  SISTEMA: "bg-gray-100 text-gray-800",
-  PROMO: "bg-purple-100 text-purple-800",
-};
-
-const LABELS_TIPO: Record<string, string> = {
-  PRENOTAZIONE: "Prenotazione",
-  CHECK_IN_REMINDER: "Check-in",
-  SCADENZA_PRESTITO: "Prestito",
-  SISTEMA: "Sistema",
-  PROMO: "Promozione",
-};
 
 export default function NotifichePage() {
   const { data: session, status } = useSession();
@@ -307,7 +279,7 @@ export default function NotifichePage() {
                       <div className="flex gap-4">
                         <div className="flex-shrink-0 mt-1">
                           <div className="h-10 w-10 rounded-full bg-card dark:bg-gray-700 border flex items-center justify-center">
-                            {ICONE_TIPO[notifica.tipo]}
+                            {getTipoConfig(notifica.tipo).icona}
                           </div>
                         </div>
                         
@@ -317,8 +289,8 @@ export default function NotifichePage() {
                               <h3 className={`font-medium ${!notifica.letta ? "text-foreground" : "text-muted-foreground"}`}>
                                 {notifica.titolo}
                               </h3>
-                              <Badge variant="secondary" className={`text-xs ${COLORI_TIPO[notifica.tipo]}`}>
-                                {LABELS_TIPO[notifica.tipo]}
+                              <Badge variant="secondary" className={`text-xs ${getTipoConfig(notifica.tipo).colore}`}>
+                                {getTipoConfig(notifica.tipo).label}
                               </Badge>
                             </div>
                             <span className="text-xs text-gray-400 whitespace-nowrap">
