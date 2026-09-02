@@ -61,8 +61,12 @@ jobs:
         run: npm ci
 
       - name: Migrazioni pendenti (stato)
-        # Elenca le migrazioni presenti nel repo ma non ancora applicate al DB.
-        # Fallisce se il DB non e' raggiungibile: e' un errore reale, giusto bloccare.
+        # Solo informativo: stampa nel log quali migrazioni verranno applicate.
+        # `prisma migrate status` esce con codice 1 anche quando ci sono
+        # semplicemente migrazioni pendenti (caso normale qui) -> non deve far
+        # fallire il job. Il gate vero e' lo step "Applica le migrazioni":
+        # se il DB e' irraggiungibile o una migrazione fallisce, fallisce quello.
+        continue-on-error: true
         run: npx prisma migrate status
 
       - name: SQL che verra' applicato (dry-run)
