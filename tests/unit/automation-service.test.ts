@@ -508,3 +508,205 @@ describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => 
     });
   });
 });
+
+/**
+ * Test unitari BIB-46 / CA-05 — tracciabilità completa su LogEvento.
+ *
+ * Verifica che:
+ * - Ogni evento della catena di rilascio+promozione condivida lo stesso correlationId
+ * - Ogni evento abbia un campo `attore` standardizzato
+ * - La catena sia ricostruibile filtrando per correlationId
+ * - Esista un riepilogo run alla fine con vista d'insieme
+ */
+describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)", () => {
+  it("[TC-BIB46-001] correlationId coerente su tutti gli eventi della catena di rilascio+promozione", async () => {
+    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
+
+    await releaseNoShowReservations();
+
+    // Estrai tutti i LogEvento creati
+    const createdLogs = logEventoCreateMock.mock.calls.map((call) => call[0].data);
+
+    // Filtra gli eventi della catena (NO_SHOW_AUTO + AUTOMATION di innesco + notifica CODA_PROMOZIONE)
+    const chainLogs = createdLogs.filter(
+      (log) => log.tipo === "NO_SHOW_AUTO" || (log.tipo === "AUTOMATION" && !log.descrizione?.includes("Riepilogo"))
+    );
+
+    // Estrai i correlationId
+    const correlationIds = chainLogs
+      .map((log) => (log.dettagli as Record<string, unknown>)?.correlationId)
+      .filter((id) => id !== undefined && id !== null);
+
+    // Devono essere tutti uguali
+    expect(correlationIds.length).toBeGreaterThan(0);
+    // Verifica che tutti i correlationId siano identici
+    const uniqueIds = new Set(correlationIds);
+    expect(uniqueIds.size).toBe(1);
+  });
+
+  it("[TC-BIB46-002] attore standardizzato in ogni evento della catena", async () => {
+    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
+
+    await releaseNoShowReservations();
+
+    const createdLogs = logEventoCreateMock.mock.calls.map((call) => call[0].data);
+
+    // Filtra gli eventi della catena (NO_SHOW_AUTO + AUTOMATION di innesco)
+    const chainLogs = createdLogs.filter(
+      (log) => log.tipo === "NO_SHOW_AUTO" || (log.tipo === "AUTOMATION" && !log.descrizione?.includes("Riepilogo"))
+    );
+
+    // Ogni evento deve avere attore.tipo === 'automazione'
+    for (const log of chainLogs) {
+      expect((log.dettagli as Record<string, unknown>)?.attore).toEqual({
+        tipo: "automazione",
+        processo: "cron-automations",
+      });
+    }
+  });
+
+  it("[TC-BIB46-003] ricostruibilità della catena: da correlationId risalgo a prenotazione liberata, esito, richiesta promossa", async () => {
+    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
+
+    await releaseNoShowReservations();
+
+    const createdLogs = logEventoCreateMock.mock.calls.map((call) => call[0].data);
+
+    // Estrai il correlationId dalla prima chiamata (NO_SHOW_AUTO)
+    const noShowLog = createdLogs.find((log) => log.tipo === "NO_SHOW_AUTO");
+    const correlationId = (noShowLog?.dettagli as Record<string, unknown>)?.correlationId;
+
+    expect(correlationId).toBeTruthy();
+
+    // Filtra gli eventi con questo correlationId
+    const chainLogs = createdLogs.filter(
+      (log) => (log.dettagli as Record<string, unknown>)?.correlationId === correlationId
+    );
+
+    // Verifica che la catena contenga:
+    // 1. NO_SHOW_AUTO: prenotazione liberata (id, userId, postoId)
+    const noShow = chainLogs.find((log) => log.tipo === "NO_SHOW_AUTO");
+    expect(noShow?.dettagli).toMatchObject({
+      prenotazioneId: "pren-1",
+      userId: "utente-1",
+      postoId: "posto-1",
+    });
+
+    // 2. AUTOMATION di innesco: esito (promossa), richiesta di coda promossa (listaAttesaId)
+    const automationLog = chainLogs.find(
+      (log) => log.tipo === "AUTOMATION" && log.descrizione?.includes("Innesco promozione")
+    );
+    expect(automationLog?.dettagli).toMatchObject({
+      esito: "promossa",
+      listaAttesaId: "lista-attesa-1",
+      prenotazioneId: "pren-coda-1",
+    });
+
+    // 3. CODA_PROMOZIONE (notifica): prenotazioneId della nuova prenotazione
+    const notificaLog = chainLogs.find((log) => log.tipo === "CODA_PROMOZIONE");
+    expect(notificaLog?.dettagli).toMatchObject({
+      prenotazioneId: "pren-coda-1",
+      evento: "notifica",
+    });
+  });
+
+  it("[TC-BIB46-004] riepilogo run con vista d'insieme: correlationIds, rilasci, promozioni", async () => {
+    findManyMock.mockResolvedValue([
+      prenotazioneNoShow({ id: "pren-1", postoId: "posto-1" }),
+      prenotazioneNoShow({
+        id: "pren-2",
+        postoId: "posto-2",
+        posto: {
+          id: "posto-2",
+          numero: "B2",
+          sala: { id: "sala-1", nome: "Sala Studio" },
+        },
+      }),
+    ] as never);
+    // Primo: coda vuota. Secondo: promozione effettuata.
+    promuoviPrimoInCodaMock
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(promozioneOk("pren-coda-2", "utente-3"));
+
+    await releaseNoShowReservations();
+
+    const createdLogs = logEventoCreateMock.mock.calls.map((call) => call[0].data);
+
+    // Trova il LogEvento di riepilogo (tipo AUTOMATION, descrizione "Riepilogo run")
+    const summaryLog = createdLogs.find(
+      (log) => log.tipo === "AUTOMATION" && log.descrizione?.includes("Riepilogo run")
+    );
+
+    expect(summaryLog).toBeTruthy();
+    expect(summaryLog?.dettagli).toMatchObject({
+      processo: "releaseNoShowReservations",
+      rilasci: 2,
+      promozioni: 1,
+    });
+    expect(((summaryLog?.dettagli as Record<string, unknown>)?.correlationIds as string[])?.length).toBe(2);
+    expect((summaryLog?.dettagli as Record<string, unknown>)?.attore).toEqual({
+      tipo: "automazione",
+      processo: "cron-automations",
+    });
+  });
+
+  it("[TC-BIB46-005] processaCodaPerPosto con correlationId lo propaga nei dettagli", async () => {
+    const correlationId = "test-correlation-123";
+    const slot = {
+      postoId: "posto-1",
+      data: dataDb,
+      oraInizio: oraInizioDb,
+      oraFine: oraFineDb,
+    };
+
+    promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
+
+    const esito = await processaCodaPerPosto(slot, correlationId);
+
+    expect(esito).toEqual({
+      promossa: true,
+      prenotazioneId: "pren-coda-1",
+      userId: "utente-2",
+    });
+
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "AUTOMATION",
+        dettagli: expect.objectContaining({
+          correlationId,
+          attore: {
+            tipo: "automazione",
+            processo: "cron-automations",
+          },
+        }),
+      }),
+    });
+  });
+
+  it("[TC-BIB46-006] notificaEventoCoda con correlationId lo propaga nei dettagli", async () => {
+    const correlationId = "test-correlation-456";
+
+    await notificaEventoCoda({
+      userId: "utente-1",
+      tipo: "CODA_PROMOZIONE",
+      prenotazioneId: "pren-1",
+      correlationId,
+    });
+
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CODA_PROMOZIONE",
+        dettagli: expect.objectContaining({
+          correlationId,
+          attore: {
+            tipo: "automazione",
+            processo: "cron-automations",
+          },
+        }),
+      }),
+    });
+  });
+});

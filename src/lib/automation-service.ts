@@ -8,8 +8,10 @@
  * - Notifica posto liberato
  * - Innesco della promozione dalla lista d'attesa quando un posto si libera
  *   automaticamente (BIB-40 / CA-04)
+ * - Tracciabilità completa degli eventi di coda su LogEvento (BIB-46 / CA-05)
  */
 
+import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { StatoPrenotazione, StatoPosto, TipoNotifica } from '@prisma/client';
 // La promozione dalla coda NON viene reimplementata qui: si invoca la funzione
@@ -19,6 +21,21 @@ import {
   promuoviPrimoInCoda,
   type PromozioneCoda,
 } from '@/lib/prenotazioni-service';
+
+/**
+ * 🔐 HELPER INTERNO — STANDARDIZZA L'ATTORE DEGLI EVENTI AUTOMAZIONE (BIB-46 / CA-05)
+ *
+ * Restituisce un oggetto standard per il campo `dettagli.attore` di ogni LogEvento
+ * scritto dalle automazioni. Questo consente l'audit di chi/cosa ha originato un evento:
+ * - Automazione: `{ tipo: 'automazione', processo: 'cron-automations' }`
+ * - Per azioni utente: `{ tipo: 'utente', userId }`
+ */
+function attoreAutomazione() {
+  return {
+    tipo: 'automazione' as const,
+    processo: 'cron-automations' as const,
+  };
+}
 
 /**
  * 1️⃣ REMINDER CHECK-IN
@@ -231,6 +248,8 @@ export interface NotificaEventoCodaInput {
   prenotazioneId?: string;
   /** Richiesta di lista d'attesa collegata (ingresso / scadenza). */
   richiestaId?: string;
+  /** ID univoco che correla tutti gli eventi della stessa catena di rilascio+promozione (BIB-46 / CA-05). */
+  correlationId?: string;
 }
 
 /** Frammento di testo che descrive il posto, con o senza nome sala. */
@@ -324,6 +343,7 @@ export async function notificaEventoCoda(
     });
 
     // 2️⃣ Traccia di audit con lo stesso nome enum lato `TipoEvento`.
+    // BIB-46 / CA-05: arricchimento audit con correlationId e attore.
     await prisma.logEvento.create({
       data: {
         tipo: input.tipo,
@@ -337,6 +357,9 @@ export async function notificaEventoCoda(
           sala: input.posto?.salaNome ?? null,
           prenotazioneId: input.prenotazioneId ?? null,
           listaAttesaId: input.richiestaId ?? null,
+          // BIB-46 / CA-05: attore standardizzato e correlationId per ricostruire la catena.
+          attore: attoreAutomazione(),
+          correlationId: input.correlationId ?? null,
         },
       },
     });
@@ -411,16 +434,20 @@ export type EsitoProcessaCoda = {
  * finestra di conferma (BIB-44), che potrà riusarlo senza modifiche.
  *
  * @param slot posto e intervallo appena liberati
+ * @param correlationId ID univoco che correla tutti gli eventi della stessa catena di rilascio+promozione (BIB-46 / CA-05)
  * @returns `EsitoProcessaCoda` — `promossa` è true solo se è stata
  *          effettivamente creata una nuova prenotazione a partire dalla coda;
  *          `prenotazioneId`/`userId` valorizzati solo in quel caso
  */
-export async function processaCodaPerPosto(slot: {
-  postoId: string;
-  data: Date;
-  oraInizio: Date;
-  oraFine: Date;
-}): Promise<EsitoProcessaCoda> {
+export async function processaCodaPerPosto(
+  slot: {
+    postoId: string;
+    data: Date;
+    oraInizio: Date;
+    oraFine: Date;
+  },
+  correlationId?: string,
+): Promise<EsitoProcessaCoda> {
   // Rappresentazione compatta e serializzabile dello slot, riusata in ogni
   // esito del LogEvento di innesco (utile per gli audit anche a coda vuota).
   const dettagliSlot = {
@@ -461,6 +488,7 @@ export async function processaCodaPerPosto(slot: {
       : 'coda_vuota';
 
   // LogEvento di *innesco*: sempre scritto, così ogni tentativo lascia traccia.
+  // BIB-46 / CA-05: arricchimento audit con correlationId e attore.
   await prisma.logEvento.create({
     data: {
       tipo: 'AUTOMATION',
@@ -475,6 +503,9 @@ export async function processaCodaPerPosto(slot: {
         listaAttesaId: promozione?.richiestaId ?? null,
         utenteId: promozione?.prenotazione.userId ?? null,
         errore: errore ?? null,
+        // BIB-46 / CA-05: attore standardizzato e correlationId per ricostruire la catena.
+        attore: attoreAutomazione(),
+        correlationId: correlationId ?? null,
       },
     },
   });
@@ -490,6 +521,9 @@ export async function processaCodaPerPosto(slot: {
 /**
  * 3️⃣ RILASCIO AUTOMATICO NO-SHOW
  * Libera i posti di prenotazioni confermate senza check-in dopo 15 minuti dall'ora di inizio
+ *
+ * BIB-46 / CA-05: ogni catena di rilascio+promozione è correlata da un `correlationId`
+ * univoco, così gli audit log consentono di ricostruire l'intera storia di una promozione.
  */
 export async function releaseNoShowReservations() {
   const now = new Date();
@@ -520,8 +554,14 @@ export async function releaseNoShowReservations() {
   // Quante promozioni dalla lista d'attesa sono state effettivamente innescate
   // dai posti liberati in questo giro (BIB-40 / CA-04).
   let promoted = 0;
+  // BIB-46 / CA-05: lista dei correlationId della run, per il riepilogo finale.
+  const correlationIds: string[] = [];
 
   for (const prenotazione of prenotazioni) {
+    // BIB-46 / CA-05: genera un correlationId univoco per questa catena di rilascio+promozione.
+    const correlationId = randomUUID();
+    correlationIds.push(correlationId);
+
     // Aggiorna prenotazione a NO_SHOW
     await prisma.prenotazione.update({
       where: { id: prenotazione.id },
@@ -550,9 +590,12 @@ export async function releaseNoShowReservations() {
     });
 
     // Log evento
+    // BIB-46 / CA-05: arricchimento audit con correlationId e attore.
     await prisma.logEvento.create({
       data: {
         tipo: 'NO_SHOW_AUTO',
+        userId: prenotazione.userId,
+        prenotazioneId: prenotazione.id,
         descrizione: `Rilascio automatico posto ${prenotazione.posto.numero} per no-show`,
         dettagli: {
           prenotazioneId: prenotazione.id,
@@ -560,6 +603,9 @@ export async function releaseNoShowReservations() {
           postoId: prenotazione.postoId,
           oraInizio: prenotazione.oraInizio,
           rilasciatoAlle: now,
+          // BIB-46 / CA-05: attore standardizzato e correlationId per ricostruire la catena.
+          attore: attoreAutomazione(),
+          correlationId,
         },
       },
     });
@@ -569,12 +615,16 @@ export async function releaseNoShowReservations() {
     // 🔁 CA-04 (BIB-40): il posto è appena tornato DISPONIBILE per questo slot.
     // Si innesca l'elaborazione della lista d'attesa invocando la funzione di
     // dominio tramite l'helper riusabile (nessun errore se la coda è vuota).
-    const esitoCoda = await processaCodaPerPosto({
-      postoId: prenotazione.postoId,
-      data: prenotazione.data,
-      oraInizio: prenotazione.oraInizio,
-      oraFine: prenotazione.oraFine,
-    });
+    // BIB-46 / CA-05: passa il correlationId per propagarlo nella catena.
+    const esitoCoda = await processaCodaPerPosto(
+      {
+        postoId: prenotazione.postoId,
+        data: prenotazione.data,
+        oraInizio: prenotazione.oraInizio,
+        oraFine: prenotazione.oraFine,
+      },
+      correlationId,
+    );
     if (esitoCoda.promossa) {
       promoted++;
 
@@ -582,6 +632,7 @@ export async function releaseNoShowReservations() {
       // notifica dedicata che punta alla prenotazione appena creata.
       // `notificaEventoCoda` è best-effort (gestisce da sé gli errori): un
       // fallimento qui non deve fermare il giro delle automazioni.
+      // BIB-46 / CA-05: passa il correlationId per propagarlo nella catena.
       if (esitoCoda.userId) {
         await notificaEventoCoda({
           userId: esitoCoda.userId,
@@ -591,9 +642,29 @@ export async function releaseNoShowReservations() {
             salaNome: prenotazione.posto.sala.nome,
           },
           prenotazioneId: esitoCoda.prenotazioneId,
+          correlationId,
         });
       }
     }
+  }
+
+  // BIB-46 / CA-05: scrivi un unico LogEvento di riepilogo run con vista d'insieme.
+  if (count > 0) {
+    await prisma.logEvento.create({
+      data: {
+        tipo: 'AUTOMATION',
+        descrizione: `Riepilogo run rilascio no-show: ${count} rilasci, ${promoted} promozioni`,
+        dettagli: {
+          processo: 'releaseNoShowReservations',
+          rilasci: count,
+          promozioni: promoted,
+          correlationIds,
+          timestamp: now.toISOString(),
+          // BIB-46 / CA-05: attore standardizzato per il riepilogo.
+          attore: attoreAutomazione(),
+        },
+      },
+    });
   }
 
   return {
