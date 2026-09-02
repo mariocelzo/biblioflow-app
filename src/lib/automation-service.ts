@@ -9,6 +9,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { promuoviPrimoInCoda } from '@/lib/prenotazioni-service';
 import { StatoPrenotazione, StatoPosto, TipoNotifica } from '@prisma/client';
 
 /**
@@ -219,6 +220,7 @@ export async function releaseNoShowReservations() {
   });
 
   let count = 0;
+  let promoted = 0;
 
   for (const prenotazione of prenotazioni) {
     // Aggiorna prenotazione a NO_SHOW
@@ -263,10 +265,31 @@ export async function releaseNoShowReservations() {
       },
     });
 
+    // La selezione FIFO, la creazione atomica e il LogEvento di promozione
+    // restano responsabilita' del servizio di dominio.
+    const promozione = await promuoviPrimoInCoda(
+      {
+        postoId: prenotazione.postoId,
+        data: prenotazione.data,
+        oraInizio: prenotazione.oraInizio,
+        oraFine: prenotazione.oraFine,
+        adesso: now,
+      },
+      prisma,
+    );
+
+    if (promozione) {
+      promoted++;
+    }
+
     count++;
   }
 
-  return { released: count, message: `${count} posti liberati per no-show` };
+  return {
+    released: count,
+    promoted,
+    message: `${count} posti liberati per no-show`,
+  };
 }
 
 /**
