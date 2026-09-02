@@ -15,11 +15,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 // --- Mock del client Prisma: ogni metodo usato dal service è una spia. --------
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
+// `$transaction` esegue la callback passandole il mock stesso come client `tx`:
+// così le scritture dentro la transazione finiscono sulle stesse spie e restano
+// ispezionabili dai test (nessun DB reale, nessuna transazione reale).
+vi.mock("@/lib/prisma", () => {
+  const prisma = {
     prenotazione: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
+    },
+    prestito: {
+      findMany: vi.fn(),
+    },
+    listaAttesa: {
+      findMany: vi.fn(),
+      updateMany: vi.fn(),
     },
     posto: {
       update: vi.fn(),
@@ -29,9 +42,15 @@ vi.mock("@/lib/prisma", () => ({
     },
     logEvento: {
       create: vi.fn(),
+      findFirst: vi.fn(),
     },
-  },
-}));
+    $transaction: vi.fn(async (callback: (tx: unknown) => unknown) =>
+      callback(prisma),
+    ),
+  };
+
+  return { prisma };
+});
 
 // --- Mock del servizio di dominio: la promozione vera non viene eseguita. -----
 vi.mock("@/lib/prenotazioni-service", () => ({
@@ -41,18 +60,29 @@ vi.mock("@/lib/prenotazioni-service", () => ({
 import { prisma } from "@/lib/prisma";
 import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
 import {
+  FINESTRA_CONFERMA_PROMOZIONE_MINUTI,
   notificaEventoCoda,
   notificaScadenzaCoda,
   processaCodaPerPosto,
   releaseNoShowReservations,
+  runAllAutomations,
+  scadiPromozioniNonConfermate,
 } from "@/lib/automation-service";
 
 // Spie tipizzate per configurare i valori di ritorno e leggere le chiamate.
 const findManyMock = vi.mocked(prisma.prenotazione.findMany);
 const prenotazioneUpdateMock = vi.mocked(prisma.prenotazione.update);
+const prenotazioneUpdateManyMock = vi.mocked(prisma.prenotazione.updateMany);
+const prenotazioneFindUniqueMock = vi.mocked(prisma.prenotazione.findUnique);
+const prenotazioneFindFirstMock = vi.mocked(prisma.prenotazione.findFirst);
+const prestitoFindManyMock = vi.mocked(prisma.prestito.findMany);
+const listaAttesaFindManyMock = vi.mocked(prisma.listaAttesa.findMany);
+const listaAttesaUpdateManyMock = vi.mocked(prisma.listaAttesa.updateMany);
 const postoUpdateMock = vi.mocked(prisma.posto.update);
 const notificaCreateMock = vi.mocked(prisma.notifica.create);
 const logEventoCreateMock = vi.mocked(prisma.logEvento.create);
+const logEventoFindFirstMock = vi.mocked(prisma.logEvento.findFirst);
+const transactionMock = vi.mocked(prisma.$transaction);
 const promuoviPrimoInCodaMock = vi.mocked(promuoviPrimoInCoda);
 
 // --- Fixture: date coerenti con la rappresentazione Prisma (@db.Date/@db.Time).
