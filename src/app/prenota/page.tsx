@@ -5,7 +5,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { BackButton } from "@/components/ui/back-button";
-import { MappaBiblioteca, Posto as PostoMappa } from "@/components/mappa-biblioteca";
+// creaPayloadCoda: riusa lo stesso contratto d'ingresso in coda gia' usato dalla mappa (BIB-52).
+import { MappaBiblioteca, Posto as PostoMappa, creaPayloadCoda } from "@/components/mappa-biblioteca";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -126,6 +127,50 @@ function isGiornoChiuso(data: string): { chiuso: boolean; motivo: string } {
   return { chiuso: false, motivo: "" };
 }
 
+/**
+ * BIB-54 · Classificazione PURA del fallimento di `POST /api/prenotazioni`.
+ *
+ * Ritorna `true` quando la creazione della prenotazione e' fallita per un
+ * CONFLITTO sull'intervallo scelto: il posto e' appena stato prenotato da un
+ * altro utente, oppure la transazione Serializable ha rilevato una corsa
+ * concorrente. In quel caso, invece di un `toast.error` secco (CA-06),
+ * proponiamo all'utente la lista d'attesa.
+ *
+ * Contratto della risposta di errore (vedi `src/app/api/prenotazioni/route.ts`
+ * -> `errorResponse()` e `src/lib/prenotazioni-errors.ts`):
+ *   - HTTP 409 con body `{ success:false, code, error, suggerisciCoda }`
+ *   - `code` = "POSTO_GIA_PRENOTATO"  (ConflittoDisponibilita, suggerisciCoda: true)
+ *             oppure "UTENTE_GIA_PRENOTATO" (ConflittoPrenotazioneUtente)
+ *   - ogni altro fallito (422 validazione, 500, ecc.) NON e' un conflitto.
+ *
+ * La funzione e' volutamente tollerante: basta lo status HTTP 409 OPPURE un
+ * indicatore di conflitto nel body (codice noto o flag `suggerisciCoda`), cosi'
+ * resta corretta anche se un layer intermedio non propaga lo status. E' pura e
+ * senza dipendenze proprio per essere testabile in isolamento.
+ */
+export function isConflittoPrenotazione(status: number, body: unknown): boolean {
+  // 1. Segnale primario: HTTP 409 Conflict emesso da errorResponse() per i PrenotazioneError con status 409.
+  if (status === 409) {
+    return true;
+  }
+
+  // 2. Fallback difensivo sul corpo, quando lo status non e' 409 ma il body indica comunque un conflitto.
+  if (typeof body === "object" && body !== null) {
+    const dettagli = body as { code?: unknown; suggerisciCoda?: unknown };
+    if (
+      dettagli.code === "POSTO_GIA_PRENOTATO" ||
+      dettagli.code === "UTENTE_GIA_PRENOTATO"
+    ) {
+      return true;
+    }
+    if (dettagli.suggerisciCoda === true) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function formatDataDisplay(data: string): string {
   if (!data) return "";
   const date = new Date(data);
@@ -186,6 +231,9 @@ export default function PrenotaPage() {
   const [filtroAccessibile, setFiltroAccessibile] = useState(false);
   const [dialogAperto, setDialogAperto] = useState(false);
   const [prenotazioneInCorso, setPrenotazioneInCorso] = useState(false);
+  // BIB-54 · Stato del dialog che, su conflitto, propone la lista d'attesa al posto dell'errore secco.
+  const [conflittoAperto, setConflittoAperto] = useState(false);
+  const [codaInCorso, setCodaInCorso] = useState(false);
 
   // Margine Pendolare - Feature HCI per scenario Marco
   const [marginePendolare, setMarginePendolare] = useState(false);
@@ -346,14 +394,70 @@ export default function PrenotaPage() {
         // Ritardo per vedere l'animazione e il toast
         setTimeout(() => router.push("/prenotazioni"), 2500);
       } else {
-        const error = await res.json();
-        toast.error(error.error || "Errore nella prenotazione");
+        // Corpo della risposta di errore: serve sia per classificare il conflitto sia per il messaggio.
+        const payload = await res.json();
+        if (isConflittoPrenotazione(res.status, payload)) {
+          // CA-06 · Conflitto sull'intervallo: niente errore secco, proponiamo la lista d'attesa.
+          setDialogAperto(false);
+          setConflittoAperto(true);
+        } else {
+          // Ogni altro errore (validazione 422, errore server 500, ...) mantiene il comportamento storico.
+          toast.error(payload.error || "Errore nella prenotazione");
+        }
       }
     } catch (error) {
       console.error("Errore prenotazione:", error);
       toast.error("Errore di connessione");
     } finally {
       setPrenotazioneInCorso(false);
+    }
+  };
+
+  // BIB-54 · Dal dialog di conflitto: iscrive l'utente alla lista d'attesa per lo stesso posto/intervallo.
+  const handleEntraInListaAttesa = async () => {
+    if (!postoSelezionato) {
+      toast.error("Seleziona un posto");
+      return;
+    }
+    const { oraInizio: inizioCoda, oraFine: fineCoda } = getOrariSelezionati();
+    if (!inizioCoda || !fineCoda) {
+      toast.error("Errore negli orari selezionati");
+      return;
+    }
+    setCodaInCorso(true);
+    try {
+      const res = await fetch("/api/prenotazioni/coda", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Stesso payload usato dalla mappa (BIB-52): { postoId, data, oraInizio, oraFine }.
+        body: JSON.stringify(
+          creaPayloadCoda(postoSelezionato.id, {
+            data: dataPrenotazione,
+            oraInizio: inizioCoda,
+            oraFine: fineCoda,
+          }),
+        ),
+      });
+      const payload = await res.json();
+      if (res.ok) {
+        // 201 · richiesta accettata: mostriamo la posizione e usciamo dal flusso di prenotazione.
+        const posizione = payload?.data?.posizione;
+        toast.success("Sei in lista d'attesa", {
+          description:
+            typeof posizione === "number"
+              ? `Posizione attuale: ${posizione}`
+              : `Posto ${postoSelezionato.numero}`,
+        });
+        setConflittoAperto(false);
+        router.push("/prenotazioni");
+      } else {
+        toast.error(payload.error || "Errore");
+      }
+    } catch (error) {
+      console.error("Errore ingresso lista d'attesa:", error);
+      toast.error("Errore di connessione");
+    } finally {
+      setCodaInCorso(false);
     }
   };
 
@@ -658,6 +762,62 @@ export default function PrenotaPage() {
             <Button variant="outline" onClick={() => setDialogAperto(false)} className="h-11 sm:h-10 w-full sm:w-auto">Annulla</Button>
             <Button onClick={handleConfermaPrenotazione} disabled={prenotazioneInCorso} className="bg-green-600 hover:bg-green-700 h-11 sm:h-10 w-full sm:w-auto">
               {prenotazioneInCorso ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Prenotazione...</> : <><CheckCircle2 className="mr-2 h-4 w-4" />Conferma</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* BIB-54 · Dialog di conflitto: al posto dell'errore secco propone la lista d'attesa (CA-06). */}
+      <Dialog open={conflittoAperto} onOpenChange={setConflittoAperto}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-amber-500" />
+              Posto non più disponibile
+            </DialogTitle>
+            <DialogDescription>
+              Il posto è appena stato prenotato da un altro utente per l&apos;intervallo scelto.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-sm">
+            {/* COSA è successo + PERCHÉ: la conferma è arrivata un attimo dopo un'altra prenotazione. */}
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+              <p className="font-medium text-amber-800 dark:text-amber-200">Cosa è successo</p>
+              <p className="mt-1 text-amber-700 dark:text-amber-300">
+                Mentre confermavi, un&apos;altra prenotazione ha occupato il posto{" "}
+                {postoSelezionato?.numero} per {oraInizio} - {oraFine} del{" "}
+                <span className="capitalize">{formatDataDisplay(dataPrenotazione)}</span>.
+              </p>
+            </div>
+            {/* COSA puoi fare: entrare in coda, con promozione automatica se il posto si libera. */}
+            <div>
+              <p className="font-medium text-foreground">Cosa puoi fare</p>
+              <p className="mt-1 text-muted-foreground">
+                Mettiti in lista d&apos;attesa per questo posto: verrai promosso
+                automaticamente e la prenotazione verrà creata per te se il posto si libera.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => setConflittoAperto(false)}
+              className="h-11 sm:h-10 w-full sm:w-auto"
+            >
+              Scegli un altro posto
+            </Button>
+            <Button
+              onClick={handleEntraInListaAttesa}
+              disabled={codaInCorso}
+              className="h-11 sm:h-10 w-full sm:w-auto"
+            >
+              {codaInCorso ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Iscrizione...</>
+              ) : (
+                <><Bell className="mr-2 h-4 w-4" />Entra in lista d&apos;attesa</>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
