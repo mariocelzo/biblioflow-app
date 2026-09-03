@@ -71,6 +71,10 @@ export function middleware(request: NextRequest) {
 // Configura quali path devono passare attraverso il middleware
 export const config = {
   matcher: [
+    // BIB-51 / CA-01: la rotta della lista d'attesa resta dichiarata in modo
+    // esplicito, oltre al matcher generale, per evitare regressioni quando
+    // quest'ultimo verrà ristretto o migrato al nuovo proxy di Next.js.
+    "/api/prenotazioni/coda/:path*",
     /*
      * Match tutti i request path eccetto:
      * - _next/static (file statici)
