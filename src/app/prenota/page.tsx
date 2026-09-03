@@ -392,6 +392,11 @@ export default function PrenotaPage() {
     });
   }, [postiFiltrati]);
 
+  const intervalloCoda = useMemo(() => {
+    const { oraInizio, oraFine } = getOrariSelezionati();
+    return { data: dataPrenotazione, oraInizio, oraFine };
+  }, [dataPrenotazione, getOrariSelezionati]);
+
   const salaCorrente = sale.find((s) => s.id === salaSelezionata);
   const { oraInizio, oraFine } = getOrariSelezionati();
 
@@ -600,7 +605,7 @@ export default function PrenotaPage() {
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-lg">Seleziona un Posto</CardTitle><CardDescription>Clicca su un posto verde per selezionarlo • {postiFiltrati.filter(p => p.stato === "DISPONIBILE").length} posti disponibili</CardDescription></CardHeader>
               <CardContent>
-                {loadingPosti ? <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : postiFiltrati.length === 0 ? <div className="flex flex-col items-center justify-center h-64 text-muted-foreground"><Info className="h-12 w-12 mb-4" /><p>Nessun posto disponibile con i filtri selezionati</p></div> : <MappaBiblioteca sala={salaCorrente?.nome || "Sala Studio"} piano={salaCorrente?.piano || 1} posti={postiMappa} postoSelezionato={postoSelezionato?.id || null} onSelectPosto={handleSelectFromMap} />}
+                {loadingPosti ? <div className="flex items-center justify-center h-64"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : postiFiltrati.length === 0 ? <div className="flex flex-col items-center justify-center h-64 text-muted-foreground"><Info className="h-12 w-12 mb-4" /><p>Nessun posto disponibile con i filtri selezionati</p></div> : <MappaBiblioteca sala={salaCorrente?.nome || "Sala Studio"} piano={salaCorrente?.piano || 1} posti={postiMappa} postoSelezionato={postoSelezionato?.id || null} onSelectPosto={handleSelectFromMap} intervalloCoda={intervalloCoda} />}
               </CardContent>
             </Card>
           </div>
