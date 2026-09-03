@@ -51,6 +51,39 @@ type Props = {
   prenotazione: Prenotazione;
 };
 
+export type PromozioneAdmin = {
+  richiestaId: string;
+  prenotazioneId: string;
+  userId: string;
+  postoId: string;
+  utente?: {
+    nome: string;
+    cognome: string;
+  };
+};
+
+export type EsitoAnnullamentoAdmin = {
+  promozione?: PromozioneAdmin | null;
+};
+
+export function descriviEsitoCoda(
+  esito: EsitoAnnullamentoAdmin,
+): string {
+  if (esito.promozione) {
+    const nomeUtente = esito.promozione.utente
+      ? `${esito.promozione.utente.nome} ${esito.promozione.utente.cognome}`
+      : `utente ${esito.promozione.userId}`;
+
+    return `${nomeUtente} è stato promosso dalla lista d'attesa (prenotazione ${esito.promozione.prenotazioneId}).`;
+  }
+
+  if (esito.promozione === null) {
+    return "Nessun utente era in lista d'attesa per questo intervallo.";
+  }
+
+  return "Prenotazione annullata; esito della lista d'attesa non disponibile.";
+}
+
 export default function PrenotazioniActions({ prenotazione }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -93,7 +126,9 @@ export default function PrenotazioniActions({ prenotazione }: Props) {
         throw new Error(data.error || "Errore durante l'annullamento");
       }
 
-      toast.success("Prenotazione annullata con successo");
+      toast.success("Prenotazione annullata con successo", {
+        description: descriviEsitoCoda(data),
+      });
       setShowAnnullaDialog(false);
       router.refresh();
     } catch (error: unknown) {
