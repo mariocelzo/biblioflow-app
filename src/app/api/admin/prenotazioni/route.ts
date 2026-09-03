@@ -26,6 +26,9 @@ type EsitoPromozioneAdmin = {
   prenotazioneId: string;
   userId: string;
   postoId: string;
+  // BIB-50 / CA-06: nome e cognome dell'utente promosso, così che il feedback
+  // nell'interfaccia admin dica *chi* è stato promosso senza leggere i log.
+  utente?: { nome: string; cognome: string };
 };
 
 function dataIso(data: Date): string {
@@ -40,26 +43,51 @@ async function promuoviDopoCancellazione(
   prenotazione: PrenotazioneCancellata,
   attore: AttorePersonale,
 ): Promise<EsitoPromozioneAdmin | null> {
-  const promozione = await promuoviPrimoInCoda(
-    {
-      postoId: prenotazione.postoId,
-      data: prenotazione.data,
-      oraInizio: prenotazione.oraInizio,
-      oraFine: prenotazione.oraFine,
-    },
-    prisma,
-  );
+  // La promozione è un effetto collaterale best-effort della cancellazione: se
+  // per questo slot non è possibile (coda vuota, oppure lo slot è già nel
+  // passato e il dominio rifiuta l'intervallo) la cancellazione resta valida e
+  // si risponde semplicemente con `promozione: null`, senza propagare un 500.
+  let promozione: Awaited<ReturnType<typeof promuoviPrimoInCoda>>;
+  try {
+    promozione = await promuoviPrimoInCoda(
+      {
+        postoId: prenotazione.postoId,
+        data: prenotazione.data,
+        oraInizio: prenotazione.oraInizio,
+        oraFine: prenotazione.oraFine,
+      },
+      prisma,
+    );
+  } catch (errore) {
+    console.warn(
+      `Promozione da coda non eseguita per la prenotazione ${prenotazione.id}:`,
+      errore,
+    );
+    return null;
+  }
 
   if (!promozione) {
     return null;
   }
 
-  const esito = {
+  const esito: EsitoPromozioneAdmin = {
     richiestaId: promozione.richiestaId,
     prenotazioneId: promozione.prenotazione.id,
     userId: promozione.prenotazione.userId,
     postoId: prenotazione.postoId,
   };
+
+  // BIB-50 / CA-06: arricchisce l'esito con il nome dell'utente promosso, così
+  // che il riepilogo mostrato al personale sia leggibile. Lookup mirato e non
+  // bloccante: se fallisce, il feedback ripiega sull'id ma la promozione è già
+  // stata registrata sopra.
+  const utentePromosso = await prisma.user.findUnique({
+    where: { id: esito.userId },
+    select: { nome: true, cognome: true },
+  });
+  if (utentePromosso) {
+    esito.utente = utentePromosso;
+  }
 
   await prisma.notifica.create({
     data: {

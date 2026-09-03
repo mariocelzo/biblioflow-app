@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
     posto: {
       update: vi.fn(),
     },
+    user: {
+      // BIB-50 / CA-06: lookup del nome dell'utente promosso per il feedback admin.
+      findUnique: vi.fn(),
+    },
     logEvento: {
       create: vi.fn(),
     },
@@ -98,6 +102,10 @@ beforeEach(() => {
   });
   mocks.prisma.logEvento.create.mockResolvedValue({ id: "log-1" });
   mocks.prisma.notifica.create.mockResolvedValue({ id: "notifica-1" });
+  mocks.prisma.user.findUnique.mockResolvedValue({
+    nome: "Ada",
+    cognome: "Lovelace",
+  });
 });
 
 describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
@@ -120,7 +128,13 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
         prenotazioneId: promozione.prenotazione.id,
         userId: promozione.prenotazione.userId,
         postoId: prenotazione.postoId,
+        // BIB-50 / CA-06: l'esito porta con sé nome e cognome dell'utente promosso.
+        utente: { nome: "Ada", cognome: "Lovelace" },
       },
+    });
+    expect(mocks.prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: promozione.prenotazione.userId },
+      select: { nome: true, cognome: true },
     });
     expect(mocks.promuoviPrimoInCoda).toHaveBeenCalledWith(
       {
@@ -224,6 +238,33 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
     });
     expect(mocks.prisma.notifica.create).not.toHaveBeenCalledWith({
       data: expect.objectContaining({ tipo: "CODA_PROMOZIONE" }),
+    });
+    expect(mocks.emitCodaPromozione).not.toHaveBeenCalled();
+  });
+
+  it("[TC-BIB49-004] se il dominio rifiuta lo slot (es. data passata) la cancellazione resta valida", async () => {
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue(prenotazione);
+    // promuoviPrimoInCoda valida l'intervallo e può lanciare per uno slot nel
+    // passato: la cancellazione non deve andare in 500.
+    mocks.promuoviPrimoInCoda.mockRejectedValue(
+      new Error("Scegli una data di oggi o successiva"),
+    );
+
+    const response = await route.POST(
+      request({
+        azione: "ANNULLA_SINGOLA",
+        prenotazioneId: prenotazione.id,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      success: true,
+      promozione: null,
+    });
+    expect(mocks.prisma.prenotazione.update).toHaveBeenCalledWith({
+      where: { id: prenotazione.id },
+      data: { stato: "CANCELLATA" },
     });
     expect(mocks.emitCodaPromozione).not.toHaveBeenCalled();
   });
