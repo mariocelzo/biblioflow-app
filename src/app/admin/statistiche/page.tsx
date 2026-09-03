@@ -1,7 +1,7 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, TrendingUp, Users, BookOpen } from "lucide-react";
+import { BarChart3, TrendingUp, Users, BookOpen, Clock } from "lucide-react";
 import StatisticheCharts from "@/components/admin/statistiche-charts";
 
 export default async function StatisticheAdminPage() {
@@ -21,7 +21,7 @@ export default async function StatisticheAdminPage() {
       </div>
 
       {/* Info Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
@@ -74,6 +74,21 @@ export default async function StatisticheAdminPage() {
           <CardContent>
             <p className="text-xs text-muted-foreground">
               Top 10 libri più prestati
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* BIB-56 — indicatore utenti in lista d'attesa */}
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-sky-500" />
+              <CardTitle className="text-sm font-medium">Lista d&apos;Attesa</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-muted-foreground">
+              Utenti in lista d&apos;attesa per sala e posto
             </p>
           </CardContent>
         </Card>
