@@ -34,6 +34,14 @@ type NoShowData = {
   percentuale: string;
 };
 
+// BIB-56 — forma dei dati dell'indicatore "utenti in lista d'attesa".
+// `perSala`  = conteggio richieste IN_ATTESA aggregato per sala.
+// `perPosto` = stesso conteggio dettagliato sul singolo posto (con la sua sala).
+type CodaAttesaData = {
+  perSala: { sala: string; count: number }[];
+  perPosto: { posto: string; sala: string; count: number }[];
+};
+
 const COLORS = ['#ef4444', '#22c55e', '#94a3b8'];
 
 export default function StatisticheCharts() {
@@ -42,17 +50,23 @@ export default function StatisticheCharts() {
   const [utentiData, setUtentiData] = useState<UtentiData[]>([]);
   const [libriData, setLibriData] = useState<LibriData[]>([]);
   const [noShowData, setNoShowData] = useState<NoShowData[]>([]);
+  // BIB-56 — stato dell'indicatore lista d'attesa (default: liste vuote).
+  const [codaAttesaData, setCodaAttesaData] = useState<CodaAttesaData>({
+    perSala: [],
+    perPosto: [],
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [occupazione, trend, utenti, libri, noShow] = await Promise.all([
+        const [occupazione, trend, utenti, libri, noShow, codaAttesa] = await Promise.all([
           fetch("/api/admin/statistiche?tipo=occupazione-oraria").then(r => r.json()),
           fetch("/api/admin/statistiche?tipo=trend-prenotazioni").then(r => r.json()),
           fetch("/api/admin/statistiche?tipo=utenti-attivi").then(r => r.json()),
           fetch("/api/admin/statistiche?tipo=libri-prestati").then(r => r.json()),
           fetch("/api/admin/statistiche?tipo=tasso-noshow").then(r => r.json()),
+          fetch("/api/admin/statistiche?tipo=coda-attesa").then(r => r.json()),
         ]);
 
         setOccupazioneData(occupazione.data);
@@ -60,6 +74,11 @@ export default function StatisticheCharts() {
         setUtentiData(utenti.data);
         setLibriData(libri.data);
         setNoShowData(noShow.data);
+        // Fallback difensivo: se il payload non ha la forma attesa si resta su liste vuote.
+        setCodaAttesaData({
+          perSala: codaAttesa.data?.perSala ?? [],
+          perPosto: codaAttesa.data?.perPosto ?? [],
+        });
       } catch (error) {
         console.error("Errore nel caricamento delle statistiche:", error);
       } finally {
@@ -77,6 +96,14 @@ export default function StatisticheCharts() {
       </div>
     );
   }
+
+  // BIB-56 — etichetta combinata "posto · sala": due sale possono avere posti
+  // con lo stesso numero, quindi si evita la collisione di chiave sull'asse Y.
+  const codaPerPostoChart = codaAttesaData.perPosto.map(riga => ({
+    ...riga,
+    etichetta: `${riga.posto} · ${riga.sala}`,
+  }));
+  const codaAttesaVuota = codaAttesaData.perSala.length === 0;
 
   return (
     <div className="space-y-6">
@@ -175,6 +202,69 @@ export default function StatisticheCharts() {
           </CardContent>
         </Card>
       </div>
+
+      {/* BIB-56 — Utenti in lista d'attesa (richieste IN_ATTESA) per sala e per posto */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Utenti in Lista d&apos;Attesa</CardTitle>
+          <CardDescription>Richieste ancora in attesa, aggregate per sala e per posto</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {codaAttesaVuota ? (
+            <p className="text-sm text-muted-foreground text-center py-12">
+              Nessun utente in lista d&apos;attesa
+            </p>
+          ) : (
+            <div className="space-y-8">
+              {/* Aggregato per sala */}
+              <div>
+                <p className="text-sm font-medium mb-2">Per sala</p>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={codaAttesaData.perSala}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="sala" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="count" fill="#0ea5e9" name="In attesa" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Dettaglio per singolo posto */}
+              <div>
+                <p className="text-sm font-medium mb-2">Per posto</p>
+                <ResponsiveContainer
+                  width="100%"
+                  height={Math.max(200, codaPerPostoChart.length * 44)}
+                >
+                  <BarChart data={codaPerPostoChart} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis dataKey="etichetta" type="category" width={150} />
+                    <Tooltip content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        const data = payload[0].payload as CodaAttesaData["perPosto"][number];
+                        return (
+                          <div className="bg-background border rounded-lg p-3 shadow-lg">
+                            <p className="font-medium">Posto {data.posto}</p>
+                            <p className="text-sm text-muted-foreground">{data.sala}</p>
+                            <p className="text-sm font-semibold mt-1">
+                              In attesa: {data.count}
+                            </p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }} />
+                    <Bar dataKey="count" fill="#14b8a6" name="In attesa" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Tasso no-show */}
       <Card>

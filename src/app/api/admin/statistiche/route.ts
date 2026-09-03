@@ -220,6 +220,63 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ data: risultato });
       }
 
+      case "coda-attesa": {
+        // BIB-56 — Indicatore "utenti in lista d'attesa".
+        // Conteggio delle richieste ancora IN_ATTESA, aggregate su due livelli:
+        //   - per sala  -> { sala, count }
+        //   - per posto -> { posto, sala, count }
+        // Le altre metriche di questo endpoint NON vengono toccate.
+
+        // 1) groupBy sul solo postoId: PostgreSQL restituisce quante richieste
+        //    IN_ATTESA insistono su ciascun posto (una riga per posto con coda).
+        const conteggioPerPosto = await prisma.listaAttesa.groupBy({
+          by: ['postoId'],
+          where: { stato: "IN_ATTESA" },
+          _count: {
+            id: true
+          }
+        });
+
+        // 2) Risolve numero-posto e nome-sala per gli id emersi dal groupBy,
+        //    così l'aggregato diventa leggibile lato dashboard.
+        const postiIds = conteggioPerPosto.map(c => c.postoId);
+        const posti = await prisma.posto.findMany({
+          where: { id: { in: postiIds } },
+          select: {
+            id: true,
+            numero: true,
+            sala: { select: { nome: true } }
+          }
+        });
+
+        // 3) Dettaglio per singolo posto (numero + sala + conteggio), ordinato
+        //    per conteggio decrescente per coerenza con gli altri grafici a barre.
+        const perPosto = conteggioPerPosto
+          .map(c => {
+            const posto = posti.find(p => p.id === c.postoId);
+            return {
+              posto: posto?.numero ?? "Sconosciuto",
+              sala: posto?.sala?.nome ?? "Sala sconosciuta",
+              count: c._count.id
+            };
+          })
+          .sort((a, b) => b.count - a.count);
+
+        // 4) Aggregazione per sala: somma i conteggi dei posti della stessa sala.
+        const conteggioPerSala = new Map<string, number>();
+        for (const riga of perPosto) {
+          conteggioPerSala.set(
+            riga.sala,
+            (conteggioPerSala.get(riga.sala) ?? 0) + riga.count
+          );
+        }
+        const perSala = Array.from(conteggioPerSala.entries())
+          .map(([sala, count]) => ({ sala, count }))
+          .sort((a, b) => b.count - a.count);
+
+        return NextResponse.json({ data: { perSala, perPosto } });
+      }
+
       default:
         return NextResponse.json(
           { error: "Tipo statistiche non valido" },
