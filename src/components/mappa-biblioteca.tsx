@@ -13,8 +13,11 @@ import {
   Accessibility,
   ZoomIn,
   ZoomOut,
-  Maximize
+  Maximize,
+  Loader2,
+  Users,
 } from "lucide-react";
+import { toast } from "sonner";
 
 export interface Posto {
   id: string;
@@ -31,12 +34,38 @@ export interface Posto {
   };
 }
 
+export interface IntervalloCoda {
+  data: string;
+  oraInizio: string;
+  oraFine: string;
+}
+
 interface MappaBibliotecaProps {
   sala: string;
   piano: number;
   posti: Posto[];
   postoSelezionato: string | null;
   onSelectPosto: (postoId: string) => void;
+  intervalloCoda: IntervalloCoda;
+}
+
+export function isPostoAccodabile(posto: Pick<Posto, "stato">): boolean {
+  return posto.stato === "OCCUPATO" || posto.stato === "PRENOTATO";
+}
+
+export function creaPayloadCoda(postoId: string, intervallo: IntervalloCoda) {
+  return { postoId, ...intervallo };
+}
+
+function dataNormalizzata(value: string): string {
+  return value.slice(0, 10);
+}
+
+function oraNormalizzata(value: string): string {
+  if (value.includes("T")) {
+    return new Date(value).toISOString().slice(11, 16);
+  }
+  return value.slice(0, 5);
 }
 
 export function MappaBiblioteca({
@@ -44,13 +73,17 @@ export function MappaBiblioteca({
   piano,
   posti,
   postoSelezionato,
-  onSelectPosto
+  onSelectPosto,
+  intervalloCoda,
 }: MappaBibliotecaProps) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [isMobile, setIsMobile] = useState(false);
+  const [postoCoda, setPostoCoda] = useState<Posto | null>(null);
+  const [posizioniCoda, setPosizioniCoda] = useState<Record<string, number>>({});
+  const [codaLoading, setCodaLoading] = useState(false);
 
   // Detect mobile viewport
   useEffect(() => {
@@ -95,10 +128,43 @@ export function MappaBiblioteca({
   const getPostoTooltip = (posto: Posto): string => {
     switch (posto.stato) {
       case 'DISPONIBILE': return `Posto ${posto.numero} - Disponibile (clicca per selezionare)`;
-      case 'OCCUPATO': return `Posto ${posto.numero} - Già prenotato per questa fascia oraria`;
-      case 'PRENOTATO': return `Posto ${posto.numero} - Prenotato`;
+      case 'OCCUPATO': return `Posto ${posto.numero} - Occupato, coda disponibile (clicca per entrare)`;
+      case 'PRENOTATO': return `Posto ${posto.numero} - Prenotato, coda disponibile (clicca per entrare)`;
       case 'MANUTENZIONE': return `Posto ${posto.numero} - In manutenzione`;
       default: return `Posto ${posto.numero}`;
+    }
+  };
+
+  const caricaPosizioneCoda = async (posto: Posto) => {
+    setCodaLoading(true);
+    try {
+      const response = await fetch("/api/prenotazioni/coda");
+      if (!response.ok) return;
+
+      const payload = await response.json();
+      const richiesta = (payload.data ?? []).find((item: {
+        postoId: string;
+        data: string;
+        oraInizio: string;
+        oraFine: string;
+        posizione: number;
+      }) => (
+        item.postoId === posto.id &&
+        dataNormalizzata(item.data) === intervalloCoda.data &&
+        oraNormalizzata(item.oraInizio) === intervalloCoda.oraInizio &&
+        oraNormalizzata(item.oraFine) === intervalloCoda.oraFine
+      ));
+
+      if (richiesta) {
+        setPosizioniCoda((correnti) => ({
+          ...correnti,
+          [posto.id]: richiesta.posizione,
+        }));
+      }
+    } catch {
+      // Il caricamento è di supporto: l'azione POST resta comunque disponibile.
+    } finally {
+      setCodaLoading(false);
     }
   };
 
@@ -106,7 +172,48 @@ export function MappaBiblioteca({
     // Se stiamo trascinando (o abbiamo appena finito), non selezionare
     if (isDragging) return;
     if (posto.stato === 'DISPONIBILE') {
+      setPostoCoda(null);
       onSelectPosto(posto.id);
+    } else if (isPostoAccodabile(posto)) {
+      setPostoCoda(posto);
+      void caricaPosizioneCoda(posto);
+    }
+  };
+
+  const handleEntraInCoda = async () => {
+    if (!postoCoda) return;
+
+    setCodaLoading(true);
+    try {
+      const response = await fetch("/api/prenotazioni/coda", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(creaPayloadCoda(postoCoda.id, intervalloCoda)),
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Impossibile entrare in lista d'attesa");
+      }
+
+      const posizione = payload.data?.posizione;
+      if (typeof posizione === "number") {
+        setPosizioniCoda((correnti) => ({
+          ...correnti,
+          [postoCoda.id]: posizione,
+        }));
+      }
+      toast.success("Sei in lista d'attesa", {
+        description: typeof posizione === "number"
+          ? `Posizione attuale: ${posizione}`
+          : `Posto ${postoCoda.numero}`,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Errore di connessione",
+      );
+    } finally {
+      setCodaLoading(false);
     }
   };
 
@@ -317,7 +424,18 @@ export function MappaBiblioteca({
 
   /* Helper per renderizzare hitbox invisibile e cerchio visivo */
   const renderPostoCircle = (posto: Posto, cx: number, cy: number, isSelected: boolean, key: string, isSalaLettura = false) => (
-    <g key={key}>
+    <g
+      key={key}
+      role={posto.stato === "DISPONIBILE" || isPostoAccodabile(posto) ? "button" : undefined}
+      tabIndex={posto.stato === "DISPONIBILE" || isPostoAccodabile(posto) ? 0 : undefined}
+      aria-label={getPostoTooltip(posto)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          handlePostoClick(posto);
+        }
+      }}
+    >
       <title>{getPostoTooltip(posto)}</title>
 
       {/* 1. HITBOX INVISIBILE PER TOCCO FACILITATO (Raggio 24 = ~48px diametro su scala 1:1) */}
@@ -326,9 +444,8 @@ export function MappaBiblioteca({
         cy={cy}
         r="24"
         fill="transparent"
-        className={posto.stato === 'DISPONIBILE' ? 'cursor-pointer' : ''}
+        className={posto.stato === 'DISPONIBILE' || isPostoAccodabile(posto) ? 'cursor-pointer' : ''}
         onClick={() => handlePostoClick(posto)}
-        onPointerUp={() => { if (!isDragging) handlePostoClick(posto); }}
       />
 
       {/* 2. Cerchio Visivo (leggermente ingrandito: 12->14, sel 14->16) */}
@@ -357,6 +474,13 @@ export function MappaBiblioteca({
 
       {!isSalaLettura && posto.caratteristiche.presaElettrica && (
         <circle cx={cx} cy={cy - 20} r="4" fill="#fbbf24" stroke="#f59e0b" strokeWidth="0.5" className="pointer-events-none" />
+      )}
+
+      {isPostoAccodabile(posto) && (
+        <>
+          <circle cx={cx + 12} cy={cy - 12} r="8" fill="#2563eb" stroke="white" strokeWidth="1.5" className="pointer-events-none" />
+          <text x={cx + 12} y={cy - 8.5} textAnchor="middle" fill="white" fontSize="11" fontWeight="bold" className="pointer-events-none">+</text>
+        </>
       )}
     </g>
   );
@@ -417,6 +541,7 @@ export function MappaBiblioteca({
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-green-500" /><span>Disponibile</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-amber-500" /><span>Prenotato</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-red-500" /><span>Occupato</span></div>
+            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">+</div><span>Coda disponibile</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-500" /><span>Selezionato</span></div>
             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-amber-400 border border-amber-600" /><span>Presa elettrica</span></div>
           </div>
@@ -501,6 +626,36 @@ export function MappaBiblioteca({
                 {postoSelezionatoData.caratteristiche.wifi && <Badge variant="secondary" className="flex items-center gap-1"><Wifi className="h-3 w-3" />WiFi ottimale</Badge>}
                 {postoSelezionatoData.caratteristiche.accessibile && <Badge variant="secondary" className="flex items-center gap-1"><Accessibility className="h-3 w-3" />Accessibile</Badge>}
               </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {postoCoda && (
+        <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+          <CardContent className="p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3">
+                <Users className="mt-0.5 h-5 w-5 text-blue-600" aria-hidden="true" />
+                <div>
+                  <h4 className="font-semibold">Lista d&apos;attesa · Posto {postoCoda.numero}</h4>
+                  <p className="text-sm text-muted-foreground">
+                    {posizioniCoda[postoCoda.id]
+                      ? `Sei già in lista. Posizione attuale: ${posizioniCoda[postoCoda.id]}.`
+                      : "Il posto è occupato per l'intervallo scelto. Puoi entrare in coda."}
+                  </p>
+                </div>
+              </div>
+              {posizioniCoda[postoCoda.id] ? (
+                <Badge variant="secondary" aria-label={`Posizione in coda ${posizioniCoda[postoCoda.id]}`}>
+                  Posizione {posizioniCoda[postoCoda.id]}
+                </Badge>
+              ) : (
+                <Button onClick={handleEntraInCoda} disabled={codaLoading}>
+                  {codaLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" /> : <Users className="mr-2 h-4 w-4" aria-hidden="true" />}
+                  Entra in lista d&apos;attesa
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
