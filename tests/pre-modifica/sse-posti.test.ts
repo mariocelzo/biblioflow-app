@@ -1,4 +1,25 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Adeguamento per il finding M-3 (audit sicurezza 2026-09-04): `GET /api/sse/posti`
+// ora richiede una sessione valida (`requireUser`). Questi test caratterizzano il
+// CONTRATTO dello stream (header + commento iniziale + framing), non il gate di
+// autenticazione (coperto da `tests/unit/sse-posti-auth.test.ts`): si mocka
+// quindi `@/lib/auth` per simulare un utente autenticato. Le asserzioni sul
+// contratto SSE restano invariate.
+vi.mock("@/lib/auth", () => ({
+  AuthError: class AuthError extends Error {
+    constructor(
+      public readonly status: number,
+      public readonly code: string,
+      message: string,
+    ) {
+      super(message);
+      this.name = "AuthError";
+    }
+  },
+  requireUser: vi.fn().mockResolvedValue({ id: "pre-sse-user", ruolo: "STUDENTE" }),
+}));
+
 import { createSSEStream, sseEmitter } from "@/lib/sse-emitter";
 import { GET } from "@/app/api/sse/posti/route";
 

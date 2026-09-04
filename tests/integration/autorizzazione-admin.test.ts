@@ -34,7 +34,8 @@
  *   02x  BIBLIOTECARIO su rotta prevista           → accesso consentito (NON 401/403)
  *   03x  PATCH /api/admin/utenti/[id]              → solo ADMIN (BIBLIOTECARIO 403, ADMIN ok)
  *   04x  nuovi endpoint coda senza sessione        → 401 con body coerente
- *   05x  FALLE NOTE (route admin che non verificano il ruolo) — documentate, NON corrette
+ *   05x  ex FALLE NOTE (GET posti/[id], GET+PATCH richieste) — CHIUSE in fix(security):
+ *        401 senza sessione, 403 per lo STUDENTE (tripwire di regressione)
  */
 
 import { NextRequest } from "next/server";
@@ -213,8 +214,9 @@ function ctx(id = "risorsa-1") {
  * `❌ / ✅ / ✅` (STUDENTE respinto con 403, staff ammesso): stessa guardia
  * `auth()` + controllo ruolo staff nel handler. Ogni voce sa invocarsi da sola.
  *
- * NB: `GET /api/admin/posti/[id]` NON è qui perché la matrice lo marca `🔐`
- * (sessione sì, ruolo no) → è una FALLA NOTA, testata a parte più sotto.
+ * NB: `GET /api/admin/posti/[id]` NON è in questo elenco per non rinumerare gli
+ * ID `it.each` esistenti; dopo fix(security) verifica comunque sessione + ruolo
+ * staff ed è coperto singolarmente in 00x (TC-BIB57-007) e 05x (TC-BIB57-050/051).
  */
 function rotteAdminRegolari() {
   return [
@@ -537,71 +539,66 @@ describe("BIB-57 · 04x — endpoint coda senza sessione → 401 (CA-01, BIB-51)
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 05x — FALLE NOTE (documentate, NON corrette in questa card — vedi BIB-57 §4)
-// La matrice AS-IS di Fase 1 già segnala due varchi NON chiusi dalla Fase 3
-// (che ha irrobustito solo l'area `prenotazioni`). Questi test FISSANO il
-// comportamento reale attuale e fanno da tripwire di regressione: quando la
-// falla verrà chiusa, gli `it.fails` inizieranno a fallire e andranno promossi
-// ad `it` normali.
+// 05x — FALLE DI AUTORIZZAZIONE CHIUSE in fix(security) (ex "FALLE NOTE")
+// La matrice AS-IS di Fase 1 segnalava due varchi che la Fase 3 non aveva
+// chiuso (era stata irrobustita solo l'area `prenotazioni`):
+//   #1  GET /api/admin/posti/[id]        — `auth()` senza controllo ruolo    (M-1 / AUTH-NEG-006)
+//   #2  GET e PATCH /api/admin/richieste — nessun `auth()` né controllo ruolo (C-5 / AUTH-NEG-007)
+// Entrambi sono stati corretti in fix(security). Questi test ora FISSANO il
+// comportamento corretto (401 senza sessione, 403 per lo STUDENTE) e restano
+// come tripwire di regressione. Gli ex `it.fails` (051, 054) e gli ex casi
+// "FALLA NOTA" (050, 052, 053) sono stati promossi a `it()` normali.
 // ═════════════════════════════════════════════════════════════════════════════
-describe("BIB-57 · 05x — FALLE NOTE di autorizzazione (documentate)", () => {
-  // ── FALLA NOTA #1 ────────────────────────────────────────────────────────
-  // `GET /api/admin/posti/[id]` — matrice riga `🔐` ("auth() senza controllo
-  // ruolo"); l'obiettivo CR `AUTH-NEG-006` chiede 403 per lo STUDENTE, ma il
-  // handler NON verifica il ruolo: uno STUDENTE autenticato legge dati
-  // amministrativi (posto, prenotazioni recenti, identità collegate).
-  it("TC-BIB57-050: [FALLA NOTA] STUDENTE su GET /api/admin/posti/[id] NON riceve 403", async () => {
-    // FALLA NOTA: manca il controllo di ruolo staff nel handler
-    // (src/app/api/admin/posti/[id]/route.ts, funzione GET). Comportamento reale
-    // documentato: con `posto.findUnique` → null il handler arriva alla logica e
-    // risponde 404 (o 200 con i dati se il posto esiste), MAI 403.
+describe("BIB-57 · 05x — falle di autorizzazione chiuse in fix(security)", () => {
+  // ── FALLA #1 CHIUSA — GET /api/admin/posti/[id] (M-1 / AUTH-NEG-006) ──────
+  // Il handler GET ora replica il controllo di ruolo staff già presente nella
+  // PATCH: uno STUDENTE autenticato non legge più i dati amministrativi del
+  // posto (storico prenotazioni, identità collegate).
+  it("TC-BIB57-050: STUDENTE su GET /api/admin/posti/[id] riceve 403 (corretto in fix(security))", async () => {
+    // Ex "FALLA NOTA": prima la GET non filtrava il ruolo e rispondeva 404/200.
+    // Ora la guardia di ruolo risponde 403 PRIMA di qualunque query: neppure
+    // `posto.findUnique` deve essere raggiunto.
     mocks.auth.mockResolvedValue(sessioneStudente);
     mocks.prisma.posto.findUnique.mockResolvedValue(null);
     const response = await adminPosto.GET(
       request("http://localhost/api/admin/posti/posto-x"),
       ctx("posto-x"),
     );
-    expect(response.status).not.toBe(403); // <-- la falla: dovrebbe essere 403
-    expect(response.status).toBe(404); // stato reale attuale (sessione ok, ruolo non filtrato)
+    expect(response.status).toBe(403);
+    expect(mocks.prisma.posto.findUnique).not.toHaveBeenCalled();
   });
 
-  it.fails(
-    "TC-BIB57-051: [TARGET CR AUTH-NEG-006] STUDENTE su GET /api/admin/posti/[id] dovrebbe essere 403",
-    async () => {
-      // Questo test DEVE fallire finché la FALLA NOTA #1 è aperta. Quando il
-      // handler aggiungerà il controllo ruolo staff, inizierà a passare: a quel
-      // punto rimuovere `.fails` e allineare la matrice.
-      mocks.auth.mockResolvedValue(sessioneStudente);
-      mocks.prisma.posto.findUnique.mockResolvedValue(null);
-      const response = await adminPosto.GET(
-        request("http://localhost/api/admin/posti/posto-x"),
-        ctx("posto-x"),
-      );
-      expect(response.status).toBe(403);
-    },
-  );
+  it("TC-BIB57-051: [AUTH-NEG-006] STUDENTE su GET /api/admin/posti/[id] è 403 (ex it.fails, corretto in fix(security))", async () => {
+    // Ex `it.fails` che documentava la falla aperta: ora la correzione è in
+    // codice e il test è un normale `it()` verde. Tripwire di regressione sul
+    // controllo di ruolo della GET.
+    mocks.auth.mockResolvedValue(sessioneStudente);
+    mocks.prisma.posto.findUnique.mockResolvedValue(null);
+    const response = await adminPosto.GET(
+      request("http://localhost/api/admin/posti/posto-x"),
+      ctx("posto-x"),
+    );
+    expect(response.status).toBe(403);
+  });
 
-  // ── FALLA NOTA #2 ────────────────────────────────────────────────────────
-  // `GET` e `PATCH /api/admin/richieste` — matrice riga `⚠️` ("Nessun auth() e
-  // nessun controllo ruolo nel handler"); l'obiettivo CR `AUTH-NEG-007` chiede
-  // 403 per lo STUDENTE. Nel percorso reale il solo controllo è la presenza del
-  // cookie fatta dal middleware: chiamando il handler direttamente (nessuna
-  // sessione) si raggiunge comunque il database.
-  it("TC-BIB57-052: [FALLA NOTA] GET /api/admin/richieste senza sessione NON riceve 401", async () => {
-    // FALLA NOTA: il handler (src/app/api/admin/richieste/route.ts, GET) non
-    // chiama mai `auth()`. Stato reale: risponde 200 con i dati (qui lista vuota).
+  // ── FALLA #2 CHIUSA — GET/PATCH /api/admin/richieste (C-5 / AUTH-NEG-007) ─
+  // Il file ora importa `auth()` e applica su ENTRAMBI i metodi la guardia
+  // "sessione + ruolo staff": senza sessione → 401, STUDENTE → 403, prima di
+  // toccare parser del body o database.
+  it("TC-BIB57-052: GET /api/admin/richieste senza sessione riceve 401 (corretto in fix(security))", async () => {
+    // Ex "FALLA NOTA": prima la GET non chiamava mai `auth()` e serviva i dati.
     mocks.auth.mockResolvedValue(null);
     mocks.prisma.richiestaPreparazione.findMany.mockResolvedValue([]);
     const response = await adminRichieste.GET(
       request("http://localhost/api/admin/richieste"),
     );
-    expect(response.status).not.toBe(401); // <-- la falla: senza sessione dovrebbe essere 401
-    expect(response.status).toBe(200); // stato reale: dati serviti senza autenticazione
+    expect(response.status).toBe(401);
+    // La guardia risponde prima della query: nessun accesso ai dati.
+    expect(mocks.prisma.richiestaPreparazione.findMany).not.toHaveBeenCalled();
   });
 
-  it("TC-BIB57-053: [FALLA NOTA] PATCH /api/admin/richieste senza sessione NON riceve 401", async () => {
-    // FALLA NOTA: come sopra per il PATCH (nessun `auth()` né controllo ruolo).
-    // Stato reale: con `id` e `stato` validi l'update viene eseguito e risponde 200.
+  it("TC-BIB57-053: PATCH /api/admin/richieste senza sessione riceve 401 (corretto in fix(security))", async () => {
+    // Ex "FALLA NOTA": prima il PATCH eseguiva l'`update` senza autenticazione.
     mocks.auth.mockResolvedValue(null);
     mocks.prisma.richiestaPreparazione.update.mockResolvedValue({
       id: "req-1",
@@ -613,22 +610,38 @@ describe("BIB-57 · 05x — FALLE NOTE di autorizzazione (documentate)", () => {
         stato: "COMPLETATA",
       }),
     );
-    expect(response.status).not.toBe(401); // <-- la falla
-    expect(response.status).toBe(200); // stato reale: mutazione eseguita senza autenticazione
-    expect(mocks.prisma.richiestaPreparazione.update).toHaveBeenCalled();
+    expect(response.status).toBe(401);
+    // La mutazione non deve nemmeno essere tentata.
+    expect(mocks.prisma.richiestaPreparazione.update).not.toHaveBeenCalled();
   });
 
-  it.fails(
-    "TC-BIB57-054: [TARGET CR AUTH-NEG-007] STUDENTE su GET /api/admin/richieste dovrebbe essere 403",
-    async () => {
-      // Tripwire: fallisce finché `/api/admin/richieste` non applica auth() +
-      // controllo ruolo staff. Quando passerà, rimuovere `.fails`.
-      mocks.auth.mockResolvedValue(sessioneStudente);
-      mocks.prisma.richiestaPreparazione.findMany.mockResolvedValue([]);
-      const response = await adminRichieste.GET(
-        request("http://localhost/api/admin/richieste"),
-      );
-      expect(response.status).toBe(403);
-    },
-  );
+  it("TC-BIB57-054: [AUTH-NEG-007] STUDENTE su GET /api/admin/richieste è 403 (ex it.fails, corretto in fix(security))", async () => {
+    // Ex `it.fails`: promosso a `it()` normale ora che `/api/admin/richieste`
+    // applica `auth()` + controllo ruolo staff.
+    mocks.auth.mockResolvedValue(sessioneStudente);
+    mocks.prisma.richiestaPreparazione.findMany.mockResolvedValue([]);
+    const response = await adminRichieste.GET(
+      request("http://localhost/api/admin/richieste"),
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.prisma.richiestaPreparazione.findMany).not.toHaveBeenCalled();
+  });
+
+  it("TC-BIB57-055: [AUTH-NEG-007] STUDENTE su PATCH /api/admin/richieste è 403 (corretto in fix(security))", async () => {
+    // Nuovo caso: copre esplicitamente lo STUDENTE anche sul PATCH (mutazione),
+    // non solo sulla GET. La guardia di ruolo blocca prima dell'`update`.
+    mocks.auth.mockResolvedValue(sessioneStudente);
+    mocks.prisma.richiestaPreparazione.update.mockResolvedValue({
+      id: "req-1",
+      stato: "COMPLETATA",
+    });
+    const response = await adminRichieste.PATCH(
+      request("http://localhost/api/admin/richieste", "PATCH", {
+        id: "req-1",
+        stato: "COMPLETATA",
+      }),
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.prisma.richiestaPreparazione.update).not.toHaveBeenCalled();
+  });
 });

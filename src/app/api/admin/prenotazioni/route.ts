@@ -39,6 +39,55 @@ function oraIso(ora: Date): string {
   return ora.toISOString().slice(11, 16);
 }
 
+// ===========================================================================
+// Hardening B-9 (audit sicurezza 2026-09-04) — SOLO per il case "MODIFICA".
+// Prima gli orari grezzi (`"09:00"`) e una `data` potenzialmente non valida
+// venivano passati direttamente a Prisma su colonne `@db.Date` / `@db.Time`,
+// che rifiutavano il valore facendo degenerare la rotta in un 500 opaco.
+// Questi helper validano e normalizzano `nuoviDati` PRIMA di toccare Prisma,
+// così l'admin riceve un 422 chiaro. La logica di coda/promozione degli altri
+// case (BIB-49) NON è toccata.
+// ===========================================================================
+
+/** Esito di una validazione: valore normalizzato oppure messaggio d'errore. */
+type EsitoParse<T> = { ok: true; valore: T } | { ok: false; errore: string };
+
+/**
+ * Valida una data calendario in formato `YYYY-MM-DD` (accetta anche una ISO
+ * completa, di cui usa i primi 10 caratteri) e la normalizza a mezzanotte UTC,
+ * coerentemente con la colonna `Prenotazione.data` (`@db.Date`).
+ */
+function parseDataModifica(raw: unknown): EsitoParse<Date> {
+  if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return { ok: false, errore: "Campo 'data' non valido: atteso formato YYYY-MM-DD" };
+  }
+  const giorno = new Date(`${raw.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(giorno.getTime())) {
+    return { ok: false, errore: "Campo 'data' non è una data di calendario valida" };
+  }
+  return { ok: true, valore: giorno };
+}
+
+/**
+ * Valida un orario `HH:mm` (o `HH:mm:ss`) e lo converte nella data fittizia
+ * `1970-01-01T HH:mm:00Z` con cui Prisma rappresenta le colonne `@db.Time`.
+ */
+function parseOraModifica(raw: unknown, campo: "oraInizio" | "oraFine"): EsitoParse<Date> {
+  if (typeof raw !== "string") {
+    return { ok: false, errore: `Campo '${campo}' non valido: atteso formato HH:mm` };
+  }
+  const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(raw);
+  if (!match) {
+    return { ok: false, errore: `Campo '${campo}' non valido: atteso formato HH:mm` };
+  }
+  const ore = Number(match[1]);
+  const minuti = Number(match[2]);
+  if (ore > 23 || minuti > 59) {
+    return { ok: false, errore: `Campo '${campo}' fuori intervallo (00:00–23:59)` };
+  }
+  return { ok: true, valore: new Date(Date.UTC(1970, 0, 1, ore, minuti)) };
+}
+
 async function promuoviDopoCancellazione(
   prenotazione: PrenotazioneCancellata,
   attore: AttorePersonale,
@@ -394,15 +443,48 @@ export async function POST(req: NextRequest) {
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateData: any = {};
-        
-        if (nuoviDati.data) {
-          updateData.data = new Date(nuoviDati.data);
+
+        // B-9: valida e normalizza data/orari PRIMA di Prisma. Ogni campo non
+        // valido → 422 esplicito (niente 500). I valori validi diventano
+        // oggetti Date nel formato atteso dalle colonne @db.Date / @db.Time.
+        if (nuoviDati.data !== undefined) {
+          const esito = parseDataModifica(nuoviDati.data);
+          if (!esito.ok) {
+            return NextResponse.json({ error: esito.errore }, { status: 422 });
+          }
+          updateData.data = esito.valore;
         }
-        if (nuoviDati.oraInizio) {
-          updateData.oraInizio = nuoviDati.oraInizio;
+        if (nuoviDati.oraInizio !== undefined) {
+          const esito = parseOraModifica(nuoviDati.oraInizio, "oraInizio");
+          if (!esito.ok) {
+            return NextResponse.json({ error: esito.errore }, { status: 422 });
+          }
+          updateData.oraInizio = esito.valore;
         }
-        if (nuoviDati.oraFine) {
-          updateData.oraFine = nuoviDati.oraFine;
+        if (nuoviDati.oraFine !== undefined) {
+          const esito = parseOraModifica(nuoviDati.oraFine, "oraFine");
+          if (!esito.ok) {
+            return NextResponse.json({ error: esito.errore }, { status: 422 });
+          }
+          updateData.oraFine = esito.valore;
+        }
+        // Se dopo la modifica risultano definiti entrambi gli orari, l'intervallo
+        // deve restare coerente (fine successiva all'inizio).
+        {
+          const inizioEff: Date | undefined =
+            updateData.oraInizio ?? prenotazione.oraInizio;
+          const fineEff: Date | undefined =
+            updateData.oraFine ?? prenotazione.oraFine;
+          if (
+            inizioEff instanceof Date &&
+            fineEff instanceof Date &&
+            fineEff.getTime() <= inizioEff.getTime()
+          ) {
+            return NextResponse.json(
+              { error: "L'ora di fine deve essere successiva all'ora di inizio" },
+              { status: 422 },
+            );
+          }
         }
         if (nuoviDati.postoId) {
           // Verifica disponibilità nuovo posto

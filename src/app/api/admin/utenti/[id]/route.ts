@@ -25,6 +25,19 @@ export async function PATCH(
     const body = await request.json();
     const { attivo } = body;
 
+    // fix(security) B-7: `attivo` deve essere un booleano esplicito.
+    // PERCHÉ: senza validazione un valore mancante o di tipo errato (es. la
+    // stringa "false", che in JS è truthy) veniva scritto tal quale sulla
+    // colonna `attivo`, facendo divergere lo stato dell'account dall'intento
+    // dell'operatore. 422 = payload sintatticamente valido ma semanticamente
+    // non accettabile.
+    if (typeof attivo !== "boolean") {
+      return NextResponse.json(
+        { error: "Il campo 'attivo' deve essere un valore booleano (true/false)" },
+        { status: 422 }
+      );
+    }
+
     // Verifica che l'utente esista
     const utente = await db.user.findUnique({
       where: { id },

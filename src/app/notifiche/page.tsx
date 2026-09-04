@@ -20,6 +20,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import { getTipoConfig } from "./tipo-config";
+import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 interface Notifica {
   id: string;
@@ -309,7 +310,15 @@ export default function NotifichePage() {
                                 size="sm"
                                 onClick={() => {
                                   segnaComeLetta(notifica.id);
-                                  router.push(notifica.actionUrl!);
+                                  // B-8: actionUrl arriva dal DB e potrebbe
+                                  // essere stato manomesso. Navighiamo solo se
+                                  // e' un percorso interno sicuro; altrimenti
+                                  // fallback alla pagina notifiche.
+                                  if (isSafeInternalPath(notifica.actionUrl)) {
+                                    router.push(notifica.actionUrl!);
+                                  } else {
+                                    router.push("/notifiche");
+                                  }
                                 }}
                               >
                                 <ExternalLink className="h-3 w-3 mr-1" />

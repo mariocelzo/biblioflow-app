@@ -1,29 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 
-// GET /api/notifiche - Lista notifiche utente
+import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { isSafeInternalPath } from "@/lib/safe-redirect";
+
+// Mappa gli errori applicativi sullo status corretto (stessa logica di
+// src/app/api/prenotazioni/[id]/route.ts). Un AuthError deve propagare il suo
+// status 401/403/404 invece di finire in un generico 500.
+function errorResponse(error: unknown, fallback: string) {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
+
+  console.error(fallback, error);
+  return NextResponse.json(
+    { success: false, error: fallback },
+    { status: 500 },
+  );
+}
+
+// GET /api/notifiche - Lista notifiche dell'utente autenticato
 export async function GET(request: NextRequest) {
   try {
+    // C-4: l'endpoint era pubblico e leggeva il destinatario da ?userId=
+    // (IDOR: si potevano leggere le notifiche di chiunque). Ora il destinatario
+    // e' SEMPRE l'utente di sessione e il parametro ?userId= viene ignorato.
+    const user = await requireUser();
+
     const { searchParams } = new URL(request.url);
-    
-    const userId = searchParams.get("userId");
+
     const letta = searchParams.get("letta"); // "true" | "false" | null (tutte)
     const limit = parseInt(searchParams.get("limit") || "50");
     const offset = parseInt(searchParams.get("offset") || "0");
-    
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: "userId è obbligatorio" },
-        { status: 400 }
-      );
-    }
-    
-    const where: Record<string, unknown> = { userId };
-    
+
+    const where: Record<string, unknown> = { userId: user.id };
+
     if (letta !== null) {
       where.letta = letta === "true";
     }
-    
+
     const [notifiche, totale, nonLette] = await Promise.all([
       prisma.notifica.findMany({
         where,
@@ -31,10 +49,10 @@ export async function GET(request: NextRequest) {
         take: limit,
         skip: offset,
       }),
-      prisma.notifica.count({ where: { userId } }),
-      prisma.notifica.count({ where: { userId, letta: false } }),
+      prisma.notifica.count({ where: { userId: user.id } }),
+      prisma.notifica.count({ where: { userId: user.id, letta: false } }),
     ]);
-    
+
     return NextResponse.json({
       success: true,
       data: notifiche,
@@ -43,36 +61,61 @@ export async function GET(request: NextRequest) {
       nonLette,
     });
   } catch (error) {
-    console.error("Errore GET /api/notifiche:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nel recupero delle notifiche" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nel recupero delle notifiche");
   }
 }
 
-// POST /api/notifiche - Crea nuova notifica (uso interno/admin)
+// POST /api/notifiche - Crea nuova notifica (uso interno/staff)
 export async function POST(request: NextRequest) {
   try {
+    // C-4: la creazione di notifiche verso un utente arbitrario e' riservata
+    // allo staff (BIBLIOTECARIO/ADMIN). Prima l'endpoint era completamente aperto.
+    const user = await requireUser();
+    if (!isStaff(user.ruolo)) {
+      throw new AuthError(
+        403,
+        "RUOLO_NON_AUTORIZZATO",
+        "Solo lo staff puo' creare notifiche",
+      );
+    }
+
     const body = await request.json();
     const { userId, tipo, titolo, messaggio, actionUrl, actionLabel } = body;
-    
+
     if (!userId || !tipo || !titolo || !messaggio) {
       return NextResponse.json(
         { success: false, error: "Campi obbligatori: userId, tipo, titolo, messaggio" },
         { status: 400 }
       );
     }
-    
-    // Verifica che l'utente esista
-    const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
+
+    // B-8: actionUrl e' un link cliccabile mostrato nella UI notifiche. Se
+    // fornito deve essere un percorso interno sicuro: un valore come
+    // "https://phishing.example" o "javascript:..." e' un open-redirect / XSS.
+    if (
+      actionUrl !== undefined &&
+      actionUrl !== null &&
+      actionUrl !== "" &&
+      !isSafeInternalPath(actionUrl)
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "actionUrl non valido: sono ammessi solo percorsi interni assoluti",
+        },
+        { status: 422 }
+      );
+    }
+
+    // Verifica che l'utente destinatario esista
+    const destinatario = await prisma.user.findUnique({ where: { id: userId } });
+    if (!destinatario) {
       return NextResponse.json(
         { success: false, error: "Utente non trovato" },
         { status: 404 }
       );
     }
-    
+
     const notifica = await prisma.notifica.create({
       data: {
         userId,
@@ -83,93 +126,103 @@ export async function POST(request: NextRequest) {
         actionLabel,
       },
     });
-    
+
     return NextResponse.json({
       success: true,
       data: notifica,
     }, { status: 201 });
   } catch (error) {
-    console.error("Errore POST /api/notifiche:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nella creazione della notifica" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nella creazione della notifica");
   }
 }
 
-// PATCH /api/notifiche - Aggiorna notifiche (segna come letta/e)
+// PATCH /api/notifiche - Aggiorna notifiche dell'utente (segna come letta/e)
 export async function PATCH(request: NextRequest) {
   try {
+    // C-4: l'endpoint accettava un `userId` dal body e poteva aggiornare
+    // notifiche di altri utenti (IDOR). Ora si opera SEMPRE e solo sulle
+    // notifiche possedute dall'utente di sessione.
+    const user = await requireUser();
+
     const body = await request.json();
-    const { ids, userId, segnaLetta, segnaTutteLette } = body;
-    
-    // Segna tutte le notifiche di un utente come lette
-    if (segnaTutteLette && userId) {
+    const { ids, segnaLetta, segnaTutteLette } = body;
+
+    // Segna tutte le PROPRIE notifiche come lette.
+    if (segnaTutteLette) {
       const result = await prisma.notifica.updateMany({
-        where: { userId, letta: false },
+        where: { userId: user.id, letta: false },
         data: { letta: true, lettaAt: new Date() },
       });
-      
+
       return NextResponse.json({
         success: true,
         aggiornate: result.count,
         message: `${result.count} notifiche segnate come lette`,
       });
     }
-    
-    // Segna specifiche notifiche come lette/non lette
+
+    // Segna specifiche notifiche come lette/non lette.
     if (ids && Array.isArray(ids) && ids.length > 0) {
       const result = await prisma.notifica.updateMany({
-        where: { id: { in: ids } },
-        data: { 
-          letta: segnaLetta !== false, 
-          lettaAt: segnaLetta !== false ? new Date() : null 
+        // `userId: user.id` nel where: si toccano solo le notifiche dell'utente,
+        // gli id non posseduti vengono semplicemente ignorati.
+        where: { id: { in: ids }, userId: user.id },
+        data: {
+          letta: segnaLetta !== false,
+          lettaAt: segnaLetta !== false ? new Date() : null,
         },
       });
-      
+
       return NextResponse.json({
         success: true,
         aggiornate: result.count,
       });
     }
-    
+
     return NextResponse.json(
-      { success: false, error: "Specificare ids o segnaTutteLette con userId" },
+      { success: false, error: "Specificare ids oppure segnaTutteLette" },
       { status: 400 }
     );
   } catch (error) {
-    console.error("Errore PATCH /api/notifiche:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nell'aggiornamento delle notifiche" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nell'aggiornamento delle notifiche");
   }
 }
 
-// DELETE /api/notifiche - Elimina notifica
+// DELETE /api/notifiche - Elimina una notifica dell'utente
 export async function DELETE(request: NextRequest) {
   try {
+    // C-4: l'endpoint eliminava per id senza verificare la proprieta' (IDOR).
+    const user = await requireUser();
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
-    
+
     if (!id) {
       return NextResponse.json(
         { success: false, error: "id è obbligatorio" },
         { status: 400 }
       );
     }
-    
+
+    // Carica la notifica e verifica che appartenga all'utente: allo studente
+    // non proprietario assertOwnership risponde 404 (risorsa "inesistente").
+    const notifica = await prisma.notifica.findUnique({ where: { id } });
+    if (!notifica) {
+      return NextResponse.json(
+        { success: false, error: "Notifica non trovata" },
+        { status: 404 }
+      );
+    }
+
+    assertOwnership(notifica, user);
+
     await prisma.notifica.delete({ where: { id } });
-    
+
     return NextResponse.json({
       success: true,
       message: "Notifica eliminata",
     });
   } catch (error) {
-    console.error("Errore DELETE /api/notifiche:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nell'eliminazione della notifica" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nell'eliminazione della notifica");
   }
 }

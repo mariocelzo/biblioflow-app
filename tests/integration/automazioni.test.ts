@@ -67,6 +67,60 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 const fisso = vi.hoisted(() => ({ CRON_SECRET: "bib47-cron-secret-integrazione" }));
 vi.mock("@/lib/env", () => ({ env: { CRON_SECRET: fisso.CRON_SECRET } }));
 
+// `@/app/api/notifiche/route` dopo il fix di sicurezza C-4 richiede una sessione
+// autenticata e ignora il parametro `?userId=` (prima l'endpoint era aperto e
+// leggeva un userId arbitrario dalla query). Qui si mocka `@/lib/auth` per
+// autenticare l'utente di test `bib47-u1`: la verifica del contenuto delle
+// notifiche via GET (caso 3) continua a valere, ora contro il comportamento
+// sicuro. Mockare `@/lib/auth` evita inoltre di caricare `next-auth`, non
+// risolvibile sotto vitest.
+const utenteNotifiche = vi.hoisted(() => ({
+  id: "bib47-u1",
+  email: "bib47-u1@biblioflow.test",
+  nome: "Bib47",
+  cognome: "U1",
+  ruolo: "STUDENTE" as const,
+  matricola: "B47U1",
+  isPendolare: false,
+  necessitaAccessibilita: false,
+}));
+vi.mock("@/lib/auth", () => {
+  class AuthError extends Error {
+    status: number;
+    code: string;
+    constructor(status: number, code: string, message: string) {
+      super(message);
+      this.name = "AuthError";
+      this.status = status;
+      this.code = code;
+    }
+  }
+  return {
+    AuthError,
+    // La sessione e' sempre quella dell'utente di test.
+    auth: async () => ({ user: utenteNotifiche }),
+    requireUser: async () => utenteNotifiche,
+    requireRole: async () => utenteNotifiche,
+    isStaff: (ruolo: string) => ruolo === "BIBLIOTECARIO" || ruolo === "ADMIN",
+    hasRole: (ruolo: string, ammessi: string[]) => ammessi.includes(ruolo),
+    // Stessa semantica reale: al proprietario passa, allo studente non
+    // proprietario la risorsa "non esiste" (404), agli altri ruoli 403.
+    assertOwnership: (
+      resource: { userId: string },
+      user: { id: string; ruolo: string },
+    ) => {
+      if (resource.userId === user.id) return;
+      throw new AuthError(
+        user.ruolo === "STUDENTE" ? 404 : 403,
+        user.ruolo === "STUDENTE"
+          ? "RISORSA_NON_TROVATA"
+          : "RISORSA_NON_AUTORIZZATA",
+        "accesso negato alla risorsa",
+      );
+    },
+  };
+});
+
 // Import dinamici DOPO i mock (come in `tests/integration/concorrenza.test.ts`):
 // così il modulo mockato è già registrato quando i moduli sotto test vengono caricati.
 const { prisma } = await import("@/lib/prisma");

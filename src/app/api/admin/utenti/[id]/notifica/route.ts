@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 // POST - Invia notifica/sollecito a utente
 export async function POST(
@@ -21,6 +22,22 @@ export async function POST(
 
     const body = await request.json();
     const { tipo, titolo, messaggio, actionUrl, actionLabel } = body;
+
+    // B-8: actionUrl finisce in un link cliccabile nella pagina notifiche.
+    // Se valorizzato deve essere un percorso interno sicuro, altrimenti e' un
+    // vettore di open-redirect / XSS (es. "https://phishing.example",
+    // "javascript:...").
+    if (
+      actionUrl !== undefined &&
+      actionUrl !== null &&
+      actionUrl !== "" &&
+      !isSafeInternalPath(actionUrl)
+    ) {
+      return NextResponse.json(
+        { error: "actionUrl non valido: sono ammessi solo percorsi interni assoluti" },
+        { status: 422 }
+      );
+    }
 
     // Verifica che l'utente esista
     const utente = await db.user.findUnique({
