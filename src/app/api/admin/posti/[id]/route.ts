@@ -100,6 +100,15 @@ export async function GET(
       return NextResponse.json({ error: "Non autorizzato" }, { status: 401 });
     }
 
+    // fix(security) M-1: la GET verificava la sola presenza della sessione ma
+    // NON il ruolo (a differenza della PATCH qui sopra). Uno STUDENTE
+    // autenticato poteva così leggere dati amministrativi del posto (storico
+    // delle ultime prenotazioni, nome/cognome/matricola degli utenti collegati).
+    // Aggiunto lo stesso controllo di ruolo staff della PATCH.
+    if (session.user.ruolo !== "BIBLIOTECARIO" && session.user.ruolo !== "ADMIN") {
+      return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
+    }
+
     const posto = await db.posto.findUnique({
       where: { id },
       include: {
