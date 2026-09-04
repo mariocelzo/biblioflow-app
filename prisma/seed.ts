@@ -34,6 +34,12 @@ async function main() {
   const passwordAdmin = await hashPassword("admin123");
   const passwordStaff = await hashPassword("staff123");
 
+  // Tutti gli account del seed sono creati con `emailVerificata: true`.
+  // PERCHE': il campo ha `@default(false)` nello schema e dal finding A-5 il
+  // login rifiuta gli utenti non verificati. Senza questo flag gli account
+  // demo (studenti, staff, admin) non riuscirebbero piu' ad accedere. Sono
+  // indirizzi istituzionali creati dallo script, quindi verificati per
+  // definizione: non serve far passare il seed dal flusso di verifica email.
   const studenti = await Promise.all([
     prisma.user.create({
       data: {
@@ -43,6 +49,7 @@ async function main() {
         matricola: "0512110001",
         passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
+        emailVerificata: true,
         isPendolare: true,
         notifichePush: true,
         notificheEmail: true,
@@ -56,6 +63,7 @@ async function main() {
         matricola: "0512110002",
         passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
+        emailVerificata: true,
         isPendolare: false,
       },
     }),
@@ -67,6 +75,7 @@ async function main() {
         matricola: "0512110003",
         passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
+        emailVerificata: true,
         necessitaAccessibilita: true,
       },
     }),
@@ -78,6 +87,7 @@ async function main() {
         matricola: "0512110004",
         passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
+        emailVerificata: true,
       },
     }),
     prisma.user.create({
@@ -88,6 +98,7 @@ async function main() {
         matricola: "0512110005",
         passwordHash: passwordStudenti,
         ruolo: "STUDENTE",
+        emailVerificata: true,
       },
     }),
   ]);
@@ -100,6 +111,7 @@ async function main() {
         cognome: "Sistema",
         passwordHash: passwordAdmin,
         ruolo: "ADMIN",
+        emailVerificata: true,
       },
     }),
     prisma.user.create({
@@ -109,6 +121,7 @@ async function main() {
         cognome: "Romano",
         passwordHash: passwordStaff,
         ruolo: "BIBLIOTECARIO",
+        emailVerificata: true,
       },
     }),
     prisma.user.create({
@@ -118,6 +131,7 @@ async function main() {
         cognome: "Bianchi",
         passwordHash: passwordStaff,
         ruolo: "BIBLIOTECARIO",
+        emailVerificata: true,
       },
     }),
   ]);
