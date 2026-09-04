@@ -41,7 +41,23 @@ export async function POST(
   try {
     const user = await requireUser();
     const { id: prenotazioneId } = await context.params;
-    const { timestamp } = await request.json();
+
+    // Hardening M-2 (audit sicurezza 2026-09-04): il body PUO' contenere un
+    // `timestamp` inviato dal client, ma NON deve MAI influenzare le decisioni
+    // del server. Prima veniva usato sia per la finestra "troppo presto/scaduto"
+    // sia scritto in `checkInAt`: un client poteva così forzare un check-in
+    // fuori orario o falsare l'istante registrato. Ora `timestamp` viene solo
+    // letto e, se presente, loggato a fini diagnostici — mai usato per la logica
+    // né persistito.
+    const body = await request.json().catch(() => ({}));
+    const timestampClient: unknown = body?.timestamp;
+    if (timestampClient !== undefined) {
+      console.info(
+        `[check-in] timestamp client ignorato per prenotazione ${prenotazioneId}:`,
+        timestampClient,
+      );
+    }
+
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id: prenotazioneId },
       include: { user: true, posto: { include: { sala: true } } },
@@ -68,13 +84,10 @@ export async function POST(
       );
     }
 
-    const now = new Date(timestamp ?? Date.now());
-    if (Number.isNaN(now.getTime())) {
-      return NextResponse.json(
-        { success: false, error: "Timestamp non valido" },
-        { status: 422 },
-      );
-    }
+    // L'istante di riferimento e' SEMPRE l'orologio del server: nessun input
+    // del client puo' spostarlo. Usato sia per i controlli sulla finestra di
+    // check-in sia per il valore persistito in `checkInAt`.
+    const now = new Date();
 
     const inizio = istanteInizio(prenotazione.data, prenotazione.oraInizio);
     const aperturaCheckIn = new Date(inizio.getTime() - 15 * 60 * 1000);
