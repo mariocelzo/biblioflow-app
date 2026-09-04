@@ -23,7 +23,14 @@ const envSchema = z.object({
   
   // Cron Jobs
   CRON_SECRET: z.string().min(16, 'CRON_SECRET deve essere almeno 16 caratteri').optional(),
-  
+
+  // Firma dei QR code (opzionale, generalo con `npm run generate:secrets`).
+  // Resta OPZIONALE di proposito: la CI di GitHub Actions non puo' ricevere
+  // nuovi secret, quindi renderlo obbligatorio bloccherebbe build e test.
+  // Se non e' configurato, src/lib/qr-signature.ts deriva la chiave da
+  // NEXTAUTH_SECRET (che e' obbligatorio): nessun default hardcoded.
+  QR_SECRET: z.string().optional(),
+
   // Redis (opzionale)
   REDIS_URL: z.string().optional(),
   
