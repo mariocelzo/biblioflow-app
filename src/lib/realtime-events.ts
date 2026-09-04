@@ -161,27 +161,42 @@ export interface CodaIngressoPayload {
 }
 
 /**
- * Payload dell'evento `coda-promozione` (prima del `timestamp`, aggiunto in emissione).
+ * Sottoinsieme "di sala" dell'evento `coda-promozione`, cioè ciò che viene
+ * effettivamente messo in BROADCAST sul canale pubblico `posti` (prima del
+ * `timestamp`, aggiunto in emissione).
  *
- * Viene usato su due canali: come evento "di sala" sul canale pubblico `posti`
- * e — riusando `emitNotificaRealtime` — come notifica personale sul canale
- * `user-<userId>` dell'utente promosso.
+ * Hardening M-3 (audit sicurezza 2026-09-04): il canale `posti` è pubblico e
+ * ricevuto da OGNI client connesso; non deve quindi trasportare dati
+ * identificativi di terzi. Qui NON compaiono `userId` né `prenotazioneId`
+ * dell'utente promosso: quei campi restano solo nella notifica personale sul
+ * canale `user-<userId>` (vedi `emitCodaPromozione`, punto 2). La mappa/pannello
+ * coda ha bisogno solo di sapere che un certo posto/slot è stato assegnato.
  */
-export interface CodaPromozionePayload {
-  /** Utente promosso: determina il canale personale `user-<userId>` */
-  userId: string;
+export interface CodaPromozioneBroadcastPayload {
   /** Posto assegnato dalla promozione */
   postoId: string;
   /** Numero/etichetta del posto, per l'UI */
   numero: string;
-  /** Prenotazione confermata creata dalla promozione (per il link "vai alla prenotazione") */
-  prenotazioneId: string;
   /** Giorno della prenotazione, formato ISO `YYYY-MM-DD` */
   data: string;
   /** Ora di inizio dello slot, formato `HH:mm` */
   oraInizio: string;
   /** Ora di fine dello slot, formato `HH:mm` */
   oraFine: string;
+}
+
+/**
+ * Input di `emitCodaPromozione` (BIB-45, CA-06).
+ *
+ * Contiene TUTTI i dati della promozione, inclusi `userId` e `prenotazioneId`:
+ * servono per la notifica personale sul canale `user-<userId>`. NON vengono
+ * inoltrati sul canale pubblico `posti` (vedi `CodaPromozioneBroadcastPayload`).
+ */
+export interface CodaPromozionePayload extends CodaPromozioneBroadcastPayload {
+  /** Utente promosso: determina il canale personale `user-<userId>` (mai broadcastato) */
+  userId: string;
+  /** Prenotazione creata dalla promozione, per il link "vai alla prenotazione" (mai broadcastata) */
+  prenotazioneId: string;
 }
 
 /**
@@ -219,13 +234,25 @@ export function emitCodaIngresso(payload: CodaIngressoPayload): void {
  */
 export function emitCodaPromozione(payload: CodaPromozionePayload): void {
   // 1) Evento pubblico sul canale della mappa posti.
+  //    Hardening M-3: si broadcasta SOLO il sottoinsieme "di sala"; `userId` e
+  //    `prenotazioneId` (dati di un terzo) vengono deliberatamente esclusi dal
+  //    payload che finisce su ogni client connesso al canale `posti`.
+  const broadcast: CodaPromozioneBroadcastPayload = {
+    postoId: payload.postoId,
+    numero: payload.numero,
+    data: payload.data,
+    oraInizio: payload.oraInizio,
+    oraFine: payload.oraFine,
+  };
   sseEmitter.emit('posti', 'coda-promozione', {
-    ...payload,
+    ...broadcast,
     timestamp: new Date().toISOString(),
   });
 
   // 2) Notifica mirata all'utente promosso, sul suo canale personale,
   //    riusando il contratto `nuova-notifica` già consumato dall'UI.
+  //    Qui `userId`/`prenotazioneId` sono legittimi: il canale `user-<id>` è
+  //    privato del destinatario.
   emitNotificaRealtime(payload.userId, {
     id: `coda-promozione-${payload.prenotazioneId}`,
     tipo: 'CODA_PROMOZIONE',
