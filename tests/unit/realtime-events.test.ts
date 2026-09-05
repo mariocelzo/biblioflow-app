@@ -105,13 +105,28 @@ describe("emitCodaPromozione — nuovo evento coda (BIB-45)", () => {
     oraFine: "11:00",
   };
 
-  it("[TC-BIB45-003] emette 'coda-promozione' sul canale pubblico 'posti'", () => {
+  it("[TC-BIB45-003] emette 'coda-promozione' sul canale pubblico 'posti' SENZA userId/prenotazioneId (M-3)", () => {
     emitCodaPromozione(payload);
 
+    // Hardening M-3 (audit sicurezza 2026-09-04): il canale `posti` è pubblico
+    // e ricevuto da ogni client connesso. Il broadcast NON deve trasportare
+    // dati identificativi di terzi: `userId` e `prenotazioneId` restano solo
+    // nella notifica personale sul canale `user-<id>` (vedi TC-BIB45-004).
     expect(emitMock).toHaveBeenCalledWith("posti", "coda-promozione", {
-      ...payload,
+      postoId: payload.postoId,
+      numero: payload.numero,
+      data: payload.data,
+      oraInizio: payload.oraInizio,
+      oraFine: payload.oraFine,
       timestamp: "2030-01-15T09:00:00.000Z",
     });
+
+    // Asserzione esplicita anti-regressione sul payload broadcastato.
+    const [, , payloadBroadcast] = emitMock.mock.calls.find(
+      ([canale, evento]) => canale === "posti" && evento === "coda-promozione",
+    )!;
+    expect(payloadBroadcast).not.toHaveProperty("userId");
+    expect(payloadBroadcast).not.toHaveProperty("prenotazioneId");
   });
 
   it("[TC-BIB45-004] avvisa l'utente promosso su 'user-<id>' riusando il contratto 'nuova-notifica'", () => {

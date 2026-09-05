@@ -13,6 +13,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, validatePassword } from "@/lib/auth";
 import { registrationRateLimiter } from "@/lib/rate-limit";
+import { generateRawToken, hashToken } from "@/lib/auth-tokens";
+import { env } from "@/lib/env";
 import { z } from "zod";
 
 // Schema di validazione registrazione
@@ -191,31 +193,54 @@ export async function POST(request: NextRequest) {
       },
     });
     
-    // Crea token di verifica persistente
-    const verificationToken = Math.random().toString(36).slice(2, 22);
+    // Crea token di verifica persistente.
+    // Token casuale da CSPRNG (256 bit) al posto di `Math.random()`, e nel
+    // database va solo il suo digest SHA-256 (finding C-2, vedi lib/auth-tokens).
+    const verificationToken = generateRawToken();
     const expires = new Date(Date.now() + 1000 * 60 * 60 * 24); // 24 ore
 
     await prisma.authToken.create({
       data: {
         userId: user.id,
-        token: verificationToken,
+        token: hashToken(verificationToken),
         type: "VERIF",
         expiresAt: expires,
       },
     });
+
+    const datiRisposta = {
+      user: {
+        id: user.id,
+        email: user.email,
+        nome: user.nome,
+        cognome: user.cognome,
+        nomeCompleto: `${user.nome} ${user.cognome}`,
+      },
+    };
+
+    // TODO: in produzione il token va inviato via email (mailer non ancora presente)
+    //
+    // In produzione il token di verifica NON viene restituito al client
+    // (finding C-1): esporlo permetterebbe a chiunque registri un indirizzo
+    // altrui di auto-verificarlo, vanificando la verifica dell'email.
+    // In sviluppo lo restituiamo per poter completare il flusso senza mailer.
+    if (env.NODE_ENV === "production") {
+      return NextResponse.json(
+        {
+          success: true,
+          message: "Registrazione completata con successo",
+          data: datiRisposta,
+        },
+        { status: 201 }
+      );
+    }
 
     return NextResponse.json(
       {
         success: true,
         message: "Registrazione completata con successo",
         data: {
-          user: {
-            id: user.id,
-            email: user.email,
-            nome: user.nome,
-            cognome: user.cognome,
-            nomeCompleto: `${user.nome} ${user.cognome}`,
-          },
+          ...datiRisposta,
           verification: {
             token: verificationToken,
             link: `/api/auth/verify?userId=${user.id}&token=${verificationToken}`,

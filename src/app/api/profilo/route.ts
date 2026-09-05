@@ -2,93 +2,90 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// GET: Ottiene profilo utente corrente
+// ============================================================================
+// API PROFILO UTENTE — BiblioFlow
+// ============================================================================
+// Hardening B-1 / B-3 (audit sicurezza 2026-09-04):
+//  - B-1: la risposta di errore 500 NON deve contenere `error.message` /
+//         `error.stack` (dettagli interni: nomi di colonne, driver, path).
+//         Al client va un messaggio generico; il dettaglio completo resta solo
+//         nei log server-side (`console.error`).
+//  - B-3: NON loggare il payload della PATCH né l'id utente in chiaro. Il body
+//         contiene dati di accessibilità (categoria potenzialmente sensibile):
+//         niente `console.log` di request/preferenze. Restano solo i
+//         `console.error` sui percorsi di errore, senza dump del body.
+// ============================================================================
+
+// Campi del profilo restituiti al client: unico punto di verità, riusato da
+// GET e PATCH per non divergere nel tempo.
+const PROFILO_SELECT = {
+  id: true,
+  nome: true,
+  cognome: true,
+  email: true,
+  matricola: true,
+  ruolo: true,
+  isPendolare: true,
+  tragittoPendolare: true,
+  necessitaAccessibilita: true,
+  preferenzeAccessibilita: true,
+  altoContrasto: true,
+  riduzioneMovimento: true,
+  darkMode: true,
+  dimensioneTesto: true,
+  notifichePush: true,
+  notificheEmail: true,
+  createdAt: true,
+} as const;
+
+// GET: Ottiene il profilo dell'utente corrente
 export async function GET() {
   try {
-    console.log("[API PROFILO GET] Richiesta ricevuta");
-    
     const session = await auth();
-    console.log("[API PROFILO GET] Session user ID:", session?.user?.id);
-    
+
+    // Senza sessione valida non si espone alcun dato di profilo.
     if (!session?.user?.id) {
-      console.error("[API PROFILO GET] Sessione non valida");
-      return NextResponse.json(
-        { error: "Non autenticato" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
-    console.log("[API PROFILO GET] Cerco utente:", session.user.id);
-    
     const user = await prisma.user.findUnique({
       where: { id: session.user.id },
-      select: {
-        id: true,
-        nome: true,
-        cognome: true,
-        email: true,
-        matricola: true,
-        ruolo: true,
-        isPendolare: true,
-        tragittoPendolare: true,
-        necessitaAccessibilita: true,
-        preferenzeAccessibilita: true,
-        altoContrasto: true,
-        riduzioneMovimento: true,
-        darkMode: true,
-        dimensioneTesto: true,
-        notifichePush: true,
-        notificheEmail: true,
-        createdAt: true,
-      },
+      select: PROFILO_SELECT,
     });
 
-    console.log("[API PROFILO GET] Utente trovato:", !!user);
-
     if (!user) {
-      console.error("[API PROFILO GET] Utente non trovato nel DB");
       return NextResponse.json(
         { error: "Utente non trovato" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
-    console.log("[API PROFILO GET] Risposta OK");
     return NextResponse.json(user);
   } catch (error) {
-    console.error("[API PROFILO GET] Errore completo:", error);
-    console.error("[API PROFILO GET] Stack:", error instanceof Error ? error.stack : 'N/A');
-    console.error("[API PROFILO GET] Message:", error instanceof Error ? error.message : String(error));
+    // Log completo SOLO server-side (B-1): utile per il debug, invisibile al client.
+    console.error("[API PROFILO GET] Errore:", error);
     return NextResponse.json(
-      { 
-        error: "Errore durante il recupero del profilo",
-        details: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 }
+      { error: "Errore durante il recupero del profilo" },
+      { status: 500 },
     );
   }
 }
 
-// PATCH: Aggiorna profilo utente
+// PATCH: Aggiorna il profilo dell'utente corrente
 export async function PATCH(request: NextRequest) {
   try {
-    console.log("[API PROFILO PATCH] Richiesta ricevuta");
-    
     const session = await auth();
-    console.log("[API PROFILO PATCH] Session:", session?.user?.id);
-    
+
     if (!session?.user?.id) {
-      console.error("[API PROFILO PATCH] Utente non autenticato");
-      return NextResponse.json(
-        { error: "Non autenticato" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
 
+    // Il body puo' contenere dati di accessibilita': lo si legge ma NON lo si
+    // logga (B-3). Solo i campi in whitelist vengono considerati.
     const body = await request.json();
-    console.log("[API PROFILO PATCH] Body ricevuto:", body);
-    
-    // Campi aggiornabili
+
+    // Campi aggiornabili dall'utente sul proprio profilo (whitelist esplicita:
+    // impedisce di scrivere `ruolo`, `email`, ecc. tramite mass-assignment).
     const allowedFields = {
       isPendolare: body.isPendolare,
       tragittoPendolare: body.tragittoPendolare,
@@ -102,51 +99,24 @@ export async function PATCH(request: NextRequest) {
       notificheEmail: body.notificheEmail,
     };
 
-    // Rimuovi campi undefined
+    // Rimuove i campi non presenti nel body (undefined) per non azzerarli.
     const updateData = Object.fromEntries(
-      Object.entries(allowedFields).filter(([, value]) => value !== undefined)
+      Object.entries(allowedFields).filter(([, value]) => value !== undefined),
     );
-
-    console.log("[API PROFILO PATCH] Aggiornamento profilo per:", session.user.id);
-    console.log("[API PROFILO PATCH] Dati filtrati:", updateData);
 
     const updatedUser = await prisma.user.update({
       where: { id: session.user.id },
       data: updateData,
-      select: {
-        id: true,
-        nome: true,
-        cognome: true,
-        email: true,
-        matricola: true,
-        ruolo: true,
-        isPendolare: true,
-        tragittoPendolare: true,
-        necessitaAccessibilita: true,
-        preferenzeAccessibilita: true,
-        altoContrasto: true,
-        riduzioneMovimento: true,
-        darkMode: true,
-        dimensioneTesto: true,
-        notifichePush: true,
-        notificheEmail: true,
-      },
-    });
-
-    console.log("[API PROFILO PATCH] Profilo aggiornato con successo:", {
-      userId: updatedUser.id,
-      necessitaAccessibilita: updatedUser.necessitaAccessibilita,
-      altoContrasto: updatedUser.altoContrasto,
-      riduzioneMovimento: updatedUser.riduzioneMovimento,
+      select: PROFILO_SELECT,
     });
 
     return NextResponse.json(updatedUser);
   } catch (error) {
-    console.error("[API PROFILO PATCH] Errore completo:", error);
-    console.error("[API PROFILO PATCH] Stack trace:", error instanceof Error ? error.stack : 'N/A');
+    // Log completo SOLO server-side (B-1): al client nessun dettaglio interno.
+    console.error("[API PROFILO PATCH] Errore:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Errore durante l'aggiornamento del profilo" },
-      { status: 500 }
+      { error: "Errore durante l'aggiornamento del profilo" },
+      { status: 500 },
     );
   }
 }

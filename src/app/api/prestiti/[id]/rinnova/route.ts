@@ -1,5 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+
+import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+// Mappa gli errori applicativi sullo status corretto (stessa logica delle altre
+// route prestiti/prenotazioni). Un AuthError deve tornare 401/403/404.
+function errorResponse(error: unknown, fallback: string) {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
+
+  console.error(fallback, error);
+  return NextResponse.json(
+    { success: false, error: fallback },
+    { status: 500 },
+  );
+}
 
 // POST /api/prestiti/[id]/rinnova - Rinnova un prestito
 export async function POST(
@@ -7,6 +26,8 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // C-3: era pubblico. Ora serve una sessione e la proprieta' del prestito.
+    const user = await requireUser();
     const { id } = await params;
 
     // Trova il prestito
@@ -20,6 +41,12 @@ export async function POST(
         { success: false, error: "Prestito non trovato" },
         { status: 404 }
       );
+    }
+
+    // Solo il proprietario puo' rinnovare; lo staff (banco) e' consentito.
+    // Allo studente non proprietario assertOwnership risponde 404.
+    if (!isStaff(user.ruolo)) {
+      assertOwnership(prestito, user);
     }
 
     // Verifica che il prestito sia attivo
@@ -82,10 +109,6 @@ export async function POST(
       rinnoviRimanenti: prestitoAggiornato.maxRinnovi - prestitoAggiornato.rinnovi,
     });
   } catch (error) {
-    console.error("Errore POST /api/prestiti/[id]/rinnova:", error);
-    return NextResponse.json(
-      { success: false, error: "Errore nel rinnovo del prestito" },
-      { status: 500 }
-    );
+    return errorResponse(error, "Errore nel rinnovo del prestito");
   }
 }

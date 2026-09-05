@@ -76,12 +76,21 @@ export const config = {
     // quest'ultimo verrà ristretto o migrato al nuovo proxy di Next.js.
     "/api/prenotazioni/coda/:path*",
     /*
-     * Match tutti i request path eccetto:
-     * - _next/static (file statici)
-     * - _next/image (ottimizzazione immagini)
-     * - favicon.ico (icona)
-     * - file statici (immagini, font, etc.)
+     * Match di tutti i request path ECCETTO:
+     * - _next/static  (bundle e asset statici di Next.js)
+     * - _next/image   (ottimizzazione immagini)
+     * - favicon.ico   (icona)
+     * - file statici serviti da /public riconosciuti per estensione
+     *   (immagini, css, js, ...) MA SOLO se il path NON inizia con "api/".
+     *
+     * Hardening M-5 (audit sicurezza 2026-09-04): la vecchia esclusione
+     * `.*\.(svg|png|...|css|js)$` era ancorata alla FINE del path, quindi una
+     * rotta API con un suffisso a estensione statica — es. `/api/libri/x.js`
+     * o `/api/prenotazioni/<id>.css` (il segmento dinamico accetta qualsiasi
+     * stringa) — NON passava dal middleware e ne aggirava il controllo di
+     * sessione. Il lookahead `(?!api/)` limita l'esclusione ai soli path
+     * pubblici: qualunque cosa sotto `/api/` attraversa sempre il middleware.
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
   ],
 };

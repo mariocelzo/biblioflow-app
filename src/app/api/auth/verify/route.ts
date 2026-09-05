@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { hashToken } from "@/lib/auth-tokens";
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,8 +15,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Parametri mancanti" }, { status: 400 });
     }
 
-    // Verifica token persistente
-    const authToken = await prisma.authToken.findUnique({ where: { token } });
+    // Verifica token persistente.
+    // Nel database e' salvato solo il digest SHA-256 del token (finding C-2):
+    // ricalcoliamo l'hash del valore arrivato nella query string e cerchiamo
+    // quello. La lookup resta una uguaglianza esatta sull'indice unico.
+    const authToken = await prisma.authToken.findUnique({
+      where: { token: hashToken(token) },
+    });
     if (!authToken || authToken.userId !== userId) {
       return NextResponse.json({ success: false, error: "Token non valido" }, { status: 400 });
     }
