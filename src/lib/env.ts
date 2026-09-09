@@ -33,6 +33,15 @@ const envSchema = z.object({
 
   // Redis (opzionale)
   REDIS_URL: z.string().optional(),
+
+  // --- Invio email (vedi src/lib/mailer.ts) ---
+  // Tutte opzionali: senza queste variabili l'app parte lo stesso, ma non puo'
+  // recapitare il link di verifica dell'indirizzo. Basta UNA delle due chiavi;
+  // il mailer sceglie da solo il backend disponibile (Brevo ha la precedenza).
+  BREVO_API_KEY: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  /** Mittente, es. 'BiblioFlow <no-reply@tuodominio.it>'. */
+  MAIL_FROM: z.string().optional(),
   
   // App Config
   NEXT_PUBLIC_APP_NAME: z.string().default('BiblioFlow'),

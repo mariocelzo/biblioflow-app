@@ -11,6 +11,11 @@ vi.mock("next-auth", () => ({
     signOut: vi.fn(),
     auth: authMocks.auth,
   })),
+  // Serve perche' `@/lib/auth` definisce `ErroreLogin extends CredentialsSignin`:
+  // senza questa export il modulo estenderebbe `undefined` e non si importerebbe.
+  CredentialsSignin: class extends Error {
+    code = "credentials";
+  },
 }));
 
 vi.mock("next-auth/providers/credentials", () => ({

@@ -6,12 +6,39 @@
 // - Inclusività by design (accessibilità)
 // - Trasparenza (messaggi chiari)
 
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import { prisma } from "./prisma";
 import { env } from "./env";
+import { CODICI_ERRORE_LOGIN, type CodiceErroreLogin } from "./auth-errors";
 import type { UserRole } from "@prisma/client";
+
+/**
+ * Errore di login che arriva davvero fino al browser.
+ *
+ * PERCHE': Auth.js lascia passare al client solo un piccolo insieme di errori
+ * (`clientErrors` in @auth/core/errors). Un `new Error("...")` lanciato dentro
+ * `authorize` NON e' in quell'insieme: viene incartato in un
+ * `CallbackRouteError` e riportato al browser come `error=Configuration`,
+ * perdendo per strada il motivo reale. `CredentialsSignin` invece e' ammesso e
+ * trasporta un campo `code` arbitrario, che Auth.js ricopia nella query string
+ * della risposta. Passiamo il motivo li' dentro, come codice e non come frase,
+ * cosi' il testo mostrato all'utente resta deciso dal client.
+ *
+ * `message` resta comunque valorizzato: non raggiunge il browser, ma finisce
+ * nei log del server ed e' cio' che i test unit asseriscono.
+ */
+export class ErroreLogin extends CredentialsSignin {
+  constructor(
+    public readonly codice: CodiceErroreLogin,
+    message: string,
+  ) {
+    super(message);
+    // `code` e' il campo che Auth.js serializza verso il client.
+    this.code = codice;
+  }
+}
 
 // Estendi i tipi di NextAuth per includere i campi custom
 declare module "next-auth" {
@@ -185,7 +212,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email e password sono obbligatori");
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.CAMPI_MANCANTI,
+            "Email e password sono obbligatori",
+          );
         }
 
         const email = (credentials.email as string).toLowerCase();
@@ -195,7 +225,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // Il controllo sta PRIMA della query cosi' un attaccante bloccato non
         // riesce nemmeno a misurare i tempi di risposta del database.
         if (loginBloccato(email)) {
-          throw new Error(TROPPI_TENTATIVI);
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.TROPPI_TENTATIVI,
+            TROPPI_TENTATIVI,
+          );
         }
 
         // Import dinamico di bcrypt (solo quando serve, non a livello di modulo)
@@ -227,38 +260,67 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           await bcrypt.compare(password, DUMMY_PASSWORD_HASH);
           registraTentativoFallito(email);
           // Stesso identico messaggio del ramo "password errata" (A-4).
-          throw new Error(CREDENZIALI_NON_VALIDE);
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.CREDENZIALI_NON_VALIDE,
+            CREDENZIALI_NON_VALIDE,
+          );
         }
 
-        // Verifica se l'account è attivo
+        // Verifica se l'account è attivo.
+        // NOTA A-4: questo controllo resta PRIMA della password, come nel
+        // comportamento originale documentato dai test di baseline. Rivela che
+        // l'indirizzo e' registrato, ma solo per lo stato "disabilitato", che
+        // e' raro e deciso da un bibliotecario: l'utente deve poter capire
+        // perche' non entra. E' un compromesso consapevole, diverso dal caso
+        // "email non verificata" qui sotto.
         if (!user.attivo) {
-          throw new Error("Account disabilitato. Contatta la biblioteca.");
-        }
-
-        // Verifica dell'email obbligatoria (A-5).
-        // PERCHE': la registrazione crea l'utente con `emailVerificata: false`
-        // e genera un token di verifica, ma il login non controllava il campo:
-        // di fatto la verifica dell'email era facoltativa e chiunque poteva
-        // registrarsi con un indirizzo non suo e usarlo subito.
-        if (user.emailVerificata === false) {
-          throw new Error("Devi verificare l'email prima di accedere");
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.ACCOUNT_DISABILITATO,
+            "Account disabilitato. Contatta la biblioteca.",
+          );
         }
 
         // Verifica la password
         if (!user.passwordHash) {
-          throw new Error("Account non configurato correttamente");
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.ACCOUNT_NON_CONFIGURATO,
+            "Account non configurato correttamente",
+          );
         }
 
         const passwordMatch = await bcrypt.compare(password, user.passwordHash);
         if (!passwordMatch) {
           registraTentativoFallito(email);
           // Stesso identico messaggio del ramo "utente inesistente" (A-4).
-          throw new Error(CREDENZIALI_NON_VALIDE);
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.CREDENZIALI_NON_VALIDE,
+            CREDENZIALI_NON_VALIDE,
+          );
         }
 
         // Login riuscito: l'utente legittimo non deve restare penalizzato dai
         // tentativi sbagliati precedenti.
         azzeraTentativi(email);
+
+        // Verifica dell'email obbligatoria (A-5).
+        //
+        // PERCHE' STA QUI E NON PRIMA: il controllo era sopra, prima del
+        // confronto della password. Finche' tutti gli errori arrivavano al
+        // browser appiattiti su "Configuration" la cosa era invisibile, ma ora
+        // che il motivo viene comunicato al client quella posizione sarebbe un
+        // oracolo: chiunque, con una password a caso, scoprirebbe quali email
+        // sono registrate (finding A-4). Spostandolo DOPO il confronto, il
+        // motivo "email non verificata" lo vede solo chi la password la sa
+        // gia', cioe' il titolare dell'account.
+        //
+        // Il controllo resta comunque bloccante (finding A-5): senza di esso
+        // ci si potrebbe registrare con l'indirizzo di un altro e usarlo.
+        if (user.emailVerificata === false) {
+          throw new ErroreLogin(
+            CODICI_ERRORE_LOGIN.EMAIL_NON_VERIFICATA,
+            "Devi verificare l'email prima di accedere",
+          );
+        }
 
         // Aggiorna ultimo accesso
         await prisma.user.update({

@@ -146,3 +146,25 @@ describe("reset-password: policy password e invalidazione token (M-7)", () => {
     expect(mocks.findUnique).not.toHaveBeenCalled();
   });
 });
+
+describe("reset-password: il token deve essere del tipo giusto", () => {
+  it("[TC-SEC-TIPO-001] rifiuta un token di verifica email (VERIF) usato per cambiare password", async () => {
+    // La tabella AuthToken ospita sia i token RESET sia i VERIF. Il controllo
+    // guardava solo `userId`, `used` e `expiresAt`: un token di verifica —
+    // che nasce per un'operazione innocua, viaggia via email e resta nella
+    // cronologia del browser — era spendibile qui per prendere il controllo
+    // dell'account. Deve essere rifiutato come se non esistesse.
+    mocks.findUnique.mockResolvedValue({ ...tokenValido(), type: "VERIF" });
+
+    const response = await POST(
+      request({ userId: USER_ID, token: RAW_TOKEN, newPassword: "PasswordSicura1" }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.success).toBe(false);
+    // Nessuna password cambiata, nessuna scrittura.
+    expect(mocks.hashPassword).not.toHaveBeenCalled();
+    expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+});
