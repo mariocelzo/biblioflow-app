@@ -346,6 +346,12 @@ describe("ACL baseline - userId dal client sempre ignorato (C-3/C-4/C-6)", () =>
 
   it("[TC-SEC-ACL-022] POST /api/richieste ignora body.userId e usa la sessione", async () => {
     mocks.requireUser.mockResolvedValue(studentA);
+    // L'handler ora verifica che il libro esista prima di creare la richiesta
+    // (un `libroId` inesistente deve dare 404 e non un 500 da violazione di
+    // chiave esterna: vedi `tests/post-modifica/richieste-libro-inesistente-db.test.ts`).
+    // Qui il tema e' un altro — l'intestatario deve venire dalla sessione — per
+    // cui il libro va semplicemente dichiarato esistente.
+    mocks.prisma.libro.findUnique.mockResolvedValue({ id: "libro-1" });
     mocks.prisma.richiestaPreparazione.create.mockResolvedValue({
       id: "richiesta-1",
       userId: studentA.id,
