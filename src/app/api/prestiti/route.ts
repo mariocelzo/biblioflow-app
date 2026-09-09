@@ -1,3 +1,4 @@
+import type { StatoPrestito } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { AuthError, isStaff, requireUser } from "@/lib/auth";
@@ -22,6 +23,16 @@ function errorResponse(error: unknown, fallback: string) {
     { status: 500 },
   );
 }
+
+// INTEGRITA' DATI: un prestito RINNOVATO e' ancora un prestito in corso.
+// Tutti i controlli qui sotto filtravano su `stato: "ATTIVO"` e quindi non
+// vedevano i prestiti rinnovati, con due conseguenze concrete:
+//  - l'anti-duplicato lasciava passare un SECONDO prestito dello stesso libro
+//    allo stesso utente, decrementando `copieDisponibili` due volte;
+//  - il tetto dei 5 prestiti contemporanei si sfondava semplicemente rinnovando.
+// Si mantiene lo stato RINNOVATO (informazione gia' usata dalla UI) allineando
+// i filtri, invece di rinunciare al dato.
+const STATI_PRESTITO_IN_CORSO: readonly StatoPrestito[] = ["ATTIVO", "RINNOVATO"];
 
 // Campi utente esposti allo studente: NON includono dati personali sensibili
 // (email, matricola). Lo staff (BIBLIOTECARIO/ADMIN) puo' invece vederli perche'
@@ -83,7 +94,8 @@ export async function GET(request: NextRequest) {
 
     if (scaduti === "true") {
       where.dataScadenza = { lt: new Date() };
-      where.stato = "ATTIVO";
+      // Anche un prestito rinnovato puo' essere in ritardo: va nei solleciti.
+      where.stato = { in: [...STATI_PRESTITO_IN_CORSO] };
     }
 
     const prestiti = await prisma.prestito.findMany({
@@ -121,8 +133,11 @@ export async function GET(request: NextRequest) {
       return {
         ...p,
         giorniRimanenti,
-        isScaduto: giorniRimanenti < 0 && p.stato === "ATTIVO",
-        inScadenza: giorniRimanenti >= 0 && giorniRimanenti <= 3 && p.stato === "ATTIVO",
+        isScaduto: giorniRimanenti < 0 && STATI_PRESTITO_IN_CORSO.includes(p.stato),
+        inScadenza:
+          giorniRimanenti >= 0 &&
+          giorniRimanenti <= 3 &&
+          STATI_PRESTITO_IN_CORSO.includes(p.stato),
       };
     });
 
@@ -192,12 +207,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verifica che l'utente non abbia già questo libro in prestito
+    // Verifica che l'utente non abbia già questo libro in prestito.
+    // Include i RINNOVATO: altrimenti bastava rinnovare per poter richiedere
+    // una seconda copia dello stesso titolo.
     const prestitoEsistente = await prisma.prestito.findFirst({
       where: {
         userId,
         libroId,
-        stato: "ATTIVO",
+        stato: { in: [...STATI_PRESTITO_IN_CORSO] },
       },
     });
 
@@ -208,11 +225,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verifica limite prestiti (max 5 contemporanei)
+    // Verifica limite prestiti (max 5 contemporanei), rinnovati compresi.
     const prestitiAttivi = await prisma.prestito.count({
       where: {
         userId,
-        stato: "ATTIVO",
+        stato: { in: [...STATI_PRESTITO_IN_CORSO] },
       },
     });
 

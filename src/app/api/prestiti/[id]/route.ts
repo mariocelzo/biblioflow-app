@@ -1,3 +1,4 @@
+import type { StatoPrestito } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
@@ -24,6 +25,15 @@ function errorResponse(error: unknown, fallback: string) {
     { status: 500 },
   );
 }
+
+// INTEGRITA' DATI: un prestito RINNOVATO e' ancora un prestito in corso, esatta-
+// mente come un ATTIVO. Filtrare solo su "ATTIVO" faceva sparire i prestiti
+// rinnovati da ogni controllo a valle (secondo rinnovo, anti-duplicato, tetto
+// dei 5 prestiti, calcolo dello scaduto). Si mantiene lo stato RINNOVATO perche'
+// e' un'informazione gia' usata dalla UI (src/app/prestiti/page.tsx filtra su
+// ["ATTIVO", "RINNOVATO"] e l'area admin offre il filtro "Rinnovato"): la
+// correzione allinea i filtri lato server invece di buttare via il dato.
+const STATI_PRESTITO_IN_CORSO: readonly StatoPrestito[] = ["ATTIVO", "RINNOVATO"];
 
 // C-3: verifica che il chiamante possa operare sul prestito indicato.
 // - lo staff (BIBLIOTECARIO/ADMIN) puo' agire su qualunque prestito (banco);
@@ -87,8 +97,13 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       data: {
         ...prestito,
         giorniRimanenti,
-        isScaduto: giorniRimanenti < 0 && prestito.stato === "ATTIVO",
-        inScadenza: giorniRimanenti >= 0 && giorniRimanenti <= 3 && prestito.stato === "ATTIVO",
+        // Anche un prestito RINNOVATO puo' andare in ritardo: escluderlo lo
+        // faceva sparire dai solleciti.
+        isScaduto: giorniRimanenti < 0 && STATI_PRESTITO_IN_CORSO.includes(prestito.stato),
+        inScadenza:
+          giorniRimanenti >= 0 &&
+          giorniRimanenti <= 3 &&
+          STATI_PRESTITO_IN_CORSO.includes(prestito.stato),
       },
     });
   } catch (error) {
@@ -127,7 +142,28 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     switch (azione) {
       case "restituisci":
-        if (prestito.stato !== "ATTIVO") {
+        // INTEGRITA' DATI: la restituzione e' un fatto FISICO che avviene al
+        // banco, quindi la registra solo lo staff. Prima poteva farlo anche lo
+        // studente proprietario: bastava dichiarare restituito un libro tenuto
+        // in mano perche' `copieDisponibili` venisse incrementato e il catalogo
+        // mostrasse una copia disponibile inesistente, che un altro utente
+        // poteva poi prendere in prestito. Esiste gia' l'endpoint staff-only
+        // equivalente /api/admin/prestiti (azione RESTITUISCI): la stessa
+        // operazione non puo' avere due percorsi con autorizzazioni diverse.
+        // Allo studente resta il rinnovo, unica azione self-service legittima.
+        if (!isStaff(user.ruolo)) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: "RESTITUZIONE_RISERVATA_STAFF",
+              error:
+                "La restituzione va registrata dal personale della biblioteca al momento della riconsegna",
+            },
+            { status: 403 }
+          );
+        }
+
+        if (!STATI_PRESTITO_IN_CORSO.includes(prestito.stato)) {
           return NextResponse.json(
             { success: false, error: "Questo prestito non è attivo" },
             { status: 400 }
@@ -178,7 +214,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         });
 
       case "rinnova":
-        if (prestito.stato !== "ATTIVO") {
+        // Un prestito gia' rinnovato resta rinnovabile finche' non esaurisce
+        // maxRinnovi: senza questo, il secondo rinnovo era irraggiungibile.
+        if (!STATI_PRESTITO_IN_CORSO.includes(prestito.stato)) {
           return NextResponse.json(
             { success: false, error: "Questo prestito non è attivo" },
             { status: 400 }
