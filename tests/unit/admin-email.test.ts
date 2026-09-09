@@ -17,9 +17,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   inviaEmail: vi.fn(),
+  findUser: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
+
+// Il destinatario deve essere un utente registrato: la route lo cerca a DB.
+vi.mock("@/lib/prisma", () => ({
+  prisma: { user: { findUnique: mocks.findUser } },
+}));
 
 // Si mocka solo `inviaEmail`, lasciando reale il resto del modulo (i template
 // non servono qui, ma cosi' l'export shape resta fedele al modulo vero).
@@ -60,6 +66,9 @@ const payloadValido = {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  // Caso normale: il destinatario del payload valido ESISTE a database. I test
+  // che verificano il rifiuto lo sovrascrivono con `null`.
+  mocks.findUser.mockResolvedValue({ email: payloadValido.to });
   route = await import("@/app/api/admin/email/route");
 });
 
@@ -139,5 +148,77 @@ describe("POST /api/admin/email", () => {
 
     expect(res.status).toBe(502);
     expect(data.error).toBeTruthy();
+  });
+});
+
+describe("POST /api/admin/email: il destinatario e il testo non sono liberi", () => {
+  // PERCHE' QUESTI TEST: la prima versione della route prendeva `to` dal corpo
+  // della richiesta e lo usava tale e quale, e interpolava il messaggio
+  // nell'HTML senza trasformarlo. Due difetti distinti, entrambi sfruttabili
+  // da un account staff: spedire a chiunque nel mondo a nome della biblioteca,
+  // e iniettare markup in quell'email.
+
+  it("[TC-ADMIN-MAIL-010] rifiuta un destinatario che non e' un utente registrato", async () => {
+    mocks.auth.mockResolvedValue({ user: bibliotecario });
+    mocks.findUser.mockResolvedValue(null);
+
+    const res = await route.POST(
+      request({ ...payloadValido, to: "estraneo@dominio-esterno.com" }),
+    );
+
+    expect(res.status).toBe(404);
+    // Il punto centrale: nessuna email parte verso un indirizzo arbitrario.
+    expect(mocks.inviaEmail).not.toHaveBeenCalled();
+  });
+
+  it("[TC-ADMIN-MAIL-011] usa l'indirizzo trovato a database, non quello del corpo", async () => {
+    mocks.auth.mockResolvedValue({ user: bibliotecario });
+    // Il database e' la fonte di verita': anche se il corpo contenesse una
+    // variante, si spedisce all'indirizzo registrato.
+    mocks.findUser.mockResolvedValue({ email: "utente@studenti.unisa.it" });
+    mocks.inviaEmail.mockResolvedValue({ inviata: true, backend: "brevo" });
+
+    await route.POST(request({ ...payloadValido, to: "UTENTE@studenti.unisa.it" }));
+
+    expect(mocks.inviaEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "utente@studenti.unisa.it" }),
+    );
+  });
+
+  it("[TC-ADMIN-MAIL-012] converte in entita' il markup scritto dall'amministratore", async () => {
+    mocks.auth.mockResolvedValue({ user: bibliotecario });
+    mocks.findUser.mockResolvedValue({ email: "utente@studenti.unisa.it" });
+    mocks.inviaEmail.mockResolvedValue({ inviata: true, backend: "brevo" });
+
+    await route.POST(
+      request({
+        ...payloadValido,
+        messaggio: '<img src=x onerror="alert(1)"> e a < b',
+      }),
+    );
+
+    const html = mocks.inviaEmail.mock.calls[0][0].html;
+
+    // Il criterio giusto non e' l'assenza della parola "onerror" — che dentro
+    // il testo gia' neutralizzato e' innocua — ma l'assenza di QUALUNQUE tag
+    // nel corpo: il solo markup ammesso e' il <p> che avvolge il messaggio.
+    const corpo = html.replace(/^<p>/, "").replace(/<\/p>$/, "");
+    expect(corpo).not.toMatch(/<[a-zA-Z/]/);
+
+    expect(html).toContain("&lt;img");
+    expect(html).toContain("&quot;alert(1)&quot;");
+    // Il testo semplice resta leggibile.
+    expect(html).toContain("a &lt; b");
+  });
+
+  it("[TC-ADMIN-MAIL-013] gli a-capo restano l'unico markup generato", async () => {
+    mocks.auth.mockResolvedValue({ user: bibliotecario });
+    mocks.findUser.mockResolvedValue({ email: "utente@studenti.unisa.it" });
+    mocks.inviaEmail.mockResolvedValue({ inviata: true, backend: "brevo" });
+
+    await route.POST(request({ ...payloadValido, messaggio: "riga uno\nriga due" }));
+
+    const html = mocks.inviaEmail.mock.calls[0][0].html;
+    expect(html).toContain("riga uno<br/>riga due");
   });
 });

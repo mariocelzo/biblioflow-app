@@ -1,6 +1,47 @@
+// Prisma serve per verificare il destinatario: restiamo su runtime Node.
+export const runtime = "nodejs";
+
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { inviaEmail } from "@/lib/mailer";
+import { createRateLimiter } from "@/lib/rate-limit";
+
+/**
+ * Limite di invii dal pannello: 30 all'ora per IP.
+ *
+ * PERCHE' ANCHE SE LA ROTTA E' RISERVATA ALLO STAFF: le email partono
+ * dall'account del servizio di posta dell'applicazione, che ha una quota
+ * giornaliera. Bruciarla — per un ciclo sbagliato, un click ripetuto o un
+ * account staff compromesso — non spegne solo questa funzione: spegne anche
+ * le email di VERIFICA e di RECUPERO PASSWORD, cioe' l'accesso al sito.
+ * Il limite protegge quelle, non questa.
+ */
+const emailAdminRateLimiter = createRateLimiter({
+  max: 30,
+  windowMs: 60 * 60 * 1000,
+  message: "Troppe email inviate in poco tempo. Riprova più tardi.",
+});
+
+/**
+ * Rende sicuro il testo scritto dall'amministratore prima di metterlo in HTML.
+ *
+ * PERCHE': il messaggio e' testo libero e finiva interpolato nell'HTML
+ * dell'email senza alcuna trasformazione. Non e' una XSS classica (chi scrive
+ * e' gia' staff autenticato), ma bastava un `a < b` per produrre markup rotto,
+ * e nulla impediva di iniettare tag arbitrari in un messaggio che parte a nome
+ * della biblioteca. Si convertono le entita' PRIMA di aggiungere i soli `<br/>`
+ * voluti, cosi' gli a-capo restano l'unico markup generato.
+ */
+function testoInHtml(testo: string): string {
+  return testo
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/\n/g, "<br/>");
+}
 
 // POST /api/admin/email - invia un'email libera a un utente dal pannello admin.
 //
@@ -37,11 +78,42 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Il testo libero inserito dall'admin viene mostrato anche in HTML: si
-    // convertono solo gli a-capo, senza pretendere di generare markup ricco.
-    const html = `<p>${messaggio.replace(/\n/g, "<br/>")}</p>`;
+    // Il destinatario deve corrispondere a un utente REGISTRATO.
+    //
+    // PERCHE': `to` arrivava dal corpo della richiesta e veniva usato tale e
+    // quale. Un account staff poteva cosi' spedire a qualunque indirizzo del
+    // mondo, con oggetto e testo liberi, a nome della biblioteca e attraverso
+    // l'account del servizio di posta dell'applicazione. Vincolandolo agli
+    // utenti registrati la funzione fa cio' che dichiara — scrivere a un
+    // utente dal pannello — e smette di essere un relay aperto.
+    const destinatario = await prisma.user.findUnique({
+      where: { email: to.trim().toLowerCase() },
+      select: { email: true },
+    });
 
-    const esito = await inviaEmail({ to, subject: oggetto, text: messaggio, html });
+    if (!destinatario) {
+      return NextResponse.json(
+        { error: "Nessun utente registrato con questo indirizzo" },
+        { status: 404 },
+      );
+    }
+
+    // Limite verificato E incrementato solo ora (modo predefinito): un invio
+    // rifiutato prima, per dati non validi o destinatario inesistente, non
+    // deve consumare quota. Stessa logica adottata sulla registrazione.
+    // NB: serve il modo "verifica-e-conta"; il modo "conta" incrementa
+    // soltanto e non rifiuterebbe mai nulla.
+    const limite = await emailAdminRateLimiter(request);
+    if (limite) return limite;
+
+    const html = `<p>${testoInHtml(messaggio)}</p>`;
+
+    const esito = await inviaEmail({
+      to: destinatario.email,
+      subject: oggetto,
+      text: messaggio,
+      html,
+    });
 
     if (!esito.inviata) {
       // Il mailer non lancia mai: un esito negativo va comunicato con
