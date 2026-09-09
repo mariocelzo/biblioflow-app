@@ -6,6 +6,8 @@
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CODICI_ERRORE_LOGIN } from "@/lib/auth-errors";
+
 type CredentialsProvider = {
   authorize?: (credentials: Record<string, unknown>) => Promise<unknown>;
 };
@@ -240,5 +242,52 @@ describe("signIn Google: allow-list dei domini istituzionali (M-6)", () => {
     });
 
     expect(consentito).toBe(true);
+  });
+});
+
+describe("signIn Google: rispetta l'account disattivato (rilievo R-1)", () => {
+  // Prima della correzione, questo ramo aggiornava `ultimoAccesso` e
+  // restituiva `true` per QUALUNQUE utente Google gia' presente nel
+  // database, senza mai leggere `dbUser.attivo`. Un account disattivato dal
+  // provider Credentials (vedi TC-LOGIN-COD-004) restava quindi libero di
+  // accedere con un semplice click su "Accedi con Google": il blocco era
+  // aggirabile cambiando provider, non revocato davvero.
+  it("[TC-SEC-R1-001] rifiuta un utente Google esistente ma disattivato", async () => {
+    const email = "disattivato@studenti.unisa.it";
+    authMocks.prisma.user.findUnique.mockResolvedValue({
+      ...utenteAttivo,
+      email,
+      attivo: false,
+    });
+
+    const errore = await signInCallback()({
+      user: { email },
+      account: { provider: "google" },
+    }).catch((errore: { code?: string }) => errore);
+
+    // Non deve tornare `false` in silenzio: deve rilanciare l'errore con il
+    // codice giusto, cosi' il client puo' mostrare un messaggio preciso
+    // invece del generico "AccessDenied".
+    expect((errore as { code?: string }).code).toBe(
+      CODICI_ERRORE_LOGIN.ACCOUNT_DISABILITATO,
+    );
+  });
+
+  it("[TC-SEC-R1-002] non aggiorna ultimoAccesso per un account disattivato", async () => {
+    const email = "disattivato2@studenti.unisa.it";
+    authMocks.prisma.user.findUnique.mockResolvedValue({
+      ...utenteAttivo,
+      email,
+      attivo: false,
+    });
+
+    await signInCallback()({
+      user: { email },
+      account: { provider: "google" },
+    }).catch(() => undefined);
+
+    // Nessuna sessione "di fatto": l'account disattivato non deve nemmeno
+    // ottenere un `ultimoAccesso` aggiornato.
+    expect(authMocks.prisma.user.update).not.toHaveBeenCalled();
   });
 });

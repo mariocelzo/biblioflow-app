@@ -76,6 +76,11 @@ declare module "@auth/core/jwt" {
     matricola?: string | null;
     isPendolare: boolean;
     necessitaAccessibilita: boolean;
+    /**
+     * Epoch ms dell'ultima volta che il callback `jwt` ha riletto lo stato
+     * dell'utente dal database (rilievo di sicurezza R-2, vedi sotto).
+     */
+    ultimaVerifica?: number;
   }
 }
 
@@ -179,6 +184,32 @@ export function isDominioIstituzionale(email: string): boolean {
   const dominio = email.toLowerCase().split("@")[1];
   return !!dominio && DOMINI_GOOGLE_AMMESSI.includes(dominio);
 }
+
+/**
+ * Intervallo minimo fra due riletture di `attivo`/`ruolo` dal database dentro
+ * il callback `jwt` (rilievo di sicurezza R-2).
+ *
+ * PERCHE': la sessione dura `maxAge` (24 ore) e il callback `jwt` prima
+ * popolava i claim SOLO al login, senza mai piu' consultare il database.
+ * Disattivazione account, retrocessione di ruolo o reset password non
+ * avevano quindi ALCUN effetto fino alla scadenza naturale del token: un
+ * ex-bibliotecario poteva continuare per 24 ore a chiamare `/api/admin/*`,
+ * dato che `requireUser()` si fida ciecamente di `session.user`.
+ *
+ * PERCHE' UN INTERVALLO E NON UNA QUERY AD OGNI RICHIESTA: Auth.js invoca
+ * `jwt` a ogni richiesta autenticata (middleware incluso). Una query al
+ * database per ogni singola richiesta autenticata sarebbe un costo che
+ * cresce linearmente col traffico, per un rischio che nella pratica ha una
+ * finestra di tollerabilita' di qualche minuto (un bibliotecario retrocesso
+ * o un account disattivato non e' un'emergenza al secondo). Un minuto e' un
+ * compromesso: abbastanza breve da rendere la finestra di abuso residua
+ * trascurabile rispetto alle 24 ore precedenti, abbastanza lungo da non
+ * appesantire il database su un'app con traffico da ateneo. Il timestamp
+ * dell'ultimo controllo viaggia DENTRO al token (cifrato da Auth.js), non in
+ * memoria di processo: cosi' il throttling regge anche su piu' istanze
+ * serverless, dove un contatore in-memory per-processo non sarebbe condiviso.
+ */
+const INTERVALLO_RIVALIDAZIONE_JWT_MS = 60 * 1000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [
@@ -393,10 +424,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               },
             });
           } else {
+            // Rilievo di sicurezza R-1: il provider Credentials blocca
+            // l'accesso quando `attivo` e' false (vedi ramo `authorize` sopra),
+            // ma questo ramo Google saltava DIRETTAMENTE all'aggiornamento di
+            // `ultimoAccesso`, senza controllare mai lo stato dell'account.
+            // Conseguenza reale: un bibliotecario disattiva uno studente che
+            // abusa del servizio, e quello studente rientra comunque cliccando
+            // "Accedi con Google", con una sessione piena — il blocco era
+            // aggirabile cambiando provider. Controllo qui, PRIMA di
+            // qualunque scrittura, cosi' un account disattivato non ottiene
+            // ne' una sessione ne' un `ultimoAccesso` aggiornato.
+            if (!dbUser.attivo) {
+              console.warn("Signin Google rifiutato: account disattivato");
+              throw new ErroreLogin(
+                CODICI_ERRORE_LOGIN.ACCOUNT_DISABILITATO,
+                "Account disabilitato. Contatta la biblioteca.",
+              );
+            }
+
             // Aggiorna ultimo accesso
             await prisma.user.update({
               where: { id: dbUser.id },
-              data: { 
+              data: {
                 ultimoAccesso: new Date(),
                 emailVerificata: true, // Assicura che sia verificata
               },
@@ -414,6 +463,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           
           return true;
         } catch (error) {
+          // `ErroreLogin` (es. account disattivato, vedi sopra) va rilanciata
+          // cosi' com'e': e' un rifiuto voluto e gia' porta con se' il codice
+          // giusto per il client. Se la incartassimo nel `return false` qui
+          // sotto, Auth.js la appiattirebbe su un generico `AccessDenied`
+          // senza `code`, perdendo il motivo — lo stesso problema che
+          // `ErroreLogin` esiste apposta per evitare sul provider Credentials.
+          if (error instanceof ErroreLogin) {
+            throw error;
+          }
           console.error("Errore signin Google:", error);
           return false;
         }
@@ -425,6 +483,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // Personalizza il JWT token
     async jwt({ token, user }) {
       if (user) {
+        // Login appena avvenuto: `user` arriva da `authorize` o dal ramo
+        // Google del callback `signIn`, quindi e' gia' fresco di database.
         token.id = user.id;
         token.nome = user.nome;
         token.cognome = user.cognome;
@@ -432,7 +492,47 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.matricola = user.matricola;
         token.isPendolare = user.isPendolare;
         token.necessitaAccessibilita = user.necessitaAccessibilita;
+        // Segna il momento della rilettura: la prossima avverra' non prima
+        // di INTERVALLO_RIVALIDAZIONE_JWT_MS (rilievo di sicurezza R-2).
+        token.ultimaVerifica = Date.now();
+        return token;
       }
+
+      // Richieste successive al login: nessun `user`, solo il token gia'
+      // emesso. Throttling della rilettura dal DB (vedi commento su
+      // INTERVALLO_RIVALIDAZIONE_JWT_MS): se l'ultimo controllo e' recente,
+      // il token torna invariato senza toccare il database.
+      const ultimaVerifica = token.ultimaVerifica ?? 0;
+      if (Date.now() - ultimaVerifica < INTERVALLO_RIVALIDAZIONE_JWT_MS) {
+        return token;
+      }
+
+      // Token senza id valido: non e' mai dovuto accadere (viene sempre
+      // valorizzato al login qui sopra), ma se capitasse non c'e' nulla da
+      // verificare nel database. Meglio invalidare che fidarsi alla cieca.
+      if (typeof token.id !== "string" || token.id.length === 0) {
+        return null;
+      }
+
+      // Rilettura dal database: e' il cuore della correzione R-2. Se
+      // l'account e' stato disattivato (o cancellato) dopo l'emissione del
+      // token, la sessione va spenta ORA, non fra 24 ore. Auth.js tratta un
+      // ritorno `null` da questo callback come token non piu' valido:
+      // ripulisce il cookie di sessione e `auth()`/`requireUser()` vedono
+      // una sessione assente, esattamente come un logout forzato.
+      const dbUser = await prisma.user.findUnique({
+        where: { id: token.id },
+        select: { attivo: true, ruolo: true },
+      });
+
+      if (!dbUser || !dbUser.attivo) {
+        return null;
+      }
+
+      // Ruolo aggiornato (es. retrocessione BIBLIOTECARIO -> STUDENTE): da
+      // qui in poi `requireRole` vede il ruolo vero, non quello del login.
+      token.ruolo = dbUser.ruolo;
+      token.ultimaVerifica = Date.now();
       return token;
     },
     
