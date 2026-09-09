@@ -43,7 +43,7 @@ change request e' il tag `baseline-pre-cr-bf-01`.
 
 ## Stack
 
-- Node.js 20 o successivo e npm;
+- Node.js 20.19 o successivo, oppure 22.12 o successivo, e npm (minimo richiesto da Prisma 7);
 - Next.js 16, React 19 e TypeScript;
 - Tailwind CSS e componenti Radix/Shadcn;
 - Prisma ORM 7 e PostgreSQL 16;
@@ -56,7 +56,8 @@ change request e' il tag `baseline-pre-cr-bf-01`.
 
 ### 1. Requisiti
 
-Installare Git, Node.js 20 o successivo e Docker Desktop con Docker Compose v2.
+Installare Git, Node.js 20.19 o successivo (oppure 22.12 o successivo) e Docker
+Desktop con Docker Compose v2. Prisma 7 rifiuta le versioni di Node piu' vecchie.
 
 ```bash
 node --version
