@@ -36,14 +36,10 @@ const envSchema = z.object({
 
   // --- Invio email (vedi src/lib/mailer.ts) ---
   // Tutte opzionali: senza queste variabili l'app parte lo stesso, ma non puo'
-  // recapitare il link di verifica dell'indirizzo. Bastano RESEND_API_KEY
-  // oppure il gruppo SMTP_*; il mailer sceglie da solo il backend disponibile.
+  // recapitare il link di verifica dell'indirizzo. Basta UNA delle due chiavi;
+  // il mailer sceglie da solo il backend disponibile (Brevo ha la precedenza).
+  BREVO_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
-  SMTP_HOST: z.string().optional(),
-  // Arriva come stringa dall'ambiente: la convertiamo qui una volta sola.
-  SMTP_PORT: z.coerce.number().int().positive().optional(),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASSWORD: z.string().optional(),
   /** Mittente, es. 'BiblioFlow <no-reply@tuodominio.it>'. */
   MAIL_FROM: z.string().optional(),
   

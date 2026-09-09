@@ -10,10 +10,20 @@
 // l'indirizzo di un altro). Risultato: chi si registrava non poteva piu'
 // accedere, mai. Questo modulo chiude quel buco.
 //
-// DUE BACKEND, scelti in base alle variabili d'ambiente presenti:
-//   1. Resend  -> basta RESEND_API_KEY. Nessuna dipendenza: e' una POST HTTP.
-//   2. SMTP    -> SMTP_HOST/PORT/USER/PASSWORD. Funziona con qualunque
-//                 provider (Gmail con app password, SMTP di ateneo, Brevo...).
+// DUE BACKEND, entrambi via API HTTP, scelti in base alle variabili presenti:
+//   1. Brevo  -> BREVO_API_KEY   (piano gratuito, 300 email/giorno, basta
+//                verificare un singolo indirizzo mittente: nessun dominio)
+//   2. Resend -> RESEND_API_KEY  (senza dominio verificato scrive SOLO
+//                all'indirizzo del titolare dell'account)
+//
+// PERCHE' HTTP E NON SMTP: la strada SMTP passa da `nodemailer`, ma next-auth
+// 5.0.0-beta.32 dichiara `peerOptional nodemailer@"^7.0.7 || ^8.0.5"` mentre
+// TUTTE le versioni <= 9.1.0 hanno vulnerabilita' di gravita' alta
+// (GHSA-p6gq-j5cr-w38f e altre quattro). Non esiste quindi una versione allo
+// stesso tempo compatibile e non vulnerabile: installarla farebbe fallire
+// `npm audit --audit-level=high` in CI. Le API HTTP non richiedono alcuna
+// dipendenza e tolgono di mezzo il problema.
+//
 // Se non e' configurato nulla il modulo NON esplode: lo segnala al chiamante e
 // in sviluppo stampa il link in console, cosi' il flusso resta percorribile.
 
@@ -21,7 +31,7 @@ import { env } from "./env";
 
 /** Esito di un invio. Non lanciamo mai: l'esito e' un valore di ritorno. */
 export type EsitoInvio =
-  | { inviata: true; backend: "resend" | "smtp" }
+  | { inviata: true; backend: "brevo" | "resend" }
   | { inviata: false; motivo: "non_configurato" | "errore_invio"; dettaglio?: string };
 
 export interface MessaggioEmail {
@@ -34,33 +44,76 @@ export interface MessaggioEmail {
 }
 
 /**
- * Mittente delle email. Molti provider rifiutano l'invio se il dominio del
- * mittente non e' verificato: va impostato coerentemente con il servizio scelto.
+ * Mittente, nella forma "Nome <indirizzo>" oppure solo "indirizzo".
+ *
+ * Deve corrispondere a un mittente autorizzato presso il provider, altrimenti
+ * l'invio viene rifiutato: su Brevo e' l'indirizzo verificato in dashboard, su
+ * Resend un indirizzo del dominio verificato.
  */
-function mittente(): string {
-  if (env.MAIL_FROM) {
-    return env.MAIL_FROM;
+function mittenteGrezzo(): string {
+  // Ripiego valido solo su Resend senza dominio verificato: consente di
+  // scrivere unicamente all'indirizzo del titolare dell'account Resend.
+  return env.MAIL_FROM ?? "BiblioFlow <onboarding@resend.dev>";
+}
+
+/**
+ * Separa "Nome <indirizzo@dominio>" nelle due parti.
+ *
+ * Serve perche' Brevo vuole nome e indirizzo in due campi distinti, mentre
+ * Resend accetta la forma unica. Se non c'e' la parte fra parentesi angolari
+ * si assume che il valore sia gia' il solo indirizzo.
+ */
+export function separaMittente(valore: string): { nome: string; email: string } {
+  const conNome = valore.match(/^\s*(.*?)\s*<\s*([^>]+)\s*>\s*$/);
+
+  if (conNome) {
+    return { nome: conNome[1] || "BiblioFlow", email: conNome[2] };
   }
 
-  // Ripiego per SMTP: quasi tutti i provider (Gmail in testa) accettano come
-  // mittente SOLO l'account con cui ci si e' autenticati, e riscrivono o
-  // rifiutano un `From` diverso. Se MAIL_FROM non e' stato impostato, usare
-  // l'utente SMTP e' quindi la scelta che funziona invece di fallire.
-  if (env.SMTP_USER) {
-    return `BiblioFlow <${env.SMTP_USER}>`;
-  }
-
-  // Ultimo ripiego, valido solo su Resend senza dominio verificato: consente
-  // di scrivere unicamente all'indirizzo del titolare dell'account Resend.
-  return "BiblioFlow <onboarding@resend.dev>";
+  return { nome: "BiblioFlow", email: valore.trim() };
 }
 
 /** True se almeno un backend di invio e' configurato. */
 export function mailerConfigurato(): boolean {
-  return Boolean(env.RESEND_API_KEY || env.SMTP_HOST);
+  return Boolean(env.BREVO_API_KEY || env.RESEND_API_KEY);
 }
 
-/** Invio tramite l'API HTTP di Resend: nessuna dipendenza npm necessaria. */
+/** Invio tramite l'API transazionale di Brevo. */
+async function inviaConBrevo(messaggio: MessaggioEmail): Promise<EsitoInvio> {
+  const mittente = separaMittente(mittenteGrezzo());
+
+  const risposta = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": env.BREVO_API_KEY as string,
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      sender: { name: mittente.nome, email: mittente.email },
+      to: [{ email: messaggio.to }],
+      subject: messaggio.subject,
+      htmlContent: messaggio.html,
+      textContent: messaggio.text,
+    }),
+  });
+
+  if (!risposta.ok) {
+    // Il corpo dell'errore e' prezioso in fase di configurazione (mittente non
+    // verificato, chiave errata, quota esaurita): resta nei log del server e
+    // non viene mai rimandato al browser.
+    const dettaglio = await risposta.text().catch(() => "");
+    return {
+      inviata: false,
+      motivo: "errore_invio",
+      dettaglio: `Brevo HTTP ${risposta.status}: ${dettaglio.slice(0, 300)}`,
+    };
+  }
+
+  return { inviata: true, backend: "brevo" };
+}
+
+/** Invio tramite l'API HTTP di Resend. */
 async function inviaConResend(messaggio: MessaggioEmail): Promise<EsitoInvio> {
   const risposta = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -69,7 +122,7 @@ async function inviaConResend(messaggio: MessaggioEmail): Promise<EsitoInvio> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: mittente(),
+      from: mittenteGrezzo(),
       to: [messaggio.to],
       subject: messaggio.subject,
       html: messaggio.html,
@@ -78,9 +131,6 @@ async function inviaConResend(messaggio: MessaggioEmail): Promise<EsitoInvio> {
   });
 
   if (!risposta.ok) {
-    // Il corpo dell'errore di Resend e' utile in fase di configurazione
-    // (dominio non verificato, chiave errata...): lo teniamo nel dettaglio,
-    // che finisce nei log del server e non nella risposta al browser.
     const dettaglio = await risposta.text().catch(() => "");
     return {
       inviata: false,
@@ -90,38 +140,6 @@ async function inviaConResend(messaggio: MessaggioEmail): Promise<EsitoInvio> {
   }
 
   return { inviata: true, backend: "resend" };
-}
-
-/**
- * Invio tramite SMTP.
- *
- * `nodemailer` viene importato in modo DINAMICO: se il progetto viene
- * distribuito usando solo Resend, la libreria non serve e non deve essere
- * caricata (ne' far fallire il bundle se non e' installata).
- */
-async function inviaConSmtp(messaggio: MessaggioEmail): Promise<EsitoInvio> {
-  const nodemailer = (await import("nodemailer")).default;
-
-  const trasporto = nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT ?? 587,
-    // La porta 465 e' TLS implicito; 587 usa STARTTLS (secure: false).
-    secure: (env.SMTP_PORT ?? 587) === 465,
-    auth:
-      env.SMTP_USER && env.SMTP_PASSWORD
-        ? { user: env.SMTP_USER, pass: env.SMTP_PASSWORD }
-        : undefined,
-  });
-
-  await trasporto.sendMail({
-    from: mittente(),
-    to: messaggio.to,
-    subject: messaggio.subject,
-    text: messaggio.text,
-    html: messaggio.html,
-  });
-
-  return { inviata: true, backend: "smtp" };
 }
 
 /**
@@ -147,7 +165,7 @@ export async function inviaEmail(
     } else {
       console.error(
         "[mailer] Nessun backend email configurato in produzione: " +
-          "imposta RESEND_API_KEY oppure SMTP_HOST/SMTP_USER/SMTP_PASSWORD.",
+          "imposta BREVO_API_KEY oppure RESEND_API_KEY.",
       );
     }
 
@@ -155,11 +173,11 @@ export async function inviaEmail(
   }
 
   try {
-    if (env.RESEND_API_KEY) {
-      return await inviaConResend(messaggio);
+    if (env.BREVO_API_KEY) {
+      return await inviaConBrevo(messaggio);
     }
 
-    return await inviaConSmtp(messaggio);
+    return await inviaConResend(messaggio);
   } catch (errore) {
     const dettaglio = errore instanceof Error ? errore.message : String(errore);
     console.error("[mailer] Invio fallito:", dettaglio);
