@@ -204,6 +204,66 @@ export function urlVerificaEmail(userId: string, token: string): string {
   return `${base}/verifica-email?${parametri.toString()}`;
 }
 
+/**
+ * URL assoluto della pagina di reimpostazione della password.
+ *
+ * Stessa logica di `urlVerificaEmail`: dentro un'email serve un indirizzo
+ * assoluto, e la base cambia da sola fra sviluppo e produzione.
+ */
+export function urlResetPassword(userId: string, token: string): string {
+  const base = (env.NEXT_PUBLIC_APP_URL ?? env.NEXTAUTH_URL).replace(/\/+$/, "");
+  const parametri = new URLSearchParams({ userId, token });
+
+  return `${base}/reset-password?${parametri.toString()}`;
+}
+
+/** Email con il link per reimpostare la password. */
+export function emailRecuperoPassword(
+  nome: string,
+  link: string,
+): Omit<MessaggioEmail, "to"> {
+  const testo =
+    `Ciao ${nome},\n\n` +
+    "hai chiesto di reimpostare la password del tuo account BiblioFlow. " +
+    "Apri questo link per sceglierne una nuova:\n\n" +
+    `${link}\n\n` +
+    "Il link resta valido un'ora e puo' essere usato una sola volta.\n\n" +
+    "Se non hai richiesto tu il cambio, ignora questo messaggio: la tua " +
+    "password attuale resta valida e nessuno puo' cambiarla senza questo link.\n\n" +
+    "— BiblioFlow, Biblioteca UNISA";
+
+  const html = `
+    <div style="font-family: system-ui, -apple-system, Segoe UI, sans-serif; max-width: 520px; margin: 0 auto; color: #0f172a;">
+      <h1 style="font-size: 20px; margin-bottom: 4px;">Reimposta la tua password</h1>
+      <p style="color: #475569; margin-top: 0;">Ciao ${nome}, hai chiesto di cambiarla.</p>
+      <p>Apri il pulsante qui sotto per scegliere una nuova password.</p>
+      <p style="margin: 28px 0;">
+        <a href="${link}"
+           style="background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 22px; border-radius: 8px; font-weight: 600; display: inline-block;">
+          Scegli una nuova password
+        </a>
+      </p>
+      <p style="color: #475569; font-size: 13px;">
+        Se il pulsante non funziona, copia questo indirizzo nel browser:<br />
+        <a href="${link}" style="color: #2563eb; word-break: break-all;">${link}</a>
+      </p>
+      <p style="color: #64748b; font-size: 13px;">
+        Il link resta valido <strong>un'ora</strong> e può essere usato una sola
+        volta. Se non hai richiesto tu il cambio puoi ignorare questo messaggio:
+        la tua password attuale resta valida.
+      </p>
+      <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+      <p style="color: #94a3b8; font-size: 12px; margin: 0;">BiblioFlow — Biblioteca UNISA</p>
+    </div>
+  `.trim();
+
+  return {
+    subject: "Reimposta la tua password — BiblioFlow",
+    text: testo,
+    html,
+  };
+}
+
 /** Email di benvenuto con il link di verifica. */
 export function emailVerifica(
   nome: string,

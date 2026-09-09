@@ -14,12 +14,25 @@ const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   createToken: vi.fn(),
   rateLimiter: vi.fn(),
+  inviaEmail: vi.fn(),
 }));
 
 // NODE_ENV = production: e' il ramo "fail-closed" di C-1.
+// `NEXTAUTH_URL` serve a comporre il link assoluto messo nell'email.
 vi.mock("@/lib/env", () => ({
-  env: { NODE_ENV: "production" },
+  env: {
+    NODE_ENV: "production",
+    NEXTAUTH_URL: "https://biblioflow-app.vercel.app",
+  },
 }));
+
+// L'invio vero non deve partire da un test unitario: intercettiamo la sola
+// funzione di spedizione, lasciando reali i costruttori di link e di testo,
+// cosi' le asserzioni sul contenuto del messaggio restano significative.
+vi.mock("@/lib/mailer", async (importOriginal) => {
+  const originale = await importOriginal<typeof import("@/lib/mailer")>();
+  return { ...originale, inviaEmail: mocks.inviaEmail };
+});
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -42,12 +55,17 @@ function request(email: string) {
   });
 }
 
-const utente = { id: "usr-reset-001", email: "mario.rossi@studenti.unisa.it" };
+const utente = {
+  id: "usr-reset-001",
+  email: "mario.rossi@studenti.unisa.it",
+  nome: "Mario",
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.rateLimiter.mockResolvedValue(null);
   mocks.createToken.mockResolvedValue({ id: "tok-1" });
+  mocks.inviaEmail.mockResolvedValue({ inviata: true, backend: "brevo" });
 });
 
 describe("recupera-password: nessun leak del token in produzione (C-1)", () => {
@@ -103,5 +121,68 @@ describe("recupera-password: nessun leak del token in produzione (C-1)", () => {
     await POST(request(utente.email));
 
     expect(info).not.toHaveBeenCalled();
+  });
+});
+
+describe("recupera-password: il link viene davvero spedito", () => {
+  // PERCHE' QUESTI TEST: il token veniva generato e salvato, ma l'invio non
+  // esisteva ("TODO: mailer non ancora presente"). In produzione l'utente
+  // riceveva "riceverai un link" e non arrivava niente: il recupero della
+  // password era inutilizzabile. Senza queste asserzioni la regressione
+  // sarebbe invisibile, perche' la risposta HTTP e' identica nei due casi.
+
+  it("[TC-RESET-MAIL-001] invia l'email all'indirizzo dell'utente", async () => {
+    mocks.findUnique.mockResolvedValue(utente);
+
+    await POST(request(utente.email));
+
+    expect(mocks.inviaEmail).toHaveBeenCalledOnce();
+    const messaggio = mocks.inviaEmail.mock.calls[0][0];
+    expect(messaggio.to).toBe(utente.email);
+    expect(messaggio.subject.toLowerCase()).toContain("password");
+  });
+
+  it("[TC-RESET-MAIL-002] il messaggio contiene un link assoluto con userId e token", async () => {
+    mocks.findUnique.mockResolvedValue(utente);
+
+    await POST(request(utente.email));
+
+    const messaggio = mocks.inviaEmail.mock.calls[0][0];
+    // Dentro un'email un percorso relativo non significa nulla.
+    expect(messaggio.text).toContain("https://biblioflow-app.vercel.app/reset-password?");
+    expect(messaggio.text).toContain(`userId=${utente.id}`);
+    expect(messaggio.text).toMatch(/token=[a-f0-9]{64}/);
+    expect(messaggio.html).toContain("https://biblioflow-app.vercel.app/reset-password?");
+  });
+
+  it("[TC-RESET-MAIL-003] per un'email sconosciuta non invia nulla", async () => {
+    mocks.findUnique.mockResolvedValue(null);
+
+    const risposta = await POST(request("sconosciuto@studenti.unisa.it"));
+
+    expect(risposta.status).toBe(200);
+    expect(mocks.inviaEmail).not.toHaveBeenCalled();
+  });
+
+  it("[TC-RESET-MAIL-004] se l'invio fallisce la risposta resta identica (nessun oracolo)", async () => {
+    // Un errore del provider non deve rendere distinguibile un account
+    // esistente da uno inesistente: stesso status, stesso corpo.
+    mocks.findUnique.mockResolvedValueOnce(utente);
+    mocks.inviaEmail.mockResolvedValueOnce({
+      inviata: false,
+      motivo: "errore_invio",
+      dettaglio: "Brevo HTTP 500",
+    });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const conInvioFallito = await POST(request(utente.email));
+    const corpoFallito = await conInvioFallito.json();
+
+    mocks.findUnique.mockResolvedValueOnce(null);
+    const sconosciuta = await POST(request("nessuno@studenti.unisa.it"));
+    const corpoSconosciuta = await sconosciuta.json();
+
+    expect(conInvioFallito.status).toBe(sconosciuta.status);
+    expect(corpoFallito).toEqual(corpoSconosciuta);
   });
 });

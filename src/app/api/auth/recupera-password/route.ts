@@ -1,14 +1,22 @@
 // API richiesta di recupero password.
 //
-// Il mailer non e' ancora presente nel progetto: in SVILUPPO il link di reset
-// viene restituito nella risposta per poter provare il flusso end-to-end,
-// mentre in PRODUZIONE non esce mai dal server (vedi commenti sotto).
+// Il link di reset viene spedito per email (vedi src/lib/mailer.ts). In
+// SVILUPPO viene ANCHE restituito nella risposta, cosi' il flusso resta
+// percorribile quando non e' configurato alcun backend di posta; in PRODUZIONE
+// non esce mai dal server (finding C-1), perche' chi conosce l'indirizzo di
+// un'altra persona potrebbe altrimenti farsi dare dall'API il link per
+// cambiarle la password.
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { passwordResetRateLimiter } from "@/lib/rate-limit";
 import { generateRawToken, hashToken } from "@/lib/auth-tokens";
+import {
+  emailRecuperoPassword,
+  inviaEmail,
+  urlResetPassword,
+} from "@/lib/mailer";
 import { env } from "@/lib/env";
 
 // Messaggio UNICO usato per qualunque esito (email registrata o no).
@@ -56,7 +64,28 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // TODO: in produzione il token va inviato via email (mailer non ancora presente)
+    // Recapito del link di reset.
+    //
+    // PERCHE' E' IL PASSAGGIO CHE MANCAVA: il token veniva generato e salvato,
+    // ma non veniva mai spedito. In produzione l'utente riceveva il messaggio
+    // rassicurante "riceverai un link" e non arrivava nulla: il recupero della
+    // password era di fatto inutilizzabile.
+    //
+    // L'esito NON cambia la risposta: resta identica in ogni caso, altrimenti
+    // si potrebbe capire dal comportamento se l'indirizzo e' registrato.
+    const esitoInvio = await inviaEmail({
+      to: user.email,
+      ...emailRecuperoPassword(user.nome, urlResetPassword(user.id, rawToken)),
+    });
+
+    if (!esitoInvio.inviata) {
+      console.error(
+        "[recupera-password] Invio fallito:",
+        esitoInvio.motivo,
+        esitoInvio.dettaglio ?? "",
+      );
+    }
+
     if (isProduzione) {
       // Nessun `console.info` del link: i log applicativi (Vercel, Sentry)
       // sono consultabili da piu' persone e conserverebbero un token valido.
