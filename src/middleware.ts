@@ -3,6 +3,46 @@
 // ============================================
 // Middleware leggero compatibile con Edge Runtime
 // Non importa moduli Node.js per funzionare su Edge
+//
+// ⚠️ LIMITE NOTO E DELIBERATO — LEGGERE PRIMA DI AGGIUNGERE UNA ROTTA ⚠️
+//
+// COSA FA DAVVERO QUESTO MIDDLEWARE: verifica che nella richiesta ESISTA un
+// cookie di sessione. Nient'altro. NON ne verifica la firma, NON lo decifra,
+// NON ne legge l'utente, NON ne controlla la scadenza e NON conosce i ruoli.
+// Una riga come `document.cookie = "authjs.session-token=x"` nella console del
+// browser — o un banale `curl -H 'Cookie: authjs.session-token=x'` — supera
+// questo controllo su QUALSIASI percorso.
+//
+// QUINDI: questo middleware NON e' un livello di autenticazione. E' solo una
+// scorciatoia di comodita' che evita di far arrivare al server le richieste
+// palesemente anonime (e che manda l'utente alla pagina di login invece di
+// mostrargli un errore). L'AUTENTICAZIONE VERA avviene, e deve continuare ad
+// avvenire, dentro ogni singolo route handler tramite `auth()` /
+// `requireUser()` da `@/lib/auth`, che leggono e verificano il JWT lato Node.
+//
+// SE STAI AGGIUNGENDO UNA NUOVA ROTTA `/api/...`: chiama `auth()` o
+// `requireUser()` al suo interno. Non dare per scontato che il middleware
+// abbia gia' stabilito CHI e' il chiamante, perche' non lo ha fatto.
+// Il test `tests/unit/middleware-autenticazione.test.ts` verifica in modo
+// automatico che ogni nuova rotta non pubblica si autentichi da sola: se hai
+// scordato il controllo, quel test fallisce e ti dice dove.
+//
+// PERCHE' NON SI VERIFICA IL TOKEN QUI (vincoli reali, non pigrizia):
+//  1. Il middleware gira su Edge Runtime. `src/lib/auth.ts` importa Prisma e
+//     bcrypt, che su Edge non funzionano: importare `auth()` qui romperebbe
+//     l'intera applicazione al primo deploy.
+//  2. La soluzione pulita di Auth.js v5 e' separare la configurazione in due
+//     file (`auth.config.ts` senza adapter/provider Node, usato dal middleware
+//     + `auth.ts` completo, usato dal server). E' una ristrutturazione di
+//     `src/lib/auth.ts`, che va pianificata a parte.
+//  3. Una scorciatoia — decifrare il JWT qui con `getToken` di
+//     `next-auth/jwt` — duplicherebbe fuori da Auth.js le assunzioni su nome
+//     del cookie, segreto e formato del token: due fonti di verita' che
+//     possono divergere in silenzio a ogni modifica di `auth.ts`. Per una
+//     difesa di sicurezza e' un rischio peggiore del problema che risolve.
+//
+// Finche' il punto 2 non viene affrontato, la garanzia del sistema e' quella
+// scritta sopra: la sicurezza sta nei route handler, non qui.
 
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
@@ -45,9 +85,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Verifica presenza del session token di NextAuth
-  // Il nome del cookie dipende dal setting NEXTAUTH_URL (secure in prod)
-  const sessionToken = 
+  // Verifica la sola PRESENZA del session token di NextAuth.
+  // Il nome del cookie dipende dal setting NEXTAUTH_URL (secure in prod).
+  //
+  // ⚠️ Il valore non viene mai controllato: qualunque stringa passa. Vedi il
+  // blocco in cima al file — chi legge questa riga sta guardando il punto
+  // esatto in cui il middleware SMETTE di fare sicurezza e la delega ai route
+  // handler.
+  const sessionToken =
     request.cookies.get("authjs.session-token")?.value ||
     request.cookies.get("__Secure-authjs.session-token")?.value;
 
