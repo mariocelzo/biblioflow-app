@@ -93,6 +93,23 @@ function getClientIp(request: NextRequest): string {
  * }
  * ```
  */
+/**
+ * Come la richiesta corrente interagisce con il contatore.
+ *
+ * PERCHE' ESISTE: nella modalita' unica di prima ogni chiamata all'endpoint
+ * consumava un tentativo, comprese quelle rifiutate per dati non validi. Tre
+ * errori di battitura sulla password bastavano quindi a bloccare la
+ * registrazione per un'ora, senza che fosse stato creato alcun account: un
+ * limite pensato contro lo spam finiva per punire l'utente distratto.
+ *
+ * - "verifica-e-conta" (predefinito): comportamento storico, usato da tutti
+ *   gli altri limitatori.
+ * - "verifica": controlla soltanto. Da usare all'inizio dell'handler.
+ * - "conta": incrementa soltanto, senza mai rifiutare. Da chiamare a
+ *   operazione riuscita, cosi' il contatore misura le azioni effettive.
+ */
+export type ModoRateLimit = "verifica-e-conta" | "verifica" | "conta";
+
 export function createRateLimiter(config: RateLimitConfig) {
   const {
     max,
@@ -100,17 +117,25 @@ export function createRateLimiter(config: RateLimitConfig) {
     message = "Troppi tentativi. Riprova tra qualche istante.",
   } = config;
 
-  return async (request: NextRequest): Promise<NextResponse | null> => {
+  return async (
+    request: NextRequest,
+    modo: ModoRateLimit = "verifica-e-conta",
+  ): Promise<NextResponse | null> => {
     const ip = getClientIp(request);
     const now = Date.now();
-    
+
     // Crea una chiave univoca per la route e l'IP
     const key = `${ip}:${request.nextUrl.pathname}`;
-    
+
     let log = rateLimitStore.get(key);
-    
+
     if (!log || now > log.resetTime) {
-      // Nuova finestra temporale
+      // Nuova finestra temporale. In sola verifica non si apre nulla: il
+      // conteggio parte quando l'operazione va davvero a buon fine.
+      if (modo === "verifica") {
+        return null;
+      }
+
       log = {
         count: 1,
         resetTime: now + windowMs,
@@ -118,7 +143,15 @@ export function createRateLimiter(config: RateLimitConfig) {
       rateLimitStore.set(key, log);
       return null; // Richiesta consentita
     }
-    
+
+    // Incremento puro: non rifiuta mai, serve solo a registrare l'operazione
+    // appena completata.
+    if (modo === "conta") {
+      log.count++;
+      rateLimitStore.set(key, log);
+      return null;
+    }
+
     if (log.count >= max) {
       // Limite superato
       const retryAfter = Math.ceil((log.resetTime - now) / 1000);
@@ -140,10 +173,15 @@ export function createRateLimiter(config: RateLimitConfig) {
       );
     }
     
+    // Sotto il limite. In sola verifica il contatore non si tocca.
+    if (modo === "verifica") {
+      return null;
+    }
+
     // Incrementa il contatore
     log.count++;
     rateLimitStore.set(key, log);
-    
+
     return null; // Richiesta consentita
   };
 }
@@ -163,13 +201,24 @@ export const loginRateLimiter = createRateLimiter({
 });
 
 /**
- * Rate limiter MEDIO per registrazione (previene spam)
- * 3 registrazioni ogni ora
+ * Rate limiter per la registrazione (previene spam)
+ * 20 account creati ogni ora, per indirizzo IP.
+ *
+ * PERCHE' 20 E NON 3: il limite precedente era troppo stretto per l'uso reale.
+ * La chiave del contatore e' l'indirizzo IP PUBBLICO, e un'intera aula
+ * universitaria esce da un solo IP attraverso il NAT di ateneo: con 3
+ * all'ora bastavano tre iscrizioni per bloccare tutti gli altri, per esempio
+ * durante una dimostrazione del progetto. Venti resta un tetto efficace
+ * contro la creazione automatizzata di account e non ostacola l'uso legittimo.
+ *
+ * Da leggere insieme al modo "conta": il contatore ora misura gli account
+ * effettivamente creati, non i tentativi rifiutati per dati non validi.
  */
 export const registrationRateLimiter = createRateLimiter({
-  max: 3,
+  max: 20,
   windowMs: 60 * 60 * 1000,
-  message: "Troppi tentativi di registrazione. Riprova tra un'ora.",
+  message:
+    "Sono state create troppe registrazioni da questa rete nell'ultima ora. Riprova più tardi.",
 });
 
 /**
