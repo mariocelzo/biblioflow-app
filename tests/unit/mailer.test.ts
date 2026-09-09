@@ -33,10 +33,12 @@ vi.mock("@/lib/env", () => ({
 }));
 
 import {
+  emailRecuperoPassword,
   emailVerifica,
   inviaEmail,
   mailerConfigurato,
   separaMittente,
+  urlResetPassword,
   urlVerificaEmail,
 } from "@/lib/mailer";
 
@@ -229,5 +231,36 @@ describe("urlVerificaEmail ed emailVerifica", () => {
     expect(corpo.text).toContain(link);
     expect(corpo.html).toContain(`href="${link}"`);
     expect(corpo.subject).toContain("BiblioFlow");
+  });
+});
+
+describe("emailRecuperoPassword e urlResetPassword", () => {
+  it("[TC-MAIL-014] costruisce un URL di reset assoluto e ben formato", () => {
+    envMock.valori.NEXT_PUBLIC_APP_URL = "https://biblioflow-app.vercel.app/";
+
+    expect(urlResetPassword("usr-9", "tok-9")).toBe(
+      "https://biblioflow-app.vercel.app/reset-password?userId=usr-9&token=tok-9",
+    );
+  });
+
+  it("[TC-MAIL-015] il messaggio di reset contiene il link in HTML e in testo", () => {
+    const link = "https://esempio.test/reset-password?userId=a&token=b";
+    const corpo = emailRecuperoPassword("Mario", link);
+
+    expect(corpo.text).toContain(link);
+    expect(corpo.html).toContain(`href="${link}"`);
+    // Deve distinguersi dall'email di verifica: sono due flussi diversi e
+    // l'oggetto e' cio' che l'utente legge nell'elenco della posta.
+    expect(corpo.subject).not.toBe(emailVerifica("Mario", link).subject);
+    expect(corpo.subject.toLowerCase()).toContain("password");
+  });
+
+  it("[TC-MAIL-016] avvisa chi non ha richiesto il cambio", () => {
+    // Un'email di reset non richiesta e' un segnale di tentato accesso: il
+    // destinatario deve sapere che ignorarla e' sicuro.
+    const corpo = emailRecuperoPassword("Mario", "https://esempio.test/x");
+
+    expect(corpo.text).toMatch(/non hai richiesto/i);
+    expect(corpo.html).toMatch(/non hai richiesto/i);
   });
 });
