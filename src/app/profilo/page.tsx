@@ -39,6 +39,7 @@ import {
   BarChart3,
   Moon,
   Zap,
+  AlertTriangle,
 } from "lucide-react";
 
 interface UserProfile {
@@ -82,6 +83,11 @@ export default function ProfiloPage() {
     oreTotaliStudio: 0,
     salaPreferita: "",
   });
+  // PERCHÉ: senza questo stato, un 4xx/5xx su prenotazioni/prestiti
+  // mostrava 0 / stringhe vuote come se l'utente non avesse mai usato il
+  // servizio: indistinguibile da un vero "nessun dato". Questo flag separa
+  // i due casi in fase di render.
+  const [statisticheError, setStatisticheError] = useState(false);
 
   // Redirect se non autenticato
   useEffect(() => {
@@ -145,12 +151,28 @@ export default function ProfiloPage() {
     try {
       // Fetch prenotazioni
       const prenotazioniRes = await fetch(`/api/prenotazioni?userId=${userId}`);
-      const prenotazioniData = prenotazioniRes.ok ? await prenotazioniRes.json() : { data: [] };
-      
-      // Fetch prestiti  
+      // Fetch prestiti
       const prestitiRes = await fetch(`/api/prestiti?userId=${userId}`);
-      const prestitiData = prestitiRes.ok ? await prestitiRes.json() : { data: [] };
-      
+
+      // PERCHÉ: prima, se una delle due richieste falliva, si sostituiva
+      // silenziosamente il risultato con `{ data: [] }` e le statistiche
+      // finivano per mostrare 0 come se l'utente non avesse mai prenotato
+      // o preso in prestito nulla, invece di segnalare l'errore di rete.
+      if (!prenotazioniRes.ok || !prestitiRes.ok) {
+        console.error(
+          "[PROFILO] Errore fetch statistiche:",
+          prenotazioniRes.status,
+          prestitiRes.status
+        );
+        toast.error("Non è stato possibile caricare le tue statistiche di utilizzo");
+        setStatisticheError(true);
+        return;
+      }
+
+      setStatisticheError(false);
+      const prenotazioniData = await prenotazioniRes.json();
+      const prestitiData = await prestitiRes.json();
+
       // Calcola ore studio (stima: 4h per prenotazione completata)
       const prenotazioniCompletate = (prenotazioniData.data || []).filter(
         (p: { stato: string }) => p.stato === "COMPLETATA"
@@ -174,6 +196,8 @@ export default function ProfiloPage() {
       });
     } catch (error) {
       console.error("Errore fetch statistiche:", error);
+      toast.error("Non è stato possibile caricare le tue statistiche di utilizzo");
+      setStatisticheError(true);
     }
   };
 
@@ -480,30 +504,49 @@ export default function ProfiloPage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-xl text-center">
-                  <Calendar className="h-6 w-6 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-foreground">{statistiche.prenotazioniTotali}</p>
-                  <p className="text-xs text-muted-foreground">Prenotazioni totali</p>
-                </div>
-                <div className="p-4 bg-purple-50 dark:bg-purple-950 rounded-xl text-center">
-                  <BookOpen className="h-6 w-6 text-purple-600 dark:text-purple-400 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-foreground">{statistiche.prestitiTotali}</p>
-                  <p className="text-xs text-muted-foreground">Libri presi in prestito</p>
-                </div>
-                <div className="p-4 bg-green-50 dark:bg-green-950 rounded-xl text-center">
-                  <Clock className="h-6 w-6 text-green-600 dark:text-green-400 mx-auto mb-2" />
-                  <p className="text-2xl font-bold text-foreground">{statistiche.oreTotaliStudio}</p>
-                  <p className="text-xs text-muted-foreground">Ore in biblioteca</p>
-                </div>
-                <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-xl text-center">
-                  <User className="h-6 w-6 text-amber-600 dark:text-amber-400 mx-auto mb-2" />
-                  <p className="text-lg font-bold text-foreground truncate">
-                    {statistiche.salaPreferita || "N/A"}
+              {statisticheError ? (
+                // PERCHÉ: distinguiamo esplicitamente "errore di caricamento"
+                // da "nessun dato" - mostrare 0 in questo caso farebbe
+                // credere all'utente di non aver mai usato il servizio.
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <AlertTriangle className="h-8 w-8 text-destructive" />
+                  <p className="text-sm text-muted-foreground">
+                    Non è stato possibile caricare le statistiche
                   </p>
-                  <p className="text-xs text-muted-foreground">Sala preferita</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => session?.user?.id && fetchStatistiche(session.user.id)}
+                  >
+                    Riprova
+                  </Button>
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-xl text-center">
+                    <Calendar className="h-6 w-6 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
+                    <p className="text-2xl font-bold text-foreground">{statistiche.prenotazioniTotali}</p>
+                    <p className="text-xs text-muted-foreground">Prenotazioni totali</p>
+                  </div>
+                  <div className="p-4 bg-purple-50 dark:bg-purple-950 rounded-xl text-center">
+                    <BookOpen className="h-6 w-6 text-purple-600 dark:text-purple-400 mx-auto mb-2" />
+                    <p className="text-2xl font-bold text-foreground">{statistiche.prestitiTotali}</p>
+                    <p className="text-xs text-muted-foreground">Libri presi in prestito</p>
+                  </div>
+                  <div className="p-4 bg-green-50 dark:bg-green-950 rounded-xl text-center">
+                    <Clock className="h-6 w-6 text-green-600 dark:text-green-400 mx-auto mb-2" />
+                    <p className="text-2xl font-bold text-foreground">{statistiche.oreTotaliStudio}</p>
+                    <p className="text-xs text-muted-foreground">Ore in biblioteca</p>
+                  </div>
+                  <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-xl text-center">
+                    <User className="h-6 w-6 text-amber-600 dark:text-amber-400 mx-auto mb-2" />
+                    <p className="text-lg font-bold text-foreground truncate">
+                      {statistiche.salaPreferita || "N/A"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Sala preferita</p>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 

@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { fetchJson } from "@/lib/fetch-json";
 
 type OccupazioneData = {
   ora: string;
@@ -56,43 +59,78 @@ export default function StatisticheCharts() {
     perPosto: [],
   });
   const [loading, setLoading] = useState(true);
+  // PERCHÉ: prima non esisteva alcuno stato d'errore. Con sei fetch senza
+  // controllo di `.ok` e un `catch` che faceva solo `console.error`, su
+  // errore la dashboard restava con gli array vuoti iniziali: sembrava dire
+  // "zero attività" invece di "i dati non si sono caricati". Questo stato
+  // permette di distinguere i due casi in fase di render.
+  const [errore, setErrore] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setErrore(false);
+    try {
+      // Tipi minimi delle risposte attese dall'API statistiche: ci basta
+      // sapere che ognuna espone un campo `data` con la forma del grafico
+      // corrispondente (i tipi dettagliati sono già definiti sopra).
+      type Risposta<T> = { data: T };
+
+      const [occupazione, trend, utenti, libri, noShow, codaAttesa] = await Promise.all([
+        fetchJson<Risposta<OccupazioneData[]>>("/api/admin/statistiche?tipo=occupazione-oraria"),
+        fetchJson<Risposta<TrendData[]>>("/api/admin/statistiche?tipo=trend-prenotazioni"),
+        fetchJson<Risposta<UtentiData[]>>("/api/admin/statistiche?tipo=utenti-attivi"),
+        fetchJson<Risposta<LibriData[]>>("/api/admin/statistiche?tipo=libri-prestati"),
+        fetchJson<Risposta<NoShowData[]>>("/api/admin/statistiche?tipo=tasso-noshow"),
+        fetchJson<Risposta<CodaAttesaData>>("/api/admin/statistiche?tipo=coda-attesa"),
+      ]);
+
+      // `fetchJson` garantisce che la richiesta sia andata a buon fine, ma il
+      // campo `data` potrebbe comunque mancare se l'API cambia forma: usiamo
+      // sempre un fallback a lista vuota per evitare che `undefined` arrivi
+      // ai grafici recharts e ne faccia esplodere il render.
+      setOccupazioneData(occupazione.data ?? []);
+      setTrendData(trend.data ?? []);
+      setUtentiData(utenti.data ?? []);
+      setLibriData(libri.data ?? []);
+      setNoShowData(noShow.data ?? []);
+      setCodaAttesaData({
+        perSala: codaAttesa.data?.perSala ?? [],
+        perPosto: codaAttesa.data?.perPosto ?? [],
+      });
+    } catch (error) {
+      console.error("Errore nel caricamento delle statistiche:", error);
+      toast.error("Errore nel caricamento delle statistiche della dashboard");
+      setErrore(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [occupazione, trend, utenti, libri, noShow, codaAttesa] = await Promise.all([
-          fetch("/api/admin/statistiche?tipo=occupazione-oraria").then(r => r.json()),
-          fetch("/api/admin/statistiche?tipo=trend-prenotazioni").then(r => r.json()),
-          fetch("/api/admin/statistiche?tipo=utenti-attivi").then(r => r.json()),
-          fetch("/api/admin/statistiche?tipo=libri-prestati").then(r => r.json()),
-          fetch("/api/admin/statistiche?tipo=tasso-noshow").then(r => r.json()),
-          fetch("/api/admin/statistiche?tipo=coda-attesa").then(r => r.json()),
-        ]);
-
-        setOccupazioneData(occupazione.data);
-        setTrendData(trend.data);
-        setUtentiData(utenti.data);
-        setLibriData(libri.data);
-        setNoShowData(noShow.data);
-        // Fallback difensivo: se il payload non ha la forma attesa si resta su liste vuote.
-        setCodaAttesaData({
-          perSala: codaAttesa.data?.perSala ?? [],
-          perPosto: codaAttesa.data?.perPosto ?? [],
-        });
-      } catch (error) {
-        console.error("Errore nel caricamento delle statistiche:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
-  }, []);
+  }, [fetchData]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Stato di errore: mostriamo un messaggio esplicito con possibilità di
+  // riprovare, invece di grafici vuoti che sembrano dire "zero attività".
+  if (errore) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
+        <AlertTriangle className="h-10 w-10 text-destructive" />
+        <div>
+          <p className="font-medium text-foreground">Impossibile caricare le statistiche</p>
+          <p className="text-sm text-muted-foreground">Riprova tra qualche istante.</p>
+        </div>
+        <Button variant="outline" onClick={fetchData}>
+          Riprova
+        </Button>
       </div>
     );
   }

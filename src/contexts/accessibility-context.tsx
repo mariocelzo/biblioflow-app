@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 
 interface AccessibilitySettings {
   enabled: boolean;
@@ -33,10 +34,21 @@ const defaultSettings: AccessibilitySettings = {
 
 const AccessibilityContext = createContext<AccessibilityContextType | undefined>(undefined);
 
+// Numero massimo di tentativi automatici di ricaricare le preferenze da
+// /api/profilo prima di rinunciare e lasciare che sia l'utente (ricaricando
+// la pagina) a riprovare. Senza un limite un errore persistente (es. server
+// giu') genererebbe un toast ogni volta che riproviamo, all'infinito.
+const MAX_TENTATIVI_CARICAMENTO = 3;
+
 export function AccessibilityProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
   const [settings, setSettings] = useState<AccessibilitySettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
+  // Conta i tentativi falliti di caricamento: usato sia per decidere quando
+  // rinunciare, sia come dipendenza dell'effect per far ripartire un nuovo
+  // tentativo (a differenza di `isLoaded`, che resta false finche' non
+  // succede qualcosa - successo o rinuncia - non basterebbe da solo).
+  const [tentativiFalliti, setTentativiFalliti] = useState(0);
 
   const applyAccessibilitySettings = useCallback((newSettings: AccessibilitySettings) => {
     if (typeof window === 'undefined') return;
@@ -152,17 +164,47 @@ export function AccessibilityProvider({ children }: { children: React.ReactNode 
               setSettings(normalSettings);
               applyAccessibilitySettings(normalSettings);
             }
+            // Solo un caricamento riuscito ferma i tentativi: e' l'unico
+            // caso in cui le impostazioni mostrate corrispondono a quelle
+            // salvate dall'utente.
+            setIsLoaded(true);
+          } else {
+            // PERCHE': prima qui una risposta non-ok (403/500/...) veniva
+            // ignorata in silenzio. Chi ha impostato alto contrasto, testo
+            // grande o riduzione del movimento restava con le impostazioni
+            // di default senza alcun avviso - il caso peggiore possibile
+            // per un utente che dipende proprio da queste preferenze.
+            console.error("[ACCESSIBILITY] Risposta non ok da /api/profilo:", response.status);
+            throw new Error(`Richiesta fallita con stato ${response.status}`);
           }
         } catch (error) {
           console.error("[ACCESSIBILITY] Errore caricamento impostazioni:", error);
-        } finally {
-          setIsLoaded(true);
+          if (tentativiFalliti + 1 >= MAX_TENTATIVI_CARICAMENTO) {
+            // Esauriti i tentativi automatici: avvisiamo l'utente e ci
+            // fermiamo (isLoaded=true) per non continuare a ritentare
+            // all'infinito. Le impostazioni restano quelle di default,
+            // ma ora l'utente SA che non sono state applicate.
+            toast.error(
+              "Non è stato possibile caricare le tue preferenze di accessibilità. Ricarica la pagina per riprovare.",
+              { duration: 6000 }
+            );
+            setIsLoaded(true);
+          } else {
+            // PERCHE': in precedenza `setIsLoaded(true)` veniva eseguito
+            // qui in ogni caso (anche su errore), bloccando per il resto
+            // della sessione qualunque nuovo tentativo di caricamento.
+            // Incrementando il contatore invece di isLoaded, l'effect
+            // riparte automaticamente (vedi le dipendenze sotto) e
+            // riprova, fino al limite massimo.
+            toast.error("Caricamento preferenze di accessibilità non riuscito, nuovo tentativo...");
+            setTentativiFalliti((n) => n + 1);
+          }
         }
       };
 
       loadSettings();
     }
-  }, [session?.user?.id, status, isLoaded, applyAccessibilitySettings]);
+  }, [session?.user?.id, status, isLoaded, applyAccessibilitySettings, tentativiFalliti]);
 
   const updateSettings = (newSettings: Partial<AccessibilitySettings>) => {
     setSettings((prev) => {

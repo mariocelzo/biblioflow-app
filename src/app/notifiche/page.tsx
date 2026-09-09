@@ -70,6 +70,13 @@ export default function NotifichePage() {
           console.log("📥 Notifiche caricate:", data.nonLette, "non lette");
           setNotifiche(data.data || []);
           setNonLette(data.nonLette || 0);
+        } else {
+          // PERCHÉ: prima, su un 500, la lista restava vuota (stato iniziale)
+          // e compariva l'empty state "nessuna notifica" al posto di un
+          // errore: il `toast.error` del catch scattava solo per eccezioni
+          // di rete, mai per una risposta HTTP di errore come questa.
+          console.error("Errore caricamento notifiche:", res.status);
+          toast.error("Errore nel caricamento delle notifiche");
         }
       } catch (err) {
         console.error("Errore caricamento notifiche:", err);
@@ -141,6 +148,14 @@ export default function NotifichePage() {
           setNonLette(prev => Math.max(0, prev - 1));
         }
         toast.success("Notifica eliminata");
+      } else {
+        // PERCHÉ: era l'unica delle tre azioni della pagina priva di ramo
+        // else (segnaComeLetta e segnaTutteComeLette ce l'hanno già). Su
+        // 403/500 la notifica restava in lista senza alcun avviso e
+        // l'utente riprovava a cliccare "elimina" all'infinito, credendo
+        // che il click non fosse stato registrato.
+        console.error("❌ Errore API eliminazione:", await res.text());
+        toast.error("Errore nell'eliminazione");
       }
     } catch (err) {
       console.error("Errore:", err);
