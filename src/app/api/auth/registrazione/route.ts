@@ -55,8 +55,14 @@ const registrazioneSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    // Rate limiting: max 3 registrazioni all'ora per IP
-    const rateLimitResult = await registrationRateLimiter(request);
+    // Rate limiting: solo VERIFICA, senza incrementare il contatore.
+    //
+    // PERCHE': prima ogni chiamata consumava un tentativo, comprese quelle
+    // rifiutate subito dopo per dati non validi. Bastavano quindi tre errori
+    // di battitura per restare bloccati un'ora senza aver creato nulla.
+    // L'incremento avviene ora a fondo funzione, quando l'account esiste
+    // davvero, cosi' il limite misura le registrazioni effettive.
+    const rateLimitResult = await registrationRateLimiter(request, "verifica");
     if (rateLimitResult) return rateLimitResult;
     
     const body = await request.json();
@@ -208,6 +214,11 @@ export async function POST(request: NextRequest) {
         expiresAt: expires,
       },
     });
+
+    // L'account esiste: adesso il tentativo va contato (vedi la nota sulla
+    // sola verifica a inizio funzione). Sta dopo la `create` perche' il
+    // limite deve misurare gli account realmente creati.
+    await registrationRateLimiter(request, "conta");
 
     // Recapito del link di verifica.
     //
