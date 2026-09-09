@@ -4,10 +4,10 @@ import prisma from "@/lib/prisma";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import PrestitiFiltri from "@/components/admin/prestiti-filtri";
 import PrestitiActions from "@/components/admin/prestiti-actions";
-import { BookOpen, Calendar, User, AlertCircle } from "lucide-react";
+import { SollecitaTuttiButton } from "@/components/admin/sollecita-tutti-button";
+import { BookOpen, Calendar, User } from "lucide-react";
 import type { StatoPrestito } from "@prisma/client";
 
 type SearchParams = {
@@ -136,12 +136,13 @@ export default async function PrestitiAdminPage({
         </div>
         
         {prestitiDaSollecitare.length > 0 && (
-          <form action="/api/admin/prestiti" method="POST">
-            <Button variant="outline" className="gap-2">
-              <AlertCircle className="h-4 w-4" />
-              Sollecita Tutti ({prestitiDaSollecitare.length})
-            </Button>
-          </form>
+          // Prima era un <form action="/api/admin/prestiti" method="POST">
+          // senza campi: mandava una navigazione con body vuoto che la route
+          // non sa interpretare come JSON, rispondendo 500 (rilievo #2
+          // dell'audit). SollecitaTuttiButton fa una fetch JSON vera.
+          <SollecitaTuttiButton
+            prestitoIds={prestitiDaSollecitare.map((p) => p.id)}
+          />
         )}
       </div>
 

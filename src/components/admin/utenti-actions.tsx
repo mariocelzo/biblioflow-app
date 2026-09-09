@@ -225,15 +225,34 @@ export function UtenteActionButton({
 
     setIsLoading(true);
     try {
-      // Simulazione invio email (in produzione integrare servizio email)
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      toast.success("Email Inviata", {
-        description: `L'email è stata inviata a ${email}`,
+      // Invio reale tramite il mailer (src/lib/mailer.ts, gia' usato per la
+      // verifica email e il reset password). In precedenza qui c'era solo un
+      // `setTimeout` seguito da un toast di successo, senza alcuna richiesta
+      // di rete: l'admin vedeva "Email Inviata" anche se nessuna email era
+      // mai partita. Ora il successo viene mostrato solo se il mailer
+      // conferma davvero l'invio.
+      const response = await fetch("/api/admin/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          oggetto: emailOggetto,
+          messaggio: emailTesto,
+        }),
       });
-      setDialogOpen(false);
-      setEmailOggetto("");
-      setEmailTesto("");
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success("Email Inviata", {
+          description: `L'email è stata inviata a ${email}`,
+        });
+        setDialogOpen(false);
+        setEmailOggetto("");
+        setEmailTesto("");
+      } else {
+        toast.error("Invio non riuscito", { description: data.error });
+      }
     } catch {
       toast.error("Errore durante l'invio dell'email");
     } finally {

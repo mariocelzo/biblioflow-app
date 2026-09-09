@@ -153,10 +153,20 @@ export async function POST(request: NextRequest) {
       }
 
       case "SOLLECITA_PRESTITI_SCADUTI": {
-        // Invia sollecito a tutti con prestiti scaduti
+        // Invia sollecito a tutti con prestiti scaduti.
+        //
+        // PERCHE' `stato: { in: [...] }` e non `stato: "SCADUTO"`: SCADUTO e'
+        // un valore dell'enum StatoPrestito che nessun punto del codice
+        // scrive mai in una create/update (verificato con una ricerca su
+        // tutto il repository). Il "prestito scaduto" e' sempre calcolato a
+        // runtime confrontando `dataScadenza` con la data odierna, come fa
+        // gia' src/app/admin/prestiti/page.tsx. Filtrare su quello stato
+        // rendeva questa azione un no-op silenzioso: "Inviati 0 solleciti"
+        // anche con decine di prestiti in ritardo a video.
         const prestitiScaduti = await db.prestito.findMany({
           where: {
-            stato: "SCADUTO",
+            stato: { in: ["ATTIVO", "RINNOVATO"] },
+            dataScadenza: { lt: new Date() },
           },
           include: {
             user: true,
@@ -182,6 +192,51 @@ export async function POST(request: NextRequest) {
         risultato = {
           success: true,
           message: `Inviati ${notificheCreate.length} solleciti per prestiti scaduti`,
+          count: notificheCreate.length,
+        };
+        break;
+      }
+
+      case "AVVISA_PRESTITI_IN_SCADENZA": {
+        // Sostituisce il bottone "Alert" di DashboardAnomalieCard, che prima
+        // mostrava "Alert inviati" dopo un semplice `setTimeout` senza
+        // nessuna azione reale (rilievo #1 dell'audit). La definizione di
+        // "in scadenza" e' la stessa usata da src/app/admin/page.tsx per
+        // calcolare `prestitiInScadenza`: prestiti non ancora restituiti la
+        // cui scadenza cade entro domani (compresi quelli gia' in ritardo).
+        const oggiMezzanotte = new Date();
+        oggiMezzanotte.setHours(0, 0, 0, 0);
+        const domani = new Date(oggiMezzanotte);
+        domani.setDate(domani.getDate() + 1);
+
+        const prestitiInScadenza = await db.prestito.findMany({
+          where: {
+            dataRestituzione: null,
+            dataScadenza: { lte: domani },
+          },
+          include: {
+            libro: true,
+          },
+        });
+
+        const notificheCreate = [];
+        for (const prestito of prestitiInScadenza) {
+          const notifica = await db.notifica.create({
+            data: {
+              userId: prestito.userId,
+              tipo: "SCADENZA_PRESTITO",
+              titolo: "Il tuo prestito sta per scadere",
+              messaggio: `Il libro "${prestito.libro.titolo}" scade entro domani. Ricordati di restituirlo o rinnovarlo per evitare sanzioni.`,
+              actionUrl: "/prestiti",
+              actionLabel: "Vedi prestiti",
+            },
+          });
+          notificheCreate.push(notifica);
+        }
+
+        risultato = {
+          success: true,
+          message: `Inviati ${notificheCreate.length} avvisi per prestiti in scadenza`,
           count: notificheCreate.length,
         };
         break;

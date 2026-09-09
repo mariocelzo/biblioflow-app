@@ -20,8 +20,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json();
-    const { azione, prestitoIds, prestitoId } = body;
+    // Corpo atteso: sempre JSON. In precedenza il bottone "Sollecita Tutti"
+    // era un <form method="POST"> senza campi: senza `enctype` il browser
+    // manda un body "application/x-www-form-urlencoded" vuoto, che qui
+    // faceva esplodere `req.json()` con un SyntaxError catturato dal blocco
+    // generico piu' sotto e restituito come 500 - la pagina admin veniva
+    // sostituita dal JSON grezzo dell'errore (rilievo #2 dell'audit). Il
+    // form e' stato sostituito da una fetch JSON vera (vedi
+    // SollecitaTuttiButton), ma qui isoliamo comunque l'errore di parsing
+    // per dare un 400 esplicito a qualunque chiamante non invii JSON.
+    let corpoGrezzo: unknown;
+    try {
+      corpoGrezzo = await req.json();
+    } catch {
+      return NextResponse.json(
+        { error: "Corpo della richiesta non valido: invia JSON con Content-Type application/json" },
+        { status: 400 }
+      );
+    }
+
+    const { azione, prestitoIds, prestitoId } = (corpoGrezzo ?? {}) as {
+      azione?: string;
+      prestitoIds?: string[];
+      prestitoId?: string;
+    };
 
     switch (azione) {
       case "RESTITUISCI": {
