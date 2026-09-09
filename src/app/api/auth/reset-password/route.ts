@@ -44,7 +44,12 @@ export async function POST(request: NextRequest) {
     const authToken = await prisma.authToken.findUnique({
       where: { token: hashToken(token) },
     });
-    if (!authToken || authToken.userId !== userId) {
+    // Il tipo va confrontato esplicitamente. Senza questo controllo un token
+    // di verifica email (VERIF) sarebbe spendibile qui per CAMBIARE LA
+    // PASSWORD: un token nato per un'operazione innocua, e che finisce in una
+    // casella di posta e nella cronologia del browser, diventerebbe un
+    // takeover completo dell'account.
+    if (!authToken || authToken.userId !== userId || authToken.type !== "RESET") {
       return NextResponse.json({ success: false, error: "Token non valido" }, { status: 400 });
     }
 

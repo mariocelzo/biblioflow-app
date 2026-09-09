@@ -13,6 +13,10 @@ const publicRoutes = [
   "/login",
   "/registrazione",
   "/recupera-password",
+  // Deve restare pubblica: ci si arriva cliccando il link ricevuto per email,
+  // quando per definizione non si e' ancora autenticati (e non lo si puo'
+  // essere, perche' il login richiede proprio questa verifica).
+  "/verifica-email",
   "/accessibilita",
 ];
 

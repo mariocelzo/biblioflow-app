@@ -17,24 +17,33 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { BackButton } from "@/components/ui/back-button";
-import { Loader2, BookOpen, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Loader2, BookOpen, AlertCircle, CheckCircle2, Eye, EyeOff } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
+import { CODICI_ERRORE_LOGIN, messaggioErroreLogin } from "@/lib/auth-errors";
 
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") || "/";
-  
+  // Impostato dal wizard di registrazione quando l'account e' appena stato
+  // creato: senza questo avviso l'utente arriverebbe su un form vuoto senza
+  // capire se la registrazione sia andata a buon fine.
+  const appenaRegistrato = searchParams.get("registered") === "true";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Teniamo anche il CODICE, non solo il messaggio: serve a decidere se
+  // mostrare la scorciatoia "reinvia l'email di verifica".
+  const [codiceErrore, setCodiceErrore] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
+    setCodiceErrore(null);
 
     try {
       const result = await signIn("credentials", {
@@ -44,14 +53,14 @@ function LoginForm() {
       });
 
       if (result?.error) {
-        // Messaggi di errore user-friendly (Trasparenza - HCI)
-        const errorMessages: Record<string, string> = {
-          "Credenziali non valide": "Email o password non corretti. Riprova.",
-          "Account disabilitato. Contatta la biblioteca.": "Il tuo account è stato disabilitato. Contatta la biblioteca per assistenza.",
-          "Email e password sono obbligatori": "Inserisci email e password per accedere.",
-          "Account non configurato correttamente": "C'è un problema con il tuo account. Contatta l'assistenza.",
-        };
-        setError(errorMessages[result.error] || "Errore durante l'accesso. Riprova.");
+        // Il motivo reale NON viaggia nel campo `error` (Auth.js lo appiattisce
+        // su "CredentialsSignin"): sta in `code`, valorizzato lato server da
+        // `ErroreLogin`. Prima questa mappa era indicizzata sulle frasi
+        // italiane lanciate da `authorize`, che al browser non arrivano mai:
+        // di fatto ogni fallimento mostrava il messaggio generico.
+        const codice = result.code;
+        setCodiceErrore(codice ?? null);
+        setError(messaggioErroreLogin(codice));
       } else {
         // Login riuscito - ottieni la sessione per controllare il ruolo
         const response = await fetch("/api/auth/session");
@@ -98,15 +107,45 @@ function LoginForm() {
 
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Conferma della registrazione appena conclusa.
+                Senza questo avviso chi arriva qui dal wizard vede solo un form
+                vuoto e non sa se l'account sia stato creato davvero. */}
+            {appenaRegistrato && !error && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-start gap-3 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-800 dark:text-green-300"
+              >
+                <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                <span className="text-sm">
+                  Account creato. Ti abbiamo inviato un&apos;email per verificare
+                  l&apos;indirizzo: aprila e poi accedi da qui.
+                </span>
+              </div>
+            )}
+
             {/* Messaggio di errore accessibile */}
             {error && (
               <div
                 role="alert"
                 aria-live="polite"
-                className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300"
+                className="flex flex-col gap-2 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300"
               >
-                <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
-                <span className="text-sm">{error}</span>
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                  <span className="text-sm">{error}</span>
+                </div>
+
+                {/* Via d'uscita concreta per l'unico errore che l'utente puo'
+                    risolvere da solo: l'email di verifica mai arrivata. */}
+                {codiceErrore === CODICI_ERRORE_LOGIN.EMAIL_NON_VERIFICATA && (
+                  <Link
+                    href={`/verifica-email?email=${encodeURIComponent(email)}`}
+                    className="text-sm font-semibold underline underline-offset-2 self-start"
+                  >
+                    Invia di nuovo l&apos;email di verifica
+                  </Link>
+                )}
               </div>
             )}
 

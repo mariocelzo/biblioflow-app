@@ -14,6 +14,7 @@ import { prisma } from "@/lib/prisma";
 import { hashPassword, validatePassword } from "@/lib/auth";
 import { registrationRateLimiter } from "@/lib/rate-limit";
 import { generateRawToken, hashToken } from "@/lib/auth-tokens";
+import { emailVerifica, inviaEmail, urlVerificaEmail } from "@/lib/mailer";
 import { env } from "@/lib/env";
 import { z } from "zod";
 
@@ -208,6 +209,30 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Recapito del link di verifica.
+    //
+    // PERCHE' E' IL PASSAGGIO CRUCIALE: il login rifiuta gli account con
+    // `emailVerificata: false` (finding A-5) e il token non viene restituito al
+    // client in produzione (finding C-1). Senza questo invio l'utente appena
+    // registrato non avrebbe alcun modo di verificarsi, e quindi non potrebbe
+    // MAI accedere: e' esattamente il vicolo cieco che questa modifica chiude.
+    //
+    // `inviaEmail` non lancia mai: se il provider e' irraggiungibile la
+    // registrazione resta valida (l'account e' gia' creato) e lo comunichiamo
+    // al client, che offrira' il rinvio invece di far sparire l'errore.
+    const esitoInvio = await inviaEmail({
+      to: user.email,
+      ...emailVerifica(user.nome, urlVerificaEmail(user.id, verificationToken)),
+    });
+
+    if (!esitoInvio.inviata) {
+      console.error(
+        `[registrazione] Email di verifica non inviata a ${user.email}:`,
+        esitoInvio.motivo,
+        esitoInvio.dettaglio ?? "",
+      );
+    }
+
     const datiRisposta = {
       user: {
         id: user.id,
@@ -216,14 +241,16 @@ export async function POST(request: NextRequest) {
         cognome: user.cognome,
         nomeCompleto: `${user.nome} ${user.cognome}`,
       },
+      // Il client usa questo flag per dire all'utente se deve controllare la
+      // posta o se invece deve richiedere il messaggio piu' tardi.
+      emailVerificaInviata: esitoInvio.inviata,
     };
 
-    // TODO: in produzione il token va inviato via email (mailer non ancora presente)
-    //
     // In produzione il token di verifica NON viene restituito al client
     // (finding C-1): esporlo permetterebbe a chiunque registri un indirizzo
     // altrui di auto-verificarlo, vanificando la verifica dell'email.
-    // In sviluppo lo restituiamo per poter completare il flusso senza mailer.
+    // In sviluppo lo restituiamo per poter completare il flusso anche quando
+    // non e' configurato nessun backend di posta.
     if (env.NODE_ENV === "production") {
       return NextResponse.json(
         {
@@ -243,7 +270,7 @@ export async function POST(request: NextRequest) {
           ...datiRisposta,
           verification: {
             token: verificationToken,
-            link: `/api/auth/verify?userId=${user.id}&token=${verificationToken}`,
+            link: urlVerificaEmail(user.id, verificationToken),
           },
         },
       },

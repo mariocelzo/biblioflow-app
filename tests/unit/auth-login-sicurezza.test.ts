@@ -38,6 +38,12 @@ vi.mock("next-auth", () => ({
     authMocks.config = config;
     return { handlers: {}, signIn: vi.fn(), signOut: vi.fn(), auth: vi.fn() };
   }),
+  // `ErroreLogin` estende `CredentialsSignin`: senza questo la classe
+  // ereiterebbe da `undefined` e il modulo non si importerebbe nemmeno.
+  // Lo stand-in replica cio' che serve ai test: un Error con campo `code`.
+  CredentialsSignin: class extends Error {
+    code = "credentials";
+  },
 }));
 
 vi.mock("next-auth/providers/credentials", () => ({

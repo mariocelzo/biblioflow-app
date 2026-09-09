@@ -21,6 +21,11 @@ const authMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next-auth", () => ({
+  // Serve perche' `@/lib/auth` definisce `ErroreLogin extends CredentialsSignin`:
+  // senza questa export il modulo estenderebbe `undefined` e non si importerebbe.
+  CredentialsSignin: class extends Error {
+    code = "credentials";
+  },
   default: vi.fn((config: CapturedAuthConfig) => {
     authMocks.config = config;
     return {

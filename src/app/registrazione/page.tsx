@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -69,6 +68,37 @@ const STEPS = [
   { id: 3, title: "Accessibilità", icon: Accessibility },
 ];
 
+/**
+ * Decide dove mandare l'utente dopo una registrazione riuscita.
+ *
+ * In sviluppo l'API restituisce il link di verifica gia' pronto (in produzione
+ * no, finding C-1: sarebbe auto-verificabile). Se c'e', lo seguiamo: cosi' il
+ * flusso resta percorribile in locale anche senza un backend di posta
+ * configurato. Altrimenti si va alla pagina che spiega di controllare la posta.
+ *
+ * Il link viene comunque RICOSTRUITO da zero prendendo solo `search`: cosi' un
+ * valore inatteso non puo' diventare un redirect verso l'esterno.
+ */
+function percorsoDopoRegistrazione(
+  data: { data?: { verification?: { link?: string } } },
+  email: string,
+): string {
+  const link = data?.data?.verification?.link;
+
+  if (typeof link === "string") {
+    try {
+      const analizzato = new URL(link, window.location.origin);
+      if (analizzato.pathname === "/verifica-email") {
+        return `/verifica-email${analizzato.search}`;
+      }
+    } catch {
+      // Link malformato: si ripiega sul percorso generico qui sotto.
+    }
+  }
+
+  return `/verifica-email?email=${encodeURIComponent(email)}`;
+}
+
 export default function RegistrazionePage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(1);
@@ -77,6 +107,10 @@ export default function RegistrazionePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  // Riferimento al banner d'errore, per poterlo portare a schermo (vedi
+  // `mostraErrore`): il pulsante di invio e' in fondo alla card, il banner in
+  // cima, e su mobile i due non stanno nella stessa schermata.
+  const erroreRef = useRef<HTMLDivElement>(null);
 
   const updateFormData = (field: keyof FormData, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -133,6 +167,23 @@ export default function RegistrazionePage() {
     setError(null);
   };
 
+  /**
+   * Mostra un errore assicurandosi che l'utente lo VEDA.
+   *
+   * PERCHE': il banner sta in cima alla card, mentre il pulsante "Completa
+   * registrazione" e' in fondo. Su schermi piccoli l'errore compariva fuori
+   * dall'area visibile: l'utente premeva il pulsante, non vedeva cambiare
+   * nulla e concludeva che il sito fosse bloccato.
+   */
+  const mostraErrore = (messaggio: string) => {
+    setError(messaggio);
+    // Lo scroll va rimandato dopo il render, altrimenti il nodo non esiste.
+    requestAnimationFrame(() => {
+      erroreRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      erroreRef.current?.focus();
+    });
+  };
+
   const handleSubmit = async () => {
     if (!validateStep(currentStep)) return;
 
@@ -150,29 +201,33 @@ export default function RegistrazionePage() {
 
       if (!response.ok) {
         if (data.details) setFieldErrors(data.details);
-        setError(data.error || "Errore durante la registrazione");
+        mostraErrore(data.error || "Errore durante la registrazione");
         return;
       }
 
-      // Registrazione completata con successo - Login automatico
-      if (data?.success) {
-        // Effettua il login automatico con le credenziali appena registrate
-        const loginResult = await signIn("credentials", {
-          email: formData.email,
-          password: formData.password,
-          redirect: false,
-        });
-
-        if (loginResult?.ok) {
-          // Login riuscito - reindirizza alla home
-          router.push("/?registered=true");
-        } else {
-          // Login fallito - reindirizza alla pagina di login
-          router.push("/login?registered=true");
-        }
+      // Un 2xx con `success` falsy non e' un successo: senza questo ramo non
+      // accadeva NULLA (nessun errore, nessuna navigazione) e l'utente restava
+      // fermo sullo step 3 senza capire perche'.
+      if (!data?.success) {
+        mostraErrore("Registrazione non completata. Riprova.");
+        return;
       }
+
+      // NIENTE LOGIN AUTOMATICO.
+      //
+      // PERCHE' E' STATO TOLTO: l'account nasce con `emailVerificata: false` e
+      // il login rifiuta esattamente quel caso (finding A-5). L'auto-login non
+      // poteva quindi mai riuscire. Peggio: il codice controllava
+      // `loginResult.ok`, che in next-auth v5 e' solo `res.ok` della POST HTTP
+      // — 200 anche quando l'autenticazione viene NEGATA. Il ramo "successo"
+      // veniva percio' imboccato sempre e l'utente finiva in home slegato,
+      // senza un solo messaggio: e' questo il bug per cui "l'ultimo step non
+      // andava avanti".
+      //
+      // Il passo giusto dopo la registrazione e' la verifica dell'indirizzo.
+      router.push(percorsoDopoRegistrazione(data, formData.email));
     } catch {
-      setError("Errore di connessione. Riprova.");
+      mostraErrore("Errore di connessione. Riprova.");
     } finally {
       setIsLoading(false);
     }
@@ -230,7 +285,7 @@ export default function RegistrazionePage() {
 
         <CardContent className="space-y-6">
           {error && (
-            <div role="alert" aria-live="polite" className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300">
+            <div ref={erroreRef} tabIndex={-1} role="alert" aria-live="polite" className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300">
               <AlertCircle className="h-5 w-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
               <span className="text-sm">{error}</span>
             </div>
