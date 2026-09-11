@@ -35,6 +35,11 @@ vi.mock("@/lib/prenotazioni-service", () => ({
 vi.mock("@/lib/realtime-events", () => ({
   emitCodaPromozione: mocks.emitCodaPromozione,
 }));
+// Il rate limiting non è oggetto di questo file: viene mockato per non far
+// scattare 429 con le ripetute chiamate a route.POST nei test qui sotto.
+vi.mock("@/lib/rate-limit", () => ({
+  staffCriticalApiRateLimiter: vi.fn(async () => null),
+}));
 
 type AdminReservationsRoute = typeof import("@/app/api/admin/prenotazioni/route");
 

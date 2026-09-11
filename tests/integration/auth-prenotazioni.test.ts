@@ -59,7 +59,13 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma, prisma: mocks.prisma }));
-vi.mock("@/lib/rate-limit", () => ({ readApiRateLimiter: vi.fn(() => null) }));
+vi.mock("@/lib/rate-limit", () => ({
+  readApiRateLimiter: vi.fn(() => null),
+  // Collegato a PATCH/DELETE di /api/prenotazioni/[id]: non è oggetto di
+  // questo file (che testa l'isolamento CA-01), va mockato per non
+  // interferire con le richieste ripetute nei test qui sotto.
+  criticalApiRateLimiter: vi.fn(() => null),
+}));
 vi.mock("@/lib/prenotazioni-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/prenotazioni-service")>()),
   creaPrenotazioneAtomica: mocks.creaPrenotazioneAtomica,

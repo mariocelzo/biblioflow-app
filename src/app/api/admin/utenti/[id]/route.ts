@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 /**
  * Colonne di `User` che queste route restituiscono al client.
@@ -58,6 +59,13 @@ export async function PATCH(
         { status: 403 }
       );
     }
+
+    // Rate limiting DOPO il controllo di ruolo: l'endpoint è già riservato
+    // all'ADMIN, quindi il limite serve a contenere l'abuso di un account
+    // amministrativo (legittimo o compromesso), non a limitare chi viene già
+    // respinto da 401/403.
+    const rateLimitResult = await staffCriticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
 
     const body = await request.json();
     const { attivo } = body;

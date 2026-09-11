@@ -5,6 +5,7 @@ import { AuthError, requireUser } from "@/lib/auth";
 // utente `CODA_INGRESSO`. L'helper è best-effort e non altera la risposta.
 import { notificaEventoCoda } from "@/lib/automation-service";
 import { prisma } from "@/lib/prisma";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 import {
   annullaRichiestaCoda,
   entraInCoda,
@@ -88,6 +89,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione: entrare in lista d'attesa è
+    // un'operazione critica (modifica la coda per tutti). Autorizzare prima
+    // evita che un anonimo consumi la quota altrui (chiave = IP); il limite
+    // resta comunque a difesa contro un account autenticato che tenti di
+    // entrare/uscire ripetutamente dalla coda per manipolare la posizione.
+    const rateLimitResult = await criticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+
     const body = (await request.json()) as Record<string, unknown>;
     const input = campiCoda(body);
     if (
@@ -171,6 +181,11 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione: stesso criterio del POST qui sopra.
+    const rateLimitResult = await criticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+
     const queryId = new URL(request.url).searchParams.get("id");
     const body = queryId
       ? {}

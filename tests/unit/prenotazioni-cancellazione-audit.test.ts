@@ -49,6 +49,12 @@ vi.mock("@/lib/auth", () => ({
   assertOwnership: mocks.assertOwnership,
 }));
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma, prisma: mocks.prisma }));
+// Il rate limiting sulle route critiche non è oggetto di questo file: viene
+// mockato per non far scattare 429 con le ripetute chiamate a route.DELETE
+// nei test qui sotto (stesso pattern di prestiti-stato-rinnovato.test.ts).
+vi.mock("@/lib/rate-limit", () => ({
+  criticalApiRateLimiter: vi.fn(async () => null),
+}));
 
 type Route = typeof import("@/app/api/prenotazioni/[id]/route");
 let route: Route;

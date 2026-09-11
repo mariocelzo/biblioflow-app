@@ -38,6 +38,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma }));
+// Il rate limiting non è oggetto di questo file: viene mockato per non far
+// scattare 429 con le ripetute chiamate a route.POST nei test qui sotto.
+vi.mock("@/lib/rate-limit", () => ({
+  staffCriticalApiRateLimiter: vi.fn(async () => null),
+}));
 
 type AdminPrestitiRoute = typeof import("@/app/api/admin/prestiti/route");
 
