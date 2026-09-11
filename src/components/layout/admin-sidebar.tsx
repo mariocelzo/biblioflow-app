@@ -13,7 +13,6 @@ import {
   AlertTriangle,
   BookOpen,
   Calendar,
-  Settings,
   ChevronLeft,
   ChevronRight,
   BarChart3,
@@ -81,16 +80,24 @@ const menuItems = [
   },
 ];
 
+// Voci in fondo alla barra laterale.
+//
+// PERCHE' NON C'E' PIU' "Impostazioni": puntava a /admin/impostazioni, una
+// pagina che non e' mai esistita (sotto `src/app/admin/` quella cartella non
+// c'e'), quindi un bibliotecario che ci cliccava finiva su un 404.
+//
+// PERCHE' RIMOSSA E NON CREATA, a differenza di /accessibilita: quel link era
+// l'unica via verso preferenze GIA' implementate e funzionanti, e bastava dare
+// loro una pagina. Qui invece dietro non c'e' nulla - nessuna impostazione di
+// amministrazione, nessuna API che le legga o le salvi: creare la schermata
+// avrebbe significato inventare una funzione, cioe' promettere un controllo che
+// non esiste. Meglio nessuna voce che una voce che mente; quando le
+// impostazioni verranno implementate, la voce tornera' insieme a loro.
 const bottomItems = [
   {
     title: "Statistiche",
     icon: BarChart3,
     href: "/admin/statistiche",
-  },
-  {
-    title: "Impostazioni",
-    icon: Settings,
-    href: "/admin/impostazioni",
   },
 ];
 
@@ -113,7 +120,11 @@ export function AdminSidebar({ className }: SidebarProps) {
             <Shield className="h-6 w-6 text-primary" />
             <div>
               <h2 className="text-lg font-bold text-foreground">BiblioFlow</h2>
-              <p className="text-xs text-muted-foreground">Admin Panel</p>
+              {/* Era "Admin Panel": unica riga in inglese in un pannello
+                  altrimenti tutto in italiano, e per giunta sempre a schermo. */}
+              <p className="text-xs text-muted-foreground">
+                Pannello di amministrazione
+              </p>
             </div>
           </div>
         )}

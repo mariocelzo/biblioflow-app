@@ -82,7 +82,11 @@ function LoginForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4">
+    // Il gradiente aveva SOLO le tinte chiare: con il tema scuro attivo lo
+    // sfondo restava bianco-azzurro sotto una card scura, e /login era l'unica
+    // pagina di autenticazione a stonare. Qui si usano le stesse varianti
+    // `dark:` di /registrazione, cosi' le due pagine gemelle coincidono.
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-950 dark:via-background dark:to-slate-900 p-4">
       <div className="w-full max-w-md space-y-6">
         {/* Back Button */}
         <div className="flex items-center">
