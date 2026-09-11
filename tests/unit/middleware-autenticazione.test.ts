@@ -1,25 +1,27 @@
 /**
- * 🧪 TEST — il middleware NON e' un livello di autenticazione, e le rotte lo sanno
+ * 🧪 TEST — il middleware e' un livello di autenticazione VERO, e le rotte
+ *          continuano comunque ad autenticarsi da sole
  *
- * CONTESTO: `src/middleware.ts` controlla soltanto che il cookie di sessione
- * ESISTA, senza verificarne firma, contenuto o scadenza. Una riga nella console
- * del browser (`document.cookie = "authjs.session-token=x"`) basta a superarlo
- * su qualunque percorso.
+ * COM'ERA: `src/middleware.ts` controllava soltanto che il cookie di sessione
+ * ESISTESSE, senza verificarne firma, contenuto o scadenza. Una riga nella
+ * console del browser (`document.cookie = "authjs.session-token=x"`) — o un
+ * `curl -H 'Cookie: authjs.session-token=x'` — bastava a superarlo su
+ * qualunque percorso. Questo file fotografava quel limite in [TC-SEC-MW-001],
+ * con l'avvertenza esplicita: "il giorno in cui il middleware verifichera'
+ * davvero il token, questo test fallira'". Quel giorno e' arrivato, e il caso
+ * e' stato CAPOVOLTO.
  *
- * Verificare davvero il token nel middleware non e' fattibile oggi: gira su Edge
- * Runtime e `src/lib/auth.ts` importa Prisma e bcrypt, che su Edge non
- * funzionano; la soluzione pulita di Auth.js v5 richiede di spezzare quel file
- * in una configurazione "edge-safe" separata. Il motivo per esteso e' nel blocco
- * di commento in cima a `src/middleware.ts`.
+ * COM'E' ORA: il middleware istanzia `auth()` da `src/lib/auth.config.ts` — la
+ * configurazione Auth.js edge-safe, senza Prisma ne' bcrypt — e decifra
+ * davvero il JWT. Un token inventato viene respinto.
  *
- * PERCHE' QUESTO FILE ESISTE: se la verifica non si puo' fare nel middleware,
- * allora l'unica difesa reale sta dentro i route handler — e va resa
- * VERIFICABILE, non affidata alla memoria di chi scrivera' la prossima rotta.
- * Il rischio concreto non e' il codice di oggi: e' la rotta aggiunta domani da
- * qualcuno convinto che "tanto il middleware protegge le API". Quella rotta
- * nascerebbe pubblica senza che nessuno se ne accorga.
- * Il test [TC-SEC-MW-003] trasforma quell'assunzione taciuta in un controllo
- * automatico che fallisce nella pull request, prima del deploy.
+ * PERCHE' IL FILE CONTINUA A ESISTERE: perche' il middleware, pur essendo ora
+ * una difesa reale, non deve restare l'UNICA. Il `matcher` e' una regex e una
+ * regex sbagliata ha gia' aggirato il controllo una volta (finding M-5); i
+ * ruoli e la proprieta' delle risorse il middleware non li conosce. Il rischio
+ * concreto e' la rotta aggiunta domani da qualcuno convinto che "tanto il
+ * middleware protegge le API". [TC-SEC-MW-003] trasforma quell'assunzione
+ * taciuta in un controllo automatico che fallisce nella pull request.
  *
  * 🆔 ID STABILI: `TC-SEC-MW-0xx`.
  */
@@ -30,6 +32,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { NextRequest } from "next/server";
+import { encode } from "next-auth/jwt";
 import { describe, expect, it } from "vitest";
 
 import { middleware } from "@/middleware";
@@ -40,6 +43,9 @@ const RADICE_PROGETTO = path.resolve(
 );
 const CARTELLA_API = path.join(RADICE_PROGETTO, "src/app/api");
 
+/** Nome del cookie di sessione (e salt di derivazione della chiave) in HTTP. */
+const COOKIE_SESSIONE = "authjs.session-token";
+
 function richiesta(pathname: string, cookie?: string) {
   return new NextRequest(`http://localhost${pathname}`, {
     method: "GET",
@@ -47,24 +53,81 @@ function richiesta(pathname: string, cookie?: string) {
   });
 }
 
+/** Cookie con un JWE emesso davvero, con il segreto dell'applicazione. */
+async function cookieSessioneValido(): Promise<string> {
+  const token = await encode({
+    salt: COOKIE_SESSIONE,
+    secret: process.env.NEXTAUTH_SECRET as string,
+    maxAge: 24 * 60 * 60,
+    token: {
+      id: "utente-test",
+      email: "studente@studenti.unisa.it",
+      name: "Studente Test",
+      nome: "Studente",
+      cognome: "Test",
+      ruolo: "STUDENTE",
+      isPendolare: false,
+      necessitaAccessibilita: false,
+      ultimaVerifica: Date.now(),
+    },
+  });
+
+  return `${COOKIE_SESSIONE}=${token}`;
+}
+
 describe("middleware: cosa garantisce davvero", () => {
-  it("[TC-SEC-MW-001] un cookie di sessione inventato supera il middleware", () => {
-    // Questo test NON descrive un comportamento desiderabile: FOTOGRAFA il
-    // limite noto, perche' resti scritto e misurabile invece di essere
-    // scoperto per caso. Il giorno in cui il middleware verifichera' davvero
-    // il token, questo test fallira': andra' aggiornato, ed e' esattamente il
-    // promemoria che vogliamo lasciare.
-    const response = middleware(
-      richiesta("/api/admin/statistiche", "authjs.session-token=valore-inventato"),
+  it("[TC-SEC-MW-001] un cookie di sessione inventato NON supera piu' il middleware", async () => {
+    // Il caso capovolto rispetto alla baseline: qui stava scritto
+    // `expect(response.status).toBe(200)`, con la nota che descriveva il
+    // difetto. Ora il valore del cookie viene decifrato e verificato.
+    const response = await middleware(
+      richiesta("/api/admin/statistiche", `${COOKIE_SESSIONE}=valore-inventato`),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      success: false,
+      error: "Non autenticato",
+    });
+  });
+
+  it("[TC-SEC-MW-002] senza alcun cookie le API restano respinte con 401", async () => {
+    const response = await middleware(richiesta("/api/admin/statistiche"));
+    expect(response.status).toBe(401);
+  });
+
+  it("[TC-SEC-MW-005] un token firmato davvero continua a passare", async () => {
+    // Contrappeso a [TC-SEC-MW-001]: senza questo, un middleware che rifiuta
+    // chiunque sembrerebbe corretto.
+    const response = await middleware(
+      richiesta("/api/admin/statistiche", await cookieSessioneValido()),
     );
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("[TC-SEC-MW-002] senza alcun cookie le API restano respinte con 401", () => {
-    // La parte di utilita' che il middleware fornisce davvero.
-    expect(middleware(richiesta("/api/admin/statistiche")).status).toBe(401);
+  it("[TC-SEC-MW-006] una pagina protetta con cookie inventato porta al login", async () => {
+    // Per le pagine il rifiuto non e' un 401 in JSON (illeggibile in un
+    // browser) ma un redirect che conserva la destinazione.
+    const response = await middleware(
+      richiesta("/dashboard", `${COOKIE_SESSIONE}=valore-inventato`),
+    );
+
+    expect(response.status).toBe(307);
+
+    const destinazione = new URL(response.headers.get("location") as string);
+    expect(destinazione.pathname).toBe("/login");
+    expect(destinazione.searchParams.get("callbackUrl")).toBe("/dashboard");
+  });
+
+  it("[TC-SEC-MW-007] le rotte pubbliche restano raggiungibili da anonimi", async () => {
+    // Non-regressione: il link di verifica email e quello di reset password
+    // arrivano per definizione a chi non e' autenticato.
+    for (const percorso of ["/", "/login", "/verifica-email", "/reset-password"]) {
+      const response = await middleware(richiesta(percorso));
+      expect(response.status, `${percorso} deve restare pubblica`).toBe(200);
+    }
   });
 });
 
@@ -77,24 +140,18 @@ describe("middleware: cosa garantisce davvero", () => {
 const PREFISSI_PUBBLICI = ["auth/", "health", "cron/"];
 
 /**
- * Rotte NON pubbliche che oggi NON si autenticano da sole: la loro unica
- * barriera e' il controllo di sola presenza del cookie fatto dal middleware,
- * cioe' nessuna barriera reale.
+ * Rotte non pubbliche che NON si autenticano da sole.
  *
- * CHE DATI ESPONGONO: catalogo libri, mappa dei posti e sale della biblioteca.
- * Nessun dato personale, il che spiega perche' il difetto sia rimasto
- * inosservato — ma sono comunque dati che l'applicazione intende mostrare solo
- * a chi ha effettuato l'accesso.
+ * L'elenco era `["libri", "libri/[id]", "posti", "sale"]` e ora e' VUOTO:
+ * quelle quattro rotte (catalogo, dettaglio libro, posti, sale) chiamano
+ * `requireUser()` al proprio interno. Erano l'unico caso in cui il controllo
+ * di sola presenza del cookie fatto dal middleware costituiva l'intera
+ * difesa — cioe' nessuna difesa.
  *
- * QUESTO ELENCO PUO' SOLO ACCORCIARSI. Il test verifica un SOTTOINSIEME:
- * aggiungere `auth()` a una di queste rotte non rompe nulla, mentre
- * introdurre una NUOVA rotta senza autenticazione fa fallire la suite.
- * Le quattro rotte qui sotto sono fuori dal perimetro di questo intervento
- * (appartengono ad aree in lavorazione da parte di altri): vanno affrontate in
- * un cambiamento dedicato, che deve anche decidere se il catalogo debba essere
- * pubblico per scelta o riservato.
+ * QUESTO ELENCO PUO' SOLO RESTARE VUOTO: una nuova rotta senza autenticazione
+ * fa fallire [TC-SEC-MW-003].
  */
-const ECCEZIONI_NOTE = ["libri", "libri/[id]", "posti", "sale"];
+const ECCEZIONI_NOTE: string[] = [];
 
 /**
  * Indizi che un route handler stabilisca l'identita' del chiamante per conto
@@ -160,16 +217,16 @@ describe("invariante: ogni rotta API non pubblica si autentica da sola", () => {
     expect(
       inattese,
       `Queste rotte API non chiamano auth()/requireUser() e NON sono dichiarate pubbliche: ${inattese.join(", ")}.\n` +
-        "Il middleware controlla solo che ESISTA un cookie di sessione, non che sia valido: " +
-        "senza un controllo interno la rotta e' di fatto aperta a chiunque. " +
-        "Aggiungi auth()/requireUser() nell'handler (vedi il commento in cima a src/middleware.ts).",
+        "Il middleware verifica la sessione, ma dipende da un `matcher` a regex " +
+        "e non conosce ruoli ne' proprieta' delle risorse: non deve restare " +
+        "l'unica barriera. Aggiungi auth()/requireUser() nell'handler (vedi il " +
+        "commento in cima a src/middleware.ts).",
     ).toEqual([]);
   });
 
-  it("[TC-SEC-MW-004] le eccezioni note restano circoscritte e non si moltiplicano", async () => {
-    // Se questo test fallisce perche' l'elenco si e' ACCORCIATO, e' una buona
-    // notizia: qualcuno ha protetto una di quelle rotte. Basta togliere la
-    // voce da `ECCEZIONI_NOTE`.
-    expect(ECCEZIONI_NOTE).toHaveLength(4);
+  it("[TC-SEC-MW-004] non esistono piu' rotte scoperte", async () => {
+    // Il test precedente tollerava quattro eccezioni storiche. Ora non ce ne
+    // sono: se questo elenco tornasse a popolarsi sarebbe un passo indietro.
+    expect(ECCEZIONI_NOTE).toHaveLength(0);
   });
 });

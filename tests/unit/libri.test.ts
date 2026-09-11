@@ -13,13 +13,41 @@
 import { NextRequest } from "next/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  prisma: {
-    libro: { count: vi.fn(), findMany: vi.fn() },
-  },
-}));
+const mocks = vi.hoisted(() => {
+  // `AuthError` ridefinito qui e non importato da `@/lib/auth`: quel modulo e'
+  // interamente sostituito dal mock, quindi l'handler confrontera' `instanceof`
+  // proprio contro questa classe.
+  class AuthError extends Error {
+    constructor(
+      public readonly status: 401 | 403 | 404,
+      public readonly code: string,
+      message: string,
+    ) {
+      super(message);
+      this.name = "AuthError";
+    }
+  }
+
+  return {
+    AuthError,
+    requireUser: vi.fn(),
+    prisma: {
+      libro: { count: vi.fn(), findMany: vi.fn() },
+    },
+  };
+});
 
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma, prisma: mocks.prisma }));
+
+// PERCHE' SERVE ORA: `GET /api/libri` non si autenticava affatto e il suo
+// unico filtro era il middleware, che verificava solo l'ESISTENZA di un cookie
+// di sessione. Da questo intervento la rotta chiama `requireUser()`, quindi il
+// test deve fornire una sessione: senza mock, `auth()` cercherebbe gli header
+// della richiesta fuori da un contesto Next e fallirebbe.
+vi.mock("@/lib/auth", () => ({
+  AuthError: mocks.AuthError,
+  requireUser: mocks.requireUser,
+}));
 
 type Route = typeof import("@/app/api/libri/route");
 let route: Route;
@@ -40,6 +68,17 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // Sessione valida: qui si verifica il clamp dei parametri, non l'accesso.
+  mocks.requireUser.mockResolvedValue({
+    id: "utente-test",
+    email: "studente@studenti.unisa.it",
+    nome: "Studente",
+    cognome: "Test",
+    ruolo: "STUDENTE",
+    matricola: null,
+    isPendolare: false,
+    necessitaAccessibilita: false,
+  });
   mocks.prisma.libro.count.mockResolvedValue(0);
   mocks.prisma.libro.findMany.mockResolvedValue([]);
 });
@@ -84,5 +123,26 @@ describe("B-4 · clamp di page/limit", () => {
       unknown
     >;
     expect(where).not.toHaveProperty("piano");
+  });
+});
+
+describe("difesa in profondita' · il catalogo si autentica da solo", () => {
+  it("[TC-LIBRI-AUTH-001] senza sessione risponde 401 e non interroga il database", async () => {
+    // PERCHE': fino a questo intervento la rotta non chiamava alcun controllo
+    // di identita'. La sua unica barriera era il middleware, che si limitava a
+    // verificare che ESISTESSE un cookie di sessione — quindi `curl -H
+    // 'Cookie: authjs.session-token=x' /api/libri` rispondeva 200 con i dati.
+    // Il middleware ora verifica il token sul serio, ma non deve restare
+    // l'unica difesa: se il `matcher` a regex sbagliasse (e' gia' successo,
+    // finding M-5), questo controllo continuerebbe a reggere.
+    mocks.requireUser.mockRejectedValue(
+      new mocks.AuthError(401, "NON_AUTENTICATO", "E' richiesta una sessione autenticata"),
+    );
+
+    const response = await route.GET(get(""));
+
+    expect(response.status).toBe(401);
+    expect(mocks.prisma.libro.findMany).not.toHaveBeenCalled();
+    expect(mocks.prisma.libro.count).not.toHaveBeenCalled();
   });
 });

@@ -9,11 +9,58 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import {
   assertTestDatabaseUrl,
   DEFAULT_TEST_DATABASE_URL,
 } from "../fixtures/database";
+
+// ─── Mock di `@/lib/auth` ────────────────────────────────────────────────────
+//
+// PERCHE' COMPARE SOLO ORA: fino a questo intervento QUESTO INTERO FILE non
+// veniva mai eseguito. `@/lib/auth` importa `next-auth`, che a sua volta
+// importa `next/server`; il `package.json` di Next non dichiara un campo
+// `exports`, quindi il resolver ESM di Node falliva con "Cannot find module
+// .../next/server" e Vitest saltava la suite in silenzio (6 test "skipped",
+// mai rossi, mai verdi). Sistemato il caricamento in `vitest.config.mts`
+// (`server.deps.inline`), la suite gira davvero — e viene fuori che
+// [PRE-NOT-002] chiamava `GET /api/notifiche` senza alcuna sessione.
+//
+// La rotta nel frattempo e' cambiata di proposito (finding C-4: leggeva il
+// destinatario da `?userId=`, un IDOR; ora usa SEMPRE l'utente di sessione).
+// Il mock fornisce quella sessione, cosi' il caso continua a verificare cio'
+// che gli interessa davvero: filtro, paginazione e conteggi della risposta.
+const authMocks = vi.hoisted(() => {
+  class AuthError extends Error {
+    constructor(
+      public readonly status: 401 | 403 | 404,
+      public readonly code: string,
+      message: string,
+    ) {
+      super(message);
+      this.name = "AuthError";
+    }
+  }
+
+  return {
+    AuthError,
+    auth: vi.fn(),
+    requireUser: vi.fn(),
+    requireRole: vi.fn(),
+    assertOwnership: vi.fn(),
+    isStaff: vi.fn(() => false),
+  };
+});
+
+vi.mock("@/lib/auth", () => ({
+  AuthError: authMocks.AuthError,
+  auth: authMocks.auth,
+  requireUser: authMocks.requireUser,
+  requireRole: authMocks.requireRole,
+  assertOwnership: authMocks.assertOwnership,
+  isStaff: authMocks.isStaff,
+}));
 
 type AutomationService = typeof import("@/lib/automation-service");
 type NotificationsRoute = typeof import("@/app/api/notifiche/route");
@@ -300,6 +347,19 @@ describe("notifiche pre-modifica", () => {
 
   it("[PRE-NOT-002] mantiene il contratto GET con filtro, paginazione e conteggi", async () => {
     const { user } = await createStudentSeat("not002");
+
+    // La rotta ricava il destinatario dalla sessione, non piu' da `?userId=`
+    // (finding C-4): la sessione va quindi simulata sull'utente appena creato.
+    authMocks.requireUser.mockResolvedValue({
+      id: user.id,
+      email: user.email,
+      nome: user.nome,
+      cognome: user.cognome,
+      ruolo: user.ruolo,
+      matricola: user.matricola,
+      isPendolare: user.isPendolare,
+      necessitaAccessibilita: user.necessitaAccessibilita,
+    });
     await prisma.notifica.createMany({
       data: [
         {
