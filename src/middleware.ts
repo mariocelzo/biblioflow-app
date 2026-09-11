@@ -57,6 +57,17 @@ const publicRoutes = [
   // quando per definizione non si e' ancora autenticati (e non lo si puo'
   // essere, perche' il login richiede proprio questa verifica).
   "/verifica-email",
+  // Idem, ed e' il caso piu' stringente di tutti: ci si arriva dal link di
+  // recupero password, cioe' proprio quando la password NON si ricorda.
+  //
+  // PERCHE' MANCAVA E NESSUNO SE N'ERA ACCORTO: finche' l'email di reset non
+  // veniva spedita (il mailer non esisteva), a questa pagina non ci arrivava
+  // mai nessuno e il difetto restava invisibile. Appena l'invio ha iniziato a
+  // funzionare, il link ha smesso di funzionare: il middleware reindirizzava
+  // a `/login?callbackUrl=/reset-password`, PERDENDO `userId` e `token` —
+  // quindi il link era anche bruciato — e chiedendo di autenticarsi a chi non
+  // puo' farlo per definizione. Un vicolo cieco perfetto.
+  "/reset-password",
   "/accessibilita",
 ];
 
