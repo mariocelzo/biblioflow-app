@@ -1,3 +1,4 @@
+import type { StatoPrestito } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
@@ -19,6 +20,13 @@ function errorResponse(error: unknown, fallback: string) {
     { status: 500 },
   );
 }
+
+// INTEGRITA' DATI: un prestito RINNOVATO e' ancora in corso. Il rinnovo scrive
+// `stato: "RINNOVATO"`, ma il controllo qui sotto ammetteva solo "ATTIVO":
+// il secondo rinnovo veniva quindi sempre rifiutato e il tetto maxRinnovi = 2
+// era irraggiungibile. Il vero limite dei rinnovi e' il contatore `rinnovi`,
+// non lo stato.
+const STATI_PRESTITO_IN_CORSO: readonly StatoPrestito[] = ["ATTIVO", "RINNOVATO"];
 
 // POST /api/prestiti/[id]/rinnova - Rinnova un prestito
 export async function POST(
@@ -49,8 +57,8 @@ export async function POST(
       assertOwnership(prestito, user);
     }
 
-    // Verifica che il prestito sia attivo
-    if (prestito.stato !== "ATTIVO") {
+    // Verifica che il prestito sia ancora in corso (ATTIVO oppure gia' RINNOVATO)
+    if (!STATI_PRESTITO_IN_CORSO.includes(prestito.stato)) {
       return NextResponse.json(
         { success: false, error: "Solo i prestiti attivi possono essere rinnovati" },
         { status: 400 }
