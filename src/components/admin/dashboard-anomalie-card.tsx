@@ -23,12 +23,28 @@ export function DashboardAnomalieCard({ noShowRecenti, postiManutenzione, presti
   const handleGestisciNoShow = () => router.push("/admin/anomalie");
   const handleControllaPosti = () => router.push("/admin/posti?filtro=MANUTENZIONE");
   const handleInviaAlert = async () => {
+    // Invia per davvero le notifiche di scadenza tramite l'azione
+    // AVVISA_PRESTITI_IN_SCADENZA di /api/admin/anomalie. Prima questo
+    // bottone mostrava "Alert inviati" dopo un semplice `setTimeout`, senza
+    // nessuna chiamata di rete: nessun utente veniva mai avvisato.
     setLoadingAlert(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("Alert inviati", { description: `${prestitiInScadenza} notifiche inviate` });
+      const response = await fetch("/api/admin/anomalie", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ azione: "AVVISA_PRESTITI_IN_SCADENZA" }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success("Alert inviati", { description: data.message });
+        router.refresh();
+      } else {
+        toast.error("Errore", { description: data.error });
+      }
     } catch {
-      toast.error("Errore");
+      toast.error("Errore di connessione");
     } finally {
       setLoadingAlert(false);
     }

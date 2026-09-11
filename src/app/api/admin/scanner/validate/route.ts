@@ -159,11 +159,51 @@ export async function POST(request: NextRequest) {
     }
 
     if (diffMinuti > 15) {
+      // Il messaggio dichiara un annullamento: prima non veniva eseguito
+      // nessun update e la prenotazione restava CONFERMATA con il posto mai
+      // liberato (rilievo #4 dell'audit). Qui si annulla per davvero, con lo
+      // stesso pattern gia' usato da ANNULLA_PRENOTAZIONI_SENZA_CHECKIN in
+      // src/app/api/admin/anomalie/route.ts per lo stesso scenario (mancato
+      // check-in oltre la finestra consentita): stato NO_SHOW, posto
+      // liberato, log dell'evento e notifica all'utente.
+      await db.prenotazione.update({
+        where: { id: prenotazione.id },
+        data: { stato: "NO_SHOW" },
+      });
+
+      await db.posto.update({
+        where: { id: prenotazione.postoId },
+        data: { stato: "DISPONIBILE" },
+      });
+
+      await db.logEvento.create({
+        data: {
+          tipo: "NO_SHOW",
+          userId: prenotazione.userId,
+          prenotazioneId: prenotazione.id,
+          dettagli: {
+            posto: `${prenotazione.posto.sala.nome} - ${prenotazione.posto.numero}`,
+            automatico: true,
+            motivo: "check_in_scaduto",
+            rilevatoDa: session.user.id,
+          },
+        },
+      });
+
+      await db.notifica.create({
+        data: {
+          userId: prenotazione.userId,
+          tipo: "SISTEMA",
+          titolo: "Prenotazione annullata",
+          messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} è stata annullata per mancato check-in.`,
+        },
+      });
+
       return NextResponse.json(
-        { 
-          success: false, 
-          error: "Check-in scaduto. La prenotazione è stata annullata", 
-          type: "too_late" 
+        {
+          success: false,
+          error: "Check-in scaduto. La prenotazione è stata annullata",
+          type: "too_late"
         },
         { status: 400 }
       );
