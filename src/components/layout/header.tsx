@@ -57,8 +57,17 @@ export function Header() {
         if (res.ok) {
           const data = await res.json();
           setNotificheNonLette(data.nonLette || 0);
+        } else {
+          // PERCHÉ: impatto basso (badge di notifica, polling ogni 60s), ma
+          // prima un errore HTTP passava del tutto inosservato. Non
+          // azzeriamo il conteggio precedente: mostrare "0" per un errore
+          // sarebbe peggio che mostrare un valore leggermente stantio.
+          console.error("Errore fetch notifiche:", res.status);
         }
       } catch (error) {
+        // Come sopra: manteniamo il badge all'ultimo valore noto invece di
+        // azzerarlo, per non far credere all'utente che non ci sono più
+        // notifiche non lette quando in realtà non siamo riusciti a saperlo.
         console.error("Errore fetch notifiche:", error);
       }
     };

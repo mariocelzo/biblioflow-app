@@ -65,10 +65,11 @@ function ResetPasswordForm() {
       return;
     }
 
-    if (!token) {
-      setError("Token di reset mancante. Richiedi un nuovo link.");
-      return;
-    }
+    // NOTA: qui non serve più un controllo su `token` mancante: se manca,
+    // il componente ritorna prima la schermata "Link non valido" (vedi sotto
+    // `if (!token) { ... }`) e questo form non viene mai renderizzato, quindi
+    // handleSubmit non può essere chiamato senza token. Il controllo era
+    // codice morto ed è stato rimosso.
 
     setIsLoading(true);
     setError(null);

@@ -153,13 +153,22 @@ export default function HomePage() {
           // Aggiorna stats
           setStats(prev => ({
             ...prev,
-            prenotazioniAttive: prenotazioni.filter((p: PrenotazioneAPI) => 
+            prenotazioniAttive: prenotazioni.filter((p: PrenotazioneAPI) =>
               p.stato === 'CONFERMATA' || p.stato === 'CHECK_IN'
             ).length
           }));
+        } else {
+          // PERCHÉ: prima, su un 4xx/5xx, la home restava silenziosamente
+          // con `prenotazioneAttiva` a null (valore iniziale) e mostrava
+          // "nessuna prenotazione attiva" anche quando ne esisteva una:
+          // spariscono countdown e pulsante di check-in senza che l'utente
+          // sappia che si tratta di un errore e non della realtà.
+          console.error("Errore caricamento prenotazione:", res.status);
+          toast.error("Non è stato possibile verificare le tue prenotazioni attive. Ricarica la pagina per riprovare.");
         }
       } catch (error) {
         console.error("Errore caricamento prenotazione:", error);
+        toast.error("Non è stato possibile verificare le tue prenotazioni attive. Ricarica la pagina per riprovare.");
       }
     };
     

@@ -262,9 +262,17 @@ export default function PrenotaPage() {
           if (data.necessitaAccessibilita) {
             setFiltroAccessibile(true);
           }
+        } else {
+          // PERCHÉ: senza questo avviso, se /api/profilo fallisce il margine
+          // pendolare e il filtro accessibilità restano disattivati in
+          // silenzio. Il pendolare crede di avere il margine di tolleranza
+          // per il check-in e rischia il no-show senza saperlo.
+          console.error("Errore caricamento profilo:", res.status);
+          toast.error("Non è stato possibile caricare le tue preferenze (pendolare/accessibilità): controlla margine di tolleranza e filtri prima di prenotare.");
         }
       } catch (error) {
         console.error("Errore caricamento profilo:", error);
+        toast.error("Non è stato possibile caricare le tue preferenze (pendolare/accessibilità): controlla margine di tolleranza e filtri prima di prenotare.");
       }
     };
     fetchProfilo();
@@ -284,6 +292,14 @@ export default function PrenotaPage() {
         if (res.ok) {
           const response = await res.json();
           setSale(response.data || []);
+        } else {
+          // PERCHÉ: prima un 500 lasciava `sale` vuoto senza alcun avviso e
+          // lo step "scegli sala" sembrava dire "la biblioteca non ha sale",
+          // mentre in realtà era un errore di caricamento (il `toast.error`
+          // del blocco catch scattava solo per errori di rete, mai per una
+          // risposta HTTP di errore come questa).
+          console.error("Errore caricamento sale:", res.status);
+          toast.error("Errore nel caricamento delle sale");
         }
       } catch (error) {
         console.error("Errore caricamento sale:", error);
@@ -315,6 +331,12 @@ export default function PrenotaPage() {
         if (res.ok) {
           const response = await res.json();
           setPosti(response.data || []);
+        } else {
+          // PERCHÉ: senza avviso, una griglia vuota su errore HTTP fa
+          // pensare all'utente "tutto occupato" invece di "errore nel
+          // caricamento": lo stesso problema di fetchSale, qui sui posti.
+          console.error("Errore caricamento posti:", res.status);
+          toast.error("Errore nel caricamento dei posti");
         }
       } catch (error) {
         console.error("Errore caricamento posti:", error);
