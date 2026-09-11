@@ -2,6 +2,36 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
 
+/**
+ * Colonne di `User` esposte da questa rotta.
+ *
+ * PERCHE': l'handler leggeva l'utente senza `select`, quindi restituiva TUTTE
+ * le colonne. Oltre all'eccesso di informazioni verso lo staff (i campi di
+ * accessibilita' e il tragitto pendolare non sono usati da nessuna schermata
+ * admin), il vero problema e' il comportamento predefinito: senza un elenco
+ * esplicito, ogni colonna futura di `User` finisce in risposta senza che
+ * nessuno lo abbia deciso.
+ *
+ * L'elenco e' deliberatamente identico a quello di `../route.ts`
+ * (`UTENTE_ADMIN_SELECT`): le due rotte descrivono lo stesso utente allo stesso
+ * pubblico e non devono divergere. I test `TC-SEC-USR-0xx` confrontano
+ * entrambe le risposte con lo stesso insieme atteso, cosi' una modifica fatta
+ * solo da una parte viene segnalata.
+ */
+const UTENTE_ADMIN_SELECT = {
+  id: true,
+  nome: true,
+  cognome: true,
+  email: true,
+  matricola: true,
+  ruolo: true,
+  attivo: true,
+  emailVerificata: true,
+  isPendolare: true,
+  ultimoAccesso: true,
+  createdAt: true,
+} as const;
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -19,10 +49,12 @@ export async function GET(
 
     const { id: userId } = await params;
 
-    // Ottieni dati completi utente
+    // Dati dell'utente: colonne scalari da `UTENTE_ADMIN_SELECT`, relazioni
+    // annidate invariate (la forma della risposta non cambia).
     const utente = await db.user.findUnique({
       where: { id: userId },
-      include: {
+      select: {
+        ...UTENTE_ADMIN_SELECT,
         prenotazioni: {
           include: {
             posto: {

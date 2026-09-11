@@ -50,29 +50,75 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 /**
- * Estrae l'IP reale del client considerando proxy e CDN
+ * Legge un header che deve contenere un indirizzo IP e ne restituisce il primo
+ * elemento ripulito, oppure `null` se l'header manca o e' vuoto.
+ *
+ * PERCHE' IL PRIMO ELEMENTO E NON L'ULTIMO: su Vercel questi header contengono
+ * un solo indirizzo, quindi la distinzione non si pone. In una catena di piu'
+ * proxy, invece, sapere quale elemento sia attendibile richiede di sapere
+ * QUANTI proxy fidati ci sono davanti: un numero che questo codice non conosce.
+ * Prendere l'ultimo non sarebbe "piu' sicuro", sarebbe solo un'altra ipotesi
+ * non verificata. Manteniamo il primo elemento, coerente con il comportamento
+ * storico.
+ *
+ * PERCHE' SI SCARTA IL VALORE VUOTO: un header presente ma vuoto produrrebbe
+ * una chiave "" condivisa da tutti i client, cioe' un limitatore che blocca
+ * chiunque non appena una sola persona supera la soglia.
+ */
+function primoIndirizzo(request: NextRequest, header: string): string | null {
+  const valore = request.headers.get(header);
+  if (!valore) return null;
+
+  const primo = valore.split(",")[0].trim();
+  return primo.length > 0 ? primo : null;
+}
+
+/**
+ * Ricava l'identificativo del client usato come chiave del rate limiter.
+ *
+ * PERCHE' L'ORDINE CONTA (ed e' questo): la chiave del limitatore e' cio' che
+ * un aggressore deve poter cambiare per azzerare il contatore. Se la si legge
+ * da un header che il client puo' scrivere da se', tutte le protezioni che si
+ * appoggiano al limitatore diventano decorative — in particolare
+ * `passwordResetRateLimiter`, che e' la difesa contro il tentativo a forza
+ * bruta dei token di reset password (rilievo M-7).
+ *
+ * COSA GARANTISCE VERCEL (documentazione ufficiale "Request Headers",
+ * https://vercel.com/docs/headers/request-headers, consultata il 2026-09-09):
+ *  - `x-forwarded-for` — "The public IP address of the client that made the
+ *    request. If you are trying to use Vercel behind a proxy, we currently
+ *    overwrite the X-Forwarded-For header and do not forward external IPs.
+ *    This restriction is in place to prevent IP spoofing."
+ *  - `x-real-ip` — "This header is identical to the x-forwarded-for header."
+ *  - `x-vercel-forwarded-for` — "This header is identical to the
+ *    x-forwarded-for header. However, x-forwarded-for could be overwritten if
+ *    you're using a proxy on top of Vercel."
+ *
+ * Quindi IN PRODUZIONE l'header che arriva dal client viene sostituito dalla
+ * piattaforma e la falsificazione non funziona. L'ordine qui sotto serve a non
+ * far dipendere la correttezza da quella garanzia in modo implicito:
+ *  1. `x-vercel-forwarded-for` — la documentazione lo indica esplicitamente
+ *     come quello che resta valido anche con un proxy davanti a Vercel;
+ *  2. `x-real-ip` — impostato dalla piattaforma; e' l'header su cui il
+ *     pacchetto ufficiale `@vercel/functions` basa la sua `ipAddress()`;
+ *  3. `x-forwarded-for` — ripiego per lo sviluppo locale e per ambienti non
+ *     Vercel, dove nessuno dei due precedenti esiste.
+ *
+ * `cf-connecting-ip` NON e' piu' considerato: l'applicazione e' servita da
+ * Vercel, non da Cloudflare, quindi nessuna infrastruttura lo imposta e
+ * l'unico che potrebbe scriverlo e' proprio il client da limitare.
+ *
+ * RIPIEGO "unknown": se nessun header e' disponibile, tutti i chiamanti
+ * condividono un unico contatore. E' volutamente la scelta piu' restrittiva:
+ * in caso di dubbio si limita di piu', non di meno.
  */
 function getClientIp(request: NextRequest): string {
-  // Vercel/CloudFlare forwarded IP
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    return forwardedFor.split(",")[0].trim();
-  }
-  
-  // Vercel real IP
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) {
-    return realIp;
-  }
-  
-  // CloudFlare connecting IP
-  const cfConnectingIp = request.headers.get("cf-connecting-ip");
-  if (cfConnectingIp) {
-    return cfConnectingIp;
-  }
-  
-  // Fallback
-  return "unknown";
+  return (
+    primoIndirizzo(request, "x-vercel-forwarded-for") ??
+    primoIndirizzo(request, "x-real-ip") ??
+    primoIndirizzo(request, "x-forwarded-for") ??
+    "unknown"
+  );
 }
 
 /**

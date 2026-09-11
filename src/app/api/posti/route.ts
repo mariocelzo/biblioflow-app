@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { StatoPosto } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/posti - Lista posti con filtri e disponibilità
@@ -27,6 +28,19 @@ export async function GET(request: NextRequest) {
       where.salaId = salaId;
     }
     
+    // `stato` e' una colonna enum: un valore fuori da `StatoPosto` farebbe
+    // lanciare Prisma e il catch lo tradurrebbe in un 500 generico, cioe' "il
+    // server e' rotto" al posto di "il filtro che hai chiesto non esiste".
+    // 422 = sintassi valida, valore non ammesso.
+    if (stato && !Object.values(StatoPosto).includes(stato as StatoPosto)) {
+      return NextResponse.json(
+        {
+          error: `Stato non valido. Valori ammessi: ${Object.values(StatoPosto).join(", ")}`,
+        },
+        { status: 422 },
+      );
+    }
+
     if (stato) {
       where.stato = stato;
     }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { StatoPrenotazione } from "@prisma/client";
 
 import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
@@ -43,6 +44,22 @@ export async function GET(request: NextRequest) {
     const data = searchParams.get("data");
     const dataInizio = searchParams.get("dataInizio");
     const dataFine = searchParams.get("dataFine");
+    // Il filtro `stato` finisce in una `where` su una colonna enum: se il
+    // valore non appartiene a `StatoPrenotazione`, Prisma lancia un errore di
+    // validazione che il catch qui sotto trasformerebbe in un 500 "guasto del
+    // server". Ma la richiesta non e' un guasto: e' un input sbagliato, e il
+    // client deve poterlo capire e correggere. 422 = sintassi valida, valore
+    // non ammesso (stesso criterio della PATCH di /api/admin/richieste).
+    if (stato && !Object.values(StatoPrenotazione).includes(stato as StatoPrenotazione)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Stato non valido. Valori ammessi: ${Object.values(StatoPrenotazione).join(", ")}`,
+        },
+        { status: 422 },
+      );
+    }
+
     const where: Record<string, unknown> = { userId: user.id };
 
     if (postoId) where.postoId = postoId;

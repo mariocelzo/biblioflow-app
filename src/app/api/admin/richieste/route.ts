@@ -48,6 +48,25 @@ export async function GET(request: NextRequest) {
         const { searchParams } = new URL(request.url);
         const stato = searchParams.get("stato");
 
+        // Il `as StatoRichiesta` qui sotto convince il compilatore, non il
+        // database: a runtime restava una stringa qualsiasi che finiva nella
+        // `where` su una colonna enum, facendo lanciare Prisma e degenerando
+        // nel 500 generico del catch. La PATCH di questo stesso file valida
+        // gia' l'enum (vedi piu' avanti): la GET no. Stesso controllo, stesso
+        // 422, cosi' le due operazioni si comportano allo stesso modo.
+        //
+        // NOTA SULL'ORDINE: la validazione viene DOPO `verificaAccessoStaff()`.
+        // Rispondere 422 prima di aver verificato il ruolo direbbe a un anonimo
+        // che l'endpoint esiste e quali valori accetta (test TC-SEC-ENUM-007).
+        if (stato && !Object.values(StatoRichiesta).includes(stato as StatoRichiesta)) {
+            return NextResponse.json(
+                {
+                    error: `Stato non valido. Valori ammessi: ${Object.values(StatoRichiesta).join(", ")}`,
+                },
+                { status: 422 },
+            );
+        }
+
         // Filtro opzionale per stato: il valore arriva come stringa dalla query
         // string e va trattato come membro dell'enum StatoRichiesta di Prisma,
         // non come "any".

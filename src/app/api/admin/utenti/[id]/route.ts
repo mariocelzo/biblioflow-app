@@ -2,6 +2,43 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
 
+/**
+ * Colonne di `User` che queste route restituiscono al client.
+ *
+ * PERCHE' UN ELENCO ESPLICITO: prima si leggeva l'utente senza `select`, cioe'
+ * "tutte le colonne". Il rischio non e' (piu') l'hash della password, escluso a
+ * monte dall'`omit` globale in `src/lib/prisma.ts`; sono due cose diverse:
+ *
+ *  1. MINIMIZZAZIONE. Al personale di biblioteca finivano anche
+ *     `necessitaAccessibilita`, `preferenzeAccessibilita` e
+ *     `tragittoPendolare`: informazioni su disabilita' e spostamenti abituali
+ *     della persona, che nessuna funzione dell'area admin usa o mostra.
+ *  2. IL DIFETTO "A OROLOGERIA". Con `include` (o senza `select`) qualunque
+ *     colonna aggiunta domani a `User` — un telefono, un documento, un token —
+ *     comparirebbe in risposta da sola, senza che nessuno lo decida. Con
+ *     l'elenco esplicito il default e' il silenzio: per esporre un campo nuovo
+ *     bisogna scriverlo qui.
+ *
+ * Stesso criterio gia' adottato da `PROFILO_SELECT` in `/api/profilo`.
+ * NOTA: la costante e' ripetuta anche in `[id]/profilo/route.ts`. La
+ * duplicazione e' voluta — i file di rotta di Next.js non sono un buon posto da
+ * cui esportare valori condivisi — ed e' tenuta allineata dai test
+ * `TC-SEC-USR-0xx`, che confrontano le due risposte con lo stesso elenco.
+ */
+const UTENTE_ADMIN_SELECT = {
+  id: true,
+  nome: true,
+  cognome: true,
+  email: true,
+  matricola: true,
+  ruolo: true,
+  attivo: true,
+  emailVerificata: true,
+  isPendolare: true,
+  ultimoAccesso: true,
+  createdAt: true,
+} as const;
+
 // PATCH - Attiva/Disattiva utente
 export async function PATCH(
   request: NextRequest,
@@ -38,9 +75,12 @@ export async function PATCH(
       );
     }
 
-    // Verifica che l'utente esista
+    // Verifica che l'utente esista. Si leggono solo i campi effettivamente
+    // usati piu' sotto (log dell'evento e messaggio di conferma): non serve
+    // caricare in memoria l'intera riga per sapere se esiste.
     const utente = await db.user.findUnique({
       where: { id },
+      select: { id: true, email: true, nome: true, cognome: true },
     });
 
     if (!utente) {
@@ -55,10 +95,12 @@ export async function PATCH(
       );
     }
 
-    // Aggiorna lo stato dell'utente
+    // Aggiorna lo stato dell'utente. L'oggetto aggiornato viene serializzato
+    // nella risposta, quindi passa dallo stesso elenco esplicito delle GET.
     const utenteAggiornato = await db.user.update({
       where: { id },
       data: { attivo },
+      select: UTENTE_ADMIN_SELECT,
     });
 
     // Log dell'evento
@@ -121,9 +163,13 @@ export async function GET(
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
 
+    // `select` al posto di `include`: le relazioni annidate restano identiche
+    // (stessa forma della risposta), ma delle colonne di `User` escono solo
+    // quelle elencate in `UTENTE_ADMIN_SELECT`.
     const utente = await db.user.findUnique({
       where: { id },
-      include: {
+      select: {
+        ...UTENTE_ADMIN_SELECT,
         prenotazioni: {
           take: 20,
           orderBy: { createdAt: "desc" },
