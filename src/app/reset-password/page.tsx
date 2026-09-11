@@ -27,6 +27,11 @@ function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
+  // `userId` viaggia nel link insieme al token e l'API lo RICHIEDE: verifica
+  // che il token appartenga davvero a quell'utente prima di cambiargli la
+  // password. Veniva ignorato, e la richiesta partiva senza: vedi la nota in
+  // `handleSubmit`.
+  const userId = searchParams.get("userId");
 
   const [password, setPassword] = useState("");
   const [confermaPassword, setConfermaPassword] = useState("");
@@ -75,10 +80,19 @@ function ResetPasswordForm() {
     setError(null);
 
     try {
+      // I NOMI DEI CAMPI DEVONO COINCIDERE CON QUELLI ATTESI DALL'API.
+      //
+      // Qui si mandava `{ token, password }`, mentre
+      // `src/app/api/auth/reset-password/route.ts` legge
+      // `{ userId, token, newPassword }`: due campi su tre non combaciavano,
+      // quindi la risposta era SEMPRE 400 "Parametri mancanti" e il reset
+      // della password non poteva riuscire nemmeno con un link valido.
+      // Il difetto e' rimasto nascosto finche' l'email di reset non veniva
+      // spedita e la pagina era irraggiungibile.
       const response = await fetch("/api/auth/reset-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, password }),
+        body: JSON.stringify({ userId, token, newPassword: password }),
       });
 
       const data = await response.json();
@@ -96,8 +110,12 @@ function ResetPasswordForm() {
     }
   };
 
-  // Schermata token mancante
-  if (!token) {
+  // Schermata "link non valido".
+  //
+  // Si controllano ENTRAMBI i parametri: senza `userId` l'API rifiuterebbe la
+  // richiesta comunque, e mostrare il modulo per poi fallire all'invio e'
+  // peggio che dire subito che il link e' incompleto.
+  if (!token || !userId) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <Card className="w-full max-w-md shadow-xl">
