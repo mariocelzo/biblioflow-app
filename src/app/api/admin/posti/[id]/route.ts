@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 // PATCH - Cambia stato di un posto (manutenzione/disponibile)
 export async function PATCH(
@@ -18,6 +19,15 @@ export async function PATCH(
     if (session.user.ruolo !== "BIBLIOTECARIO" && session.user.ruolo !== "ADMIN") {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
+
+    // Rate limiting DOPO l'autorizzazione: questa è una modifica critica
+    // (cambio stato posto) riservata allo staff. Limitare prima del controllo
+    // ruolo consumerebbe quota anche per chiamate di un anonimo o di uno
+    // studente, che vengono comunque respinte da 401/403; limitare dopo
+    // protegge invece dall'abuso di un account BIBLIOTECARIO/ADMIN legittimo
+    // (o compromesso), che è il rischio reale su un endpoint già riservato.
+    const rateLimitResult = await staffCriticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
 
     const body = await request.json();
     const { stato, motivo } = body;

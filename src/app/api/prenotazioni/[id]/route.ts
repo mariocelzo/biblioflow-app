@@ -6,6 +6,7 @@ import {
   requireUser,
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -105,6 +106,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione: questa PATCH copre check-in,
+    // check-out e cancellazione, tutte operazioni critiche su una risorsa
+    // propria. Autorizzare prima evita che un anonimo consumi la quota di
+    // qualcun altro (la chiave del limite è l'IP, non l'utente); il limite
+    // stesso resta comunque a protezione dell'account autenticato da abusi
+    // (es. uno script che tenta ripetutamente il check-in fuori orario).
+    const rateLimitResult = await criticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+
     const { id } = await params;
     const { azione } = await request.json();
     const prenotazione = await prisma.prenotazione.findUnique({
@@ -245,9 +256,16 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 }
 
-export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione: stesso criterio della PATCH qui
+    // sopra (autorizzare prima di limitare, su un endpoint che agisce solo su
+    // risorse dell'utente autenticato).
+    const rateLimitResult = await criticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+
     const { id } = await params;
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id },

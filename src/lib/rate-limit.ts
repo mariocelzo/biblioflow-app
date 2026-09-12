@@ -34,7 +34,17 @@ interface RequestLog {
 }
 
 // In-memory store per rate limiting
-// ⚠️ NOTA: In produzione con Vercel/serverless, usare Redis (Upstash)
+// ⚠️ TODO(rate-limit-redis): questa Map vive nella memoria del singolo
+// processo. Su Vercel/serverless ogni istanza (e ogni cold start) ha la
+// PROPRIA Map: due richieste allo stesso limite possono finire su due
+// istanze diverse e nessuna delle due vede il conteggio dell'altra. In pratica
+// i limiti dichiarati qui sotto (es. "60 al minuto") sono un tetto PER
+// ISTANZA, non un tetto globale: con più istanze attive il limite reale
+// osservato da un singolo chiamante è più permissivo di quanto documentato.
+// Non è un difetto di questa remediation: è un limite noto dell'approccio
+// in-memory, da risolvere spostando lo stato su Redis (es. Upstash) quando il
+// traffico lo giustificherà. Finché resta così, questi limiti vanno letti
+// come "protezione contro l'abuso ovvio", non come garanzia matematica.
 const rateLimitStore = new Map<string, RequestLog>();
 
 /**
@@ -280,6 +290,16 @@ export const passwordResetRateLimiter = createRateLimiter({
 /**
  * Rate limiter STANDARD per API generiche
  * 100 richieste al minuto
+ *
+ * STATO ATTUALE (verificato con grep su tutto `src/`, settembre 2026): nessuna
+ * route lo importa. Le route di sola lettura usano `readApiRateLimiter`
+ * (300/min), quelle di scrittura/cancellazione usano `criticalApiRateLimiter`
+ * o `staffCriticalApiRateLimiter` qui sotto. Non lo si rimuove perché resta
+ * la scelta corretta per un futuro endpoint di scrittura "non critico" (che
+ * cioè non cancella né modifica dati sensibili): usarlo direttamente eviterebbe
+ * di inventare un quarto limitatore ad hoc. Se in futuro risultasse ancora
+ * inutilizzato, andrebbe rimosso davvero: codice morto che "sembra" già
+ * collegato è un rischio, non una comodità.
  */
 export const apiRateLimiter = createRateLimiter({
   max: 100,
@@ -298,11 +318,54 @@ export const readApiRateLimiter = createRateLimiter({
 });
 
 /**
- * Rate limiter STRICT per operazioni critiche (cancellazioni, modifiche admin)
- * 10 richieste al minuto
+ * Rate limiter STRICT per operazioni critiche di un utente (cancellazioni,
+ * modifiche su risorse proprie: prenotazioni, lista d'attesa).
+ * 10 richieste al minuto.
+ *
+ * COLLEGATO A: PATCH/DELETE `/api/prenotazioni/[id]`, POST/DELETE
+ * `/api/prenotazioni/coda`. In precedenza era dichiarato ma non collegato a
+ * nessuna route: uno studente poteva cancellare/modificare senza alcun limite.
+ *
+ * PERCHÉ 10 VA BENE QUI E NON PER LO STAFF: un utente normale interagisce con
+ * queste operazioni una alla volta (annulla la propria prenotazione, esce
+ * dalla coda). Dieci al minuto è già abbondante per l'uso legittimo e resta
+ * stretto contro uno script che tenti di intasare la coda o annullare a
+ * ripetizione. Per il personale che lavora "a raffica" sul pannello admin
+ * (es. venti check-in di fila) questa soglia sarebbe invece troppo bassa: per
+ * quel caso c'è `staffCriticalApiRateLimiter` qui sotto, non questo.
  */
 export const criticalApiRateLimiter = createRateLimiter({
   max: 10,
+  windowMs: 60 * 1000,
+  message: "Limite operazioni critiche superato.",
+});
+
+/**
+ * Rate limiter STRICT per operazioni critiche dello STAFF (ADMIN/BIBLIOTECARIO)
+ * sul pannello di amministrazione: cambi di stato posti, evasione richieste,
+ * cancellazioni/modifiche prenotazioni, gestione prestiti, attivazione utenti.
+ * 60 richieste al minuto.
+ *
+ * PERCHÉ UN LIMITATORE DEDICATO E NON `criticalApiRateLimiter`: un
+ * bibliotecario che valida una coda di prenotazioni al banco, o smista un
+ * lotto di richieste di preparazione, compie legittimamente molte più di 10
+ * operazioni al minuto — pensare a venti check-in o venti solleciti di fila.
+ * Con la soglia da 10/min pensata per un utente singolo, il primo turno di
+ * lavoro reale avrebbe fatto scattare un 429 sul proprio account, cioè
+ * l'esatto scenario che questa remediation deve evitare di introdurre.
+ *
+ * PERCHÉ 60 E NON DI PIÙ: resta comunque un limite "critico", non generico.
+ * Sessanta al minuto (uno al secondo in media) copre con ampio margine anche
+ * una sessione di lavoro intensa, ma continua a proteggere da uno script che
+ * usi le credenziali di un account BIBLIOTECARIO/ADMIN compromesso per
+ * automatizzare cancellazioni o modifiche di massa.
+ *
+ * COLLEGATO A: PATCH `/api/admin/posti/[id]`, PATCH `/api/admin/richieste`,
+ * POST `/api/admin/prenotazioni`, POST `/api/admin/prestiti`, PATCH
+ * `/api/admin/utenti/[id]`.
+ */
+export const staffCriticalApiRateLimiter = createRateLimiter({
+  max: 60,
   windowMs: 60 * 1000,
   message: "Limite operazioni critiche superato.",
 });

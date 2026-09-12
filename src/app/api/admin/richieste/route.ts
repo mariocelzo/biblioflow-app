@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma, StatoRichiesta } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 // Lunghezza massima applicativa per il campo libero `note` della richiesta.
 // PERCHÉ: nello schema `note` è `String?` senza vincolo di lunghezza; senza un
@@ -102,6 +103,14 @@ export async function PATCH(request: NextRequest) {
         // richiesta non autorizzata non tocca né il parser né il database.
         const accessoNegato = await verificaAccessoStaff();
         if (accessoNegato) return accessoNegato;
+
+        // Rate limiting DOPO l'autorizzazione, per lo stesso motivo del 422
+        // qui sopra: un anonimo o uno studente vengono già fermati da
+        // `verificaAccessoStaff()`, quindi non ha senso far loro consumare
+        // quota. Il limite protegge l'evasione delle richieste da un abuso
+        // dell'account staff, non da chi non può nemmeno arrivarci.
+        const rateLimitResult = await staffCriticalApiRateLimiter(request);
+        if (rateLimitResult) return rateLimitResult;
 
         const body = await request.json();
         const { id, stato, note } = body;

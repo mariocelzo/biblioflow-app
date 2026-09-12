@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
 import { emitCodaPromozione } from "@/lib/realtime-events";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 type PrenotazioneCancellata = {
   id: string;
@@ -203,6 +204,17 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
+
+    // Rate limiting DOPO il controllo di ruolo: questo endpoint gestisce
+    // cancellazioni, check-in manuali e modifiche di prenotazioni altrui, ma
+    // è già riservato allo staff. Limitare prima farebbe consumare quota a
+    // chiunque nemmeno autorizzato; limitare dopo protegge dall'abuso di un
+    // account BIBLIOTECARIO/ADMIN. Si usa il limite STAFF (piu' permissivo di
+    // quello per utente singolo) perché questo endpoint gestisce anche
+    // ANNULLA_MULTIPLE, tipicamente invocato dal personale su piu' righe di
+    // seguito.
+    const rateLimitResult = await staffCriticalApiRateLimiter(req);
+    if (rateLimitResult) return rateLimitResult;
 
     const body = await req.json();
     const { azione, prenotazioneIds, prenotazioneId, nuoviDati } = body;

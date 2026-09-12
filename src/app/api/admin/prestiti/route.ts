@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,6 +20,14 @@ export async function POST(req: NextRequest) {
         { status: 403 }
       );
     }
+
+    // Rate limiting DOPO il controllo di ruolo (stesso criterio delle altre
+    // route admin: non ha senso far consumare quota a chi viene comunque
+    // respinto da 401/403). Limite STAFF perché questa route gestisce anche
+    // SOLLECITA_MULTIPLI/RESTITUISCI/RINNOVA invocati ripetutamente durante
+    // il lavoro al banco.
+    const rateLimitResult = await staffCriticalApiRateLimiter(req);
+    if (rateLimitResult) return rateLimitResult;
 
     // Corpo atteso: sempre JSON. In precedenza il bottone "Sollecita Tutti"
     // era un <form method="POST"> senza campi: senza `enctype` il browser
