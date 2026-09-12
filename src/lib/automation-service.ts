@@ -131,6 +131,18 @@ export async function sendLoanExpiryAlerts() {
   const now = new Date();
   const in3Days = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
   const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  // 🐞→✅ GUARDIA ANTI-DUPLICATO (CR-BF-01): questa funzione è invocata dal cron
+  // ogni 5 minuti (~288 volte al giorno) e PRIMA non aveva alcun controllo:
+  // ogni giro creava una NUOVA `Notifica` + `LogEvento` per lo stesso prestito
+  // in scadenza, spammando l'utente e gonfiando l'audit. `sendCheckInReminders`
+  // (poco sopra in questo stesso file) già fa la cosa giusta con un
+  // `notifiche: { none: {...} } }` scoped alla giornata corrente: si applica
+  // qui la stessa guardia, con `actionUrl` distinto per i due avvisi (3 giorni
+  // / domani) così un giro non "consuma" per errore la guardia dell'altro.
+  const inizioOggi = new Date(now);
+  inizioOggi.setHours(0, 0, 0, 0);
+  const ACTION_URL_3_GIORNI = '/prestiti?scadenza=3gg';
+  const ACTION_URL_1_GIORNO = '/prestiti?scadenza=1gg';
 
   // Prestiti che scadono tra 3 giorni (avviso anticipato)
   const prestiti3Giorni = await prisma.prestito.findMany({
@@ -139,6 +151,16 @@ export async function sendLoanExpiryAlerts() {
       dataScadenza: {
         gte: new Date(in3Days.setHours(0, 0, 0, 0)),
         lte: new Date(in3Days.setHours(23, 59, 59, 999)),
+      },
+      // Solo se l'utente non ha già ricevuto l'avviso "3 giorni" oggi.
+      user: {
+        notifiche: {
+          none: {
+            tipo: TipoNotifica.ALERT,
+            createdAt: { gte: inizioOggi },
+            actionUrl: ACTION_URL_3_GIORNI,
+          },
+        },
       },
     },
     include: {
@@ -154,6 +176,16 @@ export async function sendLoanExpiryAlerts() {
       dataScadenza: {
         gte: new Date(tomorrow.setHours(0, 0, 0, 0)),
         lte: new Date(tomorrow.setHours(23, 59, 59, 999)),
+      },
+      // Solo se l'utente non ha già ricevuto l'ultimo avviso oggi.
+      user: {
+        notifiche: {
+          none: {
+            tipo: TipoNotifica.ALERT,
+            createdAt: { gte: inizioOggi },
+            actionUrl: ACTION_URL_1_GIORNO,
+          },
+        },
       },
     },
     include: {
@@ -172,7 +204,7 @@ export async function sendLoanExpiryAlerts() {
         tipo: TipoNotifica.ALERT,
         titolo: '📚 Prestito in scadenza',
         messaggio: `Il libro "${prestito.libro.titolo}" scade tra 3 giorni (${prestito.dataScadenza.toLocaleDateString('it-IT')}). Ricordati di restituirlo o rinnovarlo.`,
-        actionUrl: '/prestiti',
+        actionUrl: ACTION_URL_3_GIORNI,
       },
     });
 
@@ -200,7 +232,7 @@ export async function sendLoanExpiryAlerts() {
         tipo: TipoNotifica.ALERT,
         titolo: '⚠️ Prestito scade domani!',
         messaggio: `URGENTE: Il libro "${prestito.libro.titolo}" scade domani (${prestito.dataScadenza.toLocaleDateString('it-IT')}). Restituiscilo oggi o rinnovalo per evitare penali.`,
-        actionUrl: '/prestiti',
+        actionUrl: ACTION_URL_1_GIORNO,
       },
     });
 
@@ -541,26 +573,57 @@ export async function releaseNoShowReservations() {
   const now = new Date();
   const minus15Minutes = new Date(now.getTime() - 15 * 60 * 1000);
 
+  // 🐞→✅ BUG NOTTURNO (CR-BF-01): `oraInizio` è `@db.Time()`, cioè in Postgres
+  // contiene SOLO l'orario del giorno (nessuna componente di data). Filtrare
+  // `oraInizio: { lte: minus15Minutes }` confrontava quindi quella colonna TIME
+  // con un `Date` COMPLETO: Postgres tronca il secondo operando alla sola parte
+  // oraria, quindi a mezzanotte e cinque `minus15Minutes` valeva "23:50" (del
+  // giorno precedente) e la condizione `oraInizio <= '23:50'` risultava vera per
+  // QUASI OGNI prenotazione. Combinato con `data <= oggi`, il cron delle 00:00
+  // marcava NO_SHOW quasi tutte le prenotazioni CONFERMATA del giorno, ORE prima
+  // che iniziassero, liberando i posti corrispondenti.
+  //
+  // SCELTA — SQL grezzo che ricompone l'istante reale lato Postgres, invece che
+  // "filtrare largo + raffinare in JS":
+  //   - ricomporre `data + oraInizio` non è esprimibile nel `where` di Prisma
+  //     (non supporta confronti tra colonne/colonne derivate);
+  //   - un filtro Prisma "largo" (es. solo `stato = CONFERMATA`) richiederebbe
+  //     di caricare in memoria ogni prenotazione ancora confermata (anche di
+  //     mesi fa, se mai rimasta bloccata) per poi ricalcolare l'istante in JS:
+  //     meno selettivo e più lavoro applicativo ad ogni giro di cron;
+  //   - qui invece il filtro resta a livello di riga in Postgres — selettivo
+  //     quanto la query originale — e la logica di combinazione data+ora vive
+  //     in UN SOLO posto (il DB), non duplicata tra query e refine JS.
+  // `"data" + "oraInizio"` in Postgres (date + time) produce un
+  // `timestamp without time zone`: lo si confronta con la soglia convertita
+  // esplicitamente `AT TIME ZONE 'UTC'` (stesso schema con cui il resto del
+  // codice scrive `data`/`oraInizio`, sempre in componenti UTC — vedi
+  // `prenotazioni-service.ts`), così il confronto non dipende dal timezone di
+  // sessione configurato sul server Postgres.
+  const righeNoShow = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT id
+    FROM "Prenotazione"
+    WHERE stato = 'CONFERMATA'
+      AND ("data" + "oraInizio") <= (${minus15Minutes}::timestamptz AT TIME ZONE 'UTC')
+  `;
+
   // Trova prenotazioni confermate con ora inizio passata da più di 15 minuti
-  const prenotazioni = await prisma.prenotazione.findMany({
-    where: {
-      stato: StatoPrenotazione.CONFERMATA,
-      data: {
-        lte: now,
-      },
-      oraInizio: {
-        lte: minus15Minutes,
-      },
-    },
-    include: {
-      user: true,
-      posto: {
-        include: {
-          sala: true,
-        },
-      },
-    },
-  });
+  const prenotazioni =
+    righeNoShow.length === 0
+      ? []
+      : await prisma.prenotazione.findMany({
+          where: {
+            id: { in: righeNoShow.map((riga) => riga.id) },
+          },
+          include: {
+            user: true,
+            posto: {
+              include: {
+                sala: true,
+              },
+            },
+          },
+        });
 
   // BIB-47 / CA-04: proteggi le prenotazioni nate da una promozione di coda
   // entro la finestra di conferma. Sono per uno slot già iniziato da oltre 15

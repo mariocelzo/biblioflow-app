@@ -9,6 +9,12 @@ import PrestitiActions from "@/components/admin/prestiti-actions";
 import { SollecitaTuttiButton } from "@/components/admin/sollecita-tutti-button";
 import { BookOpen, Calendar, User } from "lucide-react";
 import type { StatoPrestito } from "@prisma/client";
+import {
+  contaScaduti,
+  filtraDaSollecitare,
+  filtroScadenzaScaduti,
+  prestitoInCorso,
+} from "@/lib/prestiti-scaduti";
 
 type SearchParams = {
   stato?: string;
@@ -29,7 +35,7 @@ export default async function PrestitiAdminPage({
 
   // Build where clause
   type WhereInput = {
-    stato?: StatoPrestito;
+    stato?: StatoPrestito | { in: StatoPrestito[] };
     dataScadenza?: { lte: Date };
     OR?: Array<{
       user: {
@@ -47,8 +53,8 @@ export default async function PrestitiAdminPage({
   }
 
   if (searchParams.scadenza === "scaduti") {
-    where.dataScadenza = { lte: new Date() };
-    where.stato = "ATTIVO";
+    // Un rinnovato in ritardo e' scaduto quanto un attivo in ritardo.
+    Object.assign(where, filtroScadenzaScaduti());
   }
 
   if (searchParams.utente) {
@@ -92,22 +98,18 @@ export default async function PrestitiAdminPage({
   });
 
   // Statistics
-  const oggi = new Date();
   const stats = {
     totali: prestiti.length,
     attivi: prestiti.filter(p => p.stato === "ATTIVO").length,
-    scaduti: prestiti.filter(p => {
-      const scadenza = new Date(p.dataScadenza);
-      return p.stato === "ATTIVO" && scadenza < oggi;
-    }).length,
+    scaduti: contaScaduti(prestiti),
     restituiti: prestiti.filter(p => p.stato === "RESTITUITO").length,
   };
 
-  // Prestiti da sollecitare (scaduti da più di 3 giorni)
-  const prestitiDaSollecitare = prestitiConRitardo.filter(p => p.giorniRitardo > 3 && p.stato === "ATTIVO");
+  // Prestiti da sollecitare (scaduti da più di 3 giorni), rinnovati compresi.
+  const prestitiDaSollecitare = filtraDaSollecitare(prestitiConRitardo);
 
   function getStatoBadge(stato: string, isScaduto: boolean) {
-    if (isScaduto && stato === "ATTIVO") {
+    if (isScaduto && prestitoInCorso(stato)) {
       return <Badge variant="destructive">Scaduto</Badge>;
     }
     

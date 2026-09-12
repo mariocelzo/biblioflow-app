@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // ispezionabili dai test (nessun DB reale, nessuna transazione reale).
 vi.mock("@/lib/prisma", () => {
   const prisma = {
+    $queryRaw: vi.fn(),
     prenotazione: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -71,6 +72,7 @@ import {
 } from "@/lib/automation-service";
 
 // Spie tipizzate per configurare i valori di ritorno e leggere le chiamate.
+const queryRawMock = vi.mocked(prisma.$queryRaw);
 const findManyMock = vi.mocked(prisma.prenotazione.findMany);
 const prenotazioneUpdateMock = vi.mocked(prisma.prenotazione.update);
 const prenotazioneUpdateManyMock = vi.mocked(prisma.prenotazione.updateMany);
@@ -122,9 +124,31 @@ function promozioneOk(
   } as unknown as Awaited<ReturnType<typeof promuoviPrimoInCoda>>;
 }
 
+/**
+ * Configura i due mock che `releaseNoShowReservations` interroga in sequenza
+ * dopo la correzione BIB-47 sulla finestra notturna (vedi
+ * src/lib/automation-service.ts): prima `$queryRaw` (selezione degli id
+ * candidati ricomponendo `data + oraInizio` lato Postgres), poi
+ * `prenotazione.findMany({ where: { id: { in: [...] } } })` per recuperare le
+ * righe complete con `posto`/`sala`. Qui il DB e' mockato, quindi la semantica
+ * SQL del confronto TIME non e' esercitata (lo e' invece in
+ * tests/integration/no-show-finestra-notturna.test.ts, contro Postgres vero):
+ * questo helper serve solo a mantenere validi i test che verificano IL
+ * COMPORTAMENTO A VALLE della selezione (promozione, notifiche, audit).
+ */
+function configuraCandidatiNoShow(
+  prenotazioni: ReturnType<typeof prenotazioneNoShow>[],
+) {
+  queryRawMock.mockResolvedValue(
+    prenotazioni.map((p) => ({ id: p.id })) as never,
+  );
+  findManyMock.mockResolvedValue(prenotazioni as never);
+}
+
 beforeEach(() => {
   // `restoreMocks: true` (vitest.config) azzera le implementazioni fra i test:
   // qui si ripristina un comportamento neutro di default.
+  queryRawMock.mockResolvedValue([]);
   findManyMock.mockResolvedValue([]);
   prenotazioneUpdateMock.mockResolvedValue({} as never);
   postoUpdateMock.mockResolvedValue({} as never);
@@ -137,7 +161,7 @@ beforeEach(() => {
 
 describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)", () => {
   it("[TC-BIB40-001] promuove il primo in coda per il posto liberato e ne tiene traccia", async () => {
-    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    configuraCandidatiNoShow([prenotazioneNoShow()]);
     promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
 
     const result = await releaseNoShowReservations();
@@ -210,7 +234,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
   });
 
   it("[TC-BIB40-002] coda vuota: nessun errore e log di innesco con esito 'coda_vuota'", async () => {
-    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    configuraCandidatiNoShow([prenotazioneNoShow()]);
     promuoviPrimoInCodaMock.mockResolvedValue(null); // coda vuota / posto ancora occupato
 
     const result = await releaseNoShowReservations();
@@ -236,7 +260,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
   });
 
   it("[TC-BIB40-003] una chiamata a promuoviPrimoInCoda per ogni posto liberato", async () => {
-    findManyMock.mockResolvedValue([
+    configuraCandidatiNoShow([
       prenotazioneNoShow({ id: "pren-1", postoId: "posto-1" }),
       prenotazioneNoShow({
         id: "pren-2",
@@ -247,7 +271,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
           sala: { id: "sala-1", nome: "Sala Studio" },
         },
       }),
-    ] as never);
+    ]);
     // Primo posto: coda vuota. Secondo posto: promozione effettuata.
     promuoviPrimoInCodaMock
       .mockResolvedValueOnce(null)
@@ -274,7 +298,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
   });
 
   it("[TC-BIB40-004] un errore della promozione non interrompe il giro ed è registrato", async () => {
-    findManyMock.mockResolvedValue([
+    configuraCandidatiNoShow([
       prenotazioneNoShow({ id: "pren-1", postoId: "posto-1" }),
       prenotazioneNoShow({
         id: "pren-2",
@@ -285,7 +309,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
           sala: { id: "sala-1", nome: "Sala Studio" },
         },
       }),
-    ] as never);
+    ]);
     promuoviPrimoInCodaMock
       .mockRejectedValueOnce(new Error("intervallo nel passato"))
       .mockResolvedValueOnce(promozioneOk("pren-coda-2", "utente-3"));
@@ -327,7 +351,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
     // BIB-47: la prenotazione nata da una promozione di coda ha uno slot già
     // iniziato → sarebbe un candidato no-show. Se ha un LogEvento CODA_PROMOZIONE
     // entro la finestra di conferma NON deve essere messa in NO_SHOW.
-    findManyMock.mockResolvedValue([
+    configuraCandidatiNoShow([
       prenotazioneNoShow({ id: "pren-promossa", postoId: "posto-1" }),
       prenotazioneNoShow({
         id: "pren-normale",
@@ -338,7 +362,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
           sala: { id: "sala-1", nome: "Sala Studio" },
         },
       }),
-    ] as never);
+    ]);
     // Solo la prima ha una promozione recente.
     logEventoFindManyMock.mockResolvedValue([
       { prenotazioneId: "pren-promossa" },
@@ -596,7 +620,7 @@ describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => 
  */
 describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)", () => {
   it("[TC-BIB46-001] correlationId coerente su tutti gli eventi della catena di rilascio+promozione", async () => {
-    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    configuraCandidatiNoShow([prenotazioneNoShow()]);
     promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
 
     await releaseNoShowReservations();
@@ -622,7 +646,7 @@ describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)
   });
 
   it("[TC-BIB46-002] attore standardizzato in ogni evento della catena", async () => {
-    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    configuraCandidatiNoShow([prenotazioneNoShow()]);
     promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
 
     await releaseNoShowReservations();
@@ -644,7 +668,7 @@ describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)
   });
 
   it("[TC-BIB46-003] ricostruibilità della catena: da correlationId risalgo a prenotazione liberata, esito, richiesta promossa", async () => {
-    findManyMock.mockResolvedValue([prenotazioneNoShow()] as never);
+    configuraCandidatiNoShow([prenotazioneNoShow()]);
     promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());
 
     await releaseNoShowReservations();
@@ -690,7 +714,7 @@ describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)
   });
 
   it("[TC-BIB46-004] riepilogo run con vista d'insieme: correlationIds, rilasci, promozioni", async () => {
-    findManyMock.mockResolvedValue([
+    configuraCandidatiNoShow([
       prenotazioneNoShow({ id: "pren-1", postoId: "posto-1" }),
       prenotazioneNoShow({
         id: "pren-2",
@@ -701,7 +725,7 @@ describe("releaseNoShowReservations — tracciabilità completa (BIB-46 / CA-05)
           sala: { id: "sala-1", nome: "Sala Studio" },
         },
       }),
-    ] as never);
+    ]);
     // Primo: coda vuota. Secondo: promozione effettuata.
     promuoviPrimoInCodaMock
       .mockResolvedValueOnce(null)

@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { MoreHorizontal, CheckCircle, RefreshCw, Bell } from "lucide-react";
 import { toast } from "sonner";
+import { prestitoInCorso } from "@/lib/prestiti-scaduti";
 
 type Prestito = {
   id: string;
@@ -147,7 +148,10 @@ export default function PrestitiActions({ prestito }: Props) {
 
   const canRestituisci = prestito.stato !== "RESTITUITO";
   const canRinnova = prestito.stato === "ATTIVO" || prestito.stato === "SCADUTO";
-  const canSollecita = prestito.isScaduto && prestito.stato === "ATTIVO";
+  // INTEGRITA' DATI: un prestito RINNOVATO e' ancora un prestito in corso.
+  // Prima il pulsante di sollecito era invisibile per chi rinnova e poi non
+  // restituisce: un utente realmente in ritardo scompariva dai solleciti.
+  const canSollecita = prestito.isScaduto && prestitoInCorso(prestito.stato);
 
   return (
     <>

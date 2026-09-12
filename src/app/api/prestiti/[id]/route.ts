@@ -230,9 +230,22 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           );
         }
 
-        // Calcola nuova scadenza (30 giorni da oggi)
+        // DUE VERITA' SULLA DURATA DEL RINNOVO (integrita' dati): questa azione
+        // PATCH estendeva di 30 giorni, mentre POST /api/prestiti/[id]/rinnova
+        // — l'endpoint che la UI chiama DAVVERO (src/app/prestiti/page.tsx,
+        // handleRinnova) — estende di 14, coerente col testo mostrato
+        // all'utente ("Il prestito sarà esteso di 14 giorni dalla data
+        // attuale"). Nessun client dell'app usa questa variante PATCH (nessun
+        // `fetch` verso `/api/prestiti/[id]` con `azione: "rinnova"`), ma non
+        // e' codice morto: resta parte della superficie API pubblica ed e'
+        // esercitata da test che verificano comportamento e autorizzazioni
+        // (tests/unit/prestiti-stato-rinnovato.test.ts TC-INT-RINN-004,
+        // tests/integration/auth-baseline-acl.test.ts TC-SEC-ACL-011). Si
+        // allinea quindi la durata a 14 giorni invece di rimuovere l'azione:
+        // chi chiamasse questa PATCH otterrebbe la stessa estensione promessa
+        // dalla UI, invece di un'estensione doppia e non documentata.
         const nuovaScadenza = new Date();
-        nuovaScadenza.setDate(nuovaScadenza.getDate() + 30);
+        nuovaScadenza.setDate(nuovaScadenza.getDate() + 14);
 
         updateData = {
           dataScadenza: nuovaScadenza,
