@@ -1,5 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+
+/**
+ * Traduce l'esito di `requireUser()` nella risposta HTTP corretta.
+ *
+ * Serve a entrambi gli handler di questo file (GET e OPTIONS) e tiene fuori
+ * dal 500 generico cio' che e' un problema di identita' e non un guasto.
+ */
+function rispostaErroreAuth(error: unknown): NextResponse | null {
+  if (error instanceof AuthError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
+  return null;
+}
 
 // Hardening B-4 (audit sicurezza 2026-09-04):
 // `page`/`limit` arrivavano da `parseInt` senza tetto né controllo di segno.
@@ -31,6 +48,21 @@ function intNelRange(
 // GET /api/libri - Ricerca catalogo libri
 export async function GET(request: NextRequest) {
   try {
+    // Autenticazione DENTRO la rotta (difesa in profondita'): prima non
+    // c'era, e l'unica barriera era il controllo di sola presenza del cookie
+    // fatto dal middleware — cioe' nessuna barriera. Vedi il commento esteso
+    // in `src/app/api/sale/route.ts`.
+    //
+    // PERCHE' NON PUBBLICA (scelta consapevole): un catalogo di biblioteca
+    // potrebbe legittimamente essere una vetrina aperta, ma in BiblioFlow non
+    // lo e': gli unici chiamanti sono `/libri` e `/prestiti`, entrambe pagine
+    // riservate, e nessuna pagina pubblica interroga questa API. Aprirla
+    // adesso sarebbe un cambiamento di prodotto, non una correzione di
+    // sicurezza; se un domani si volesse il catalogo pubblico, la strada e'
+    // dichiararlo in `publicApiPrefixes` nel middleware e togliere queste
+    // righe, in modo esplicito e discusso.
+    await requireUser();
+
     const { searchParams } = new URL(request.url);
 
     // Parametri di ricerca e filtro
@@ -104,6 +136,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const errorAuth = rispostaErroreAuth(error);
+    if (errorAuth) return errorAuth;
+
     console.error("Errore GET /api/libri:", error);
     return NextResponse.json(
       { success: false, error: "Errore nella ricerca dei libri" },
@@ -115,6 +150,10 @@ export async function GET(request: NextRequest) {
 // GET /api/libri/categorie - Lista categorie disponibili
 export async function OPTIONS() {
   try {
+    // Stesso trattamento della GET: e' lo stesso catalogo, visto per
+    // categorie. Lasciarla scoperta vanificherebbe il controllo sulla GET.
+    await requireUser();
+
     const categorie = await prisma.libro.findMany({
       select: { categoria: true },
       distinct: ["categoria"],
@@ -126,6 +165,9 @@ export async function OPTIONS() {
       data: categorie.map(c => c.categoria).filter(Boolean),
     });
   } catch (error) {
+    const errorAuth = rispostaErroreAuth(error);
+    if (errorAuth) return errorAuth;
+
     console.error("Errore OPTIONS /api/libri:", error);
     return NextResponse.json(
       { success: false, error: "Errore nel recupero delle categorie" },

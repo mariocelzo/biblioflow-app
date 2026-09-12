@@ -1,51 +1,85 @@
 // ============================================
 // MIDDLEWARE AUTENTICAZIONE - BiblioFlow
 // ============================================
-// Middleware leggero compatibile con Edge Runtime
-// Non importa moduli Node.js per funzionare su Edge
+// Middleware compatibile con Edge Runtime: NON importa moduli Node.js.
 //
-// ⚠️ LIMITE NOTO E DELIBERATO — LEGGERE PRIMA DI AGGIUNGERE UNA ROTTA ⚠️
+// COSA FA DAVVERO QUESTO MIDDLEWARE (stato attuale)
+// -------------------------------------------------
+// Verifica l'autenticazione SUL SERIO: decifra il JWT contenuto nel cookie di
+// sessione con la stessa chiave che lo ha emesso e ne controlla firma,
+// scadenza e contenuto. Un cookie inventato — `document.cookie =
+// "authjs.session-token=x"` nella console del browser, o un
+// `curl -H 'Cookie: authjs.session-token=x'` — NON passa piu': viene respinto
+// e il cookie fasullo viene anche ripulito dalla risposta.
 //
-// COSA FA DAVVERO QUESTO MIDDLEWARE: verifica che nella richiesta ESISTA un
-// cookie di sessione. Nient'altro. NON ne verifica la firma, NON lo decifra,
-// NON ne legge l'utente, NON ne controlla la scadenza e NON conosce i ruoli.
-// Una riga come `document.cookie = "authjs.session-token=x"` nella console del
-// browser — o un banale `curl -H 'Cookie: authjs.session-token=x'` — supera
-// questo controllo su QUALSIASI percorso.
+// COM'ERA PRIMA, E PERCHE' E' CAMBIATO
+// ------------------------------------
+// Fino a questo intervento il middleware controllava soltanto che il cookie
+// ESISTESSE. Non ne verificava la firma, non lo decifrava, non ne leggeva
+// l'utente, non ne controllava la scadenza. Riprodotto in produzione:
 //
-// QUINDI: questo middleware NON e' un livello di autenticazione. E' solo una
-// scorciatoia di comodita' che evita di far arrivare al server le richieste
-// palesemente anonime (e che manda l'utente alla pagina di login invece di
-// mostrargli un errore). L'AUTENTICAZIONE VERA avviene, e deve continuare ad
-// avvenire, dentro ogni singolo route handler tramite `auth()` /
-// `requireUser()` da `@/lib/auth`, che leggono e verificano il JWT lato Node.
+//     curl -H "Cookie: authjs.session-token=x" https://.../api/sale
+//     → HTTP 200 + dati reali
 //
-// SE STAI AGGIUNGENDO UNA NUOVA ROTTA `/api/...`: chiama `auth()` o
-// `requireUser()` al suo interno. Non dare per scontato che il middleware
-// abbia gia' stabilito CHI e' il chiamante, perche' non lo ha fatto.
+// Non era pigrizia: il middleware gira su Edge Runtime e `src/lib/auth.ts`
+// importa Prisma e bcrypt, che su Edge non funzionano; importare `auth()` da
+// li' avrebbe rotto l'applicazione al primo deploy. La soluzione ufficiale di
+// Auth.js v5 e' spezzare la configurazione in due file, ed e' esattamente
+// quello che e' stato fatto: `src/lib/auth.config.ts` contiene la parte
+// edge-safe, da cui qui si istanzia un `auth()` che sa verificare il token
+// senza toccare il database.
+//
+// COSA RESTA VALIDO PER CHI AGGIUNGE UNA ROTTA
+// --------------------------------------------
+// Il middleware ora e' un livello di autenticazione vero, ma NON deve restare
+// l'unico: e' una difesa in profondita'. Continua a valere la regola —
+// ogni rotta `/api/...` non pubblica chiama `auth()` o `requireUser()` al
+// proprio interno. Motivi concreti:
+//  - il `matcher` e' una regex, e una regex sbagliata (e' gia' successo:
+//    finding M-5) puo' escludere una rotta dal middleware senza che nessuno
+//    se ne accorga;
+//  - il middleware sa solo SE c'e' una sessione valida, non decide su ruoli
+//    e proprieta' delle risorse: quello e' compito di `requireRole` /
+//    `assertOwnership`;
+//  - una rotta invocata internamente o da un altro runtime non passa di qui.
 // Il test `tests/unit/middleware-autenticazione.test.ts` verifica in modo
-// automatico che ogni nuova rotta non pubblica si autentichi da sola: se hai
+// automatico che ogni rotta non pubblica si autentichi da sola: se hai
 // scordato il controllo, quel test fallisce e ti dice dove.
-//
-// PERCHE' NON SI VERIFICA IL TOKEN QUI (vincoli reali, non pigrizia):
-//  1. Il middleware gira su Edge Runtime. `src/lib/auth.ts` importa Prisma e
-//     bcrypt, che su Edge non funzionano: importare `auth()` qui romperebbe
-//     l'intera applicazione al primo deploy.
-//  2. La soluzione pulita di Auth.js v5 e' separare la configurazione in due
-//     file (`auth.config.ts` senza adapter/provider Node, usato dal middleware
-//     + `auth.ts` completo, usato dal server). E' una ristrutturazione di
-//     `src/lib/auth.ts`, che va pianificata a parte.
-//  3. Una scorciatoia — decifrare il JWT qui con `getToken` di
-//     `next-auth/jwt` — duplicherebbe fuori da Auth.js le assunzioni su nome
-//     del cookie, segreto e formato del token: due fonti di verita' che
-//     possono divergere in silenzio a ogni modifica di `auth.ts`. Per una
-//     difesa di sicurezza e' un rischio peggiore del problema che risolve.
-//
-// Finche' il punto 2 non viene affrontato, la garanzia del sistema e' quella
-// scritta sopra: la sicurezza sta nei route handler, non qui.
 
+import NextAuth from "next-auth";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import type { NextFetchEvent, NextRequest } from "next/server";
+
+import { authConfig } from "@/lib/auth.config";
+
+// `auth()` costruito SOLO sulla configurazione edge-safe: nessun Prisma,
+// nessun bcrypt, nessun `@/lib/env` nella catena degli import.
+// Il cancello vero e' il callback `authorized` dichiarato in `auth.config.ts`,
+// che Auth.js invoca dopo aver decifrato e verificato il token.
+const { auth } = NextAuth(authConfig);
+
+/**
+ * Firma di `auth()` quando lo si usa come middleware.
+ *
+ * PERCHE' UN CAST: `auth()` e' dichiarato con piu' firme sovrapposte (server
+ * component, route handler, pagine API, `getServerSideProps`) e nessuna di
+ * esse descrive l'uso "da middleware" — che pure e' quello documentato da
+ * Auth.js, dove l'esempio ufficiale e' `export { auth as middleware }` e il
+ * controllo di tipo non scatta perche' l'export non viene confrontato con
+ * `NextMiddleware`. Qui l'export ha invece una firma nostra, quindi il tipo va
+ * dichiarato a mano: lo si fa UNA volta sola e con la spiegazione accanto,
+ * invece di disseminare cast nel resto del file.
+ *
+ * A runtime il comportamento e' quello di Auth.js: decifra il token, invoca il
+ * callback `authorized` e, se questo restituisce una `Response` (il nostro
+ * rifiuto), la usa; altrimenti lascia proseguire con `NextResponse.next()`.
+ */
+type GestoreMiddleware = (
+  request: NextRequest,
+  event: NextFetchEvent,
+) => Promise<Response>;
+
+const verificaSessione = auth as unknown as GestoreMiddleware;
 
 // Route pubbliche che non richiedono autenticazione
 const publicRoutes = [
@@ -78,54 +112,52 @@ const publicApiPrefixes = [
   "/api/cron", // Cron jobs protetti da Authorization header
 ];
 
-export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  // Verifica se è una route pubblica
+/**
+ * True se il percorso non richiede una sessione.
+ *
+ * L'elenco sta QUI, e non dentro `auth.config.ts`, per due ragioni:
+ *  1. e' la prima cosa che si cerca quando si aggiunge una pagina, ed e' dove
+ *     i test (`pagine-da-email-pubbliche`) vanno a leggerla;
+ *  2. serve PRIMA di invocare Auth.js, non dentro (vedi `middleware`).
+ */
+function isPercorsoPubblico(pathname: string): boolean {
   const isPublicRoute = publicRoutes.some(
     (route) => pathname === route || pathname.startsWith(route + "/")
   );
-  
-  // Verifica se è un'API pubblica
+
   const isPublicApi = publicApiPrefixes.some(
     (prefix) => pathname.startsWith(prefix)
   );
 
-  // Se la route è pubblica, permetti accesso
-  if (isPublicRoute || isPublicApi) {
+  return isPublicRoute || isPublicApi;
+}
+
+/**
+ * `event` e' opzionale solo per comodita' dei test unitari: Next.js lo passa
+ * sempre, e Auth.js si limita a inoltrarlo all'handler senza usarlo.
+ */
+export async function middleware(
+  request: NextRequest,
+  event?: NextFetchEvent,
+): Promise<Response> {
+  const { pathname } = request.nextUrl;
+
+  // Le rotte pubbliche escono da qui SENZA passare da Auth.js.
+  //
+  // PERCHE' IL CORTOCIRCUITO E' NECESSARIO (non e' solo un'ottimizzazione):
+  // `auth()` legge la sessione e, se il token e' valido, riemette il cookie
+  // con scadenza aggiornata (rolling session), allegandolo alla risposta. Su
+  // `/api/auth/*` questo entrerebbe in conflitto con le risposte di Auth.js
+  // stesso: durante il logout il route handler cancella il cookie e il
+  // middleware, che aveva letto la sessione un istante prima, ne rimetterebbe
+  // uno valido — rischiando di resuscitare la sessione appena chiusa.
+  // Il risparmio di una decifratura per ogni asset e ogni pagina pubblica e'
+  // un effetto collaterale gradito.
+  if (isPercorsoPubblico(pathname)) {
     return NextResponse.next();
   }
 
-  // Verifica la sola PRESENZA del session token di NextAuth.
-  // Il nome del cookie dipende dal setting NEXTAUTH_URL (secure in prod).
-  //
-  // ⚠️ Il valore non viene mai controllato: qualunque stringa passa. Vedi il
-  // blocco in cima al file — chi legge questa riga sta guardando il punto
-  // esatto in cui il middleware SMETTE di fare sicurezza e la delega ai route
-  // handler.
-  const sessionToken =
-    request.cookies.get("authjs.session-token")?.value ||
-    request.cookies.get("__Secure-authjs.session-token")?.value;
-
-  // Se non c'è il token di sessione
-  if (!sessionToken) {
-    // Per le API, ritorna 401
-    if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
-        { success: false, error: "Non autenticato" },
-        { status: 401 }
-      );
-    }
-    
-    // Per le pagine, redirect al login con callback URL
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Token presente, permetti accesso
-  // La verifica completa del token e dei ruoli avviene nelle API routes
-  return NextResponse.next();
+  return verificaSessione(request, event as NextFetchEvent);
 }
 
 // Configura quali path devono passare attraverso il middleware

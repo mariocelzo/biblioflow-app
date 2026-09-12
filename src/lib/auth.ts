@@ -1,16 +1,23 @@
 // ============================================
-// AUTH.JS CONFIGURATION - BiblioFlow
+// AUTH.JS CONFIGURATION (lato Node.js) - BiblioFlow
 // ============================================
 // Configurazione autenticazione basata sui requisiti HCI:
 // - Flessibilità adattiva (supporto pendolari)
 // - Inclusività by design (accessibilità)
 // - Trasparenza (messaggi chiari)
+//
+// ⚠️ QUESTO FILE NON PUO' ESSERE IMPORTATO DAL MIDDLEWARE ⚠️
+// Importa Prisma e bcrypt, che nell'Edge Runtime non esistono. E' la META'
+// "Node" della configurazione: la meta' condivisibile sta in `auth.config.ts`,
+// che viene importata qui sotto e a cui questo file aggiunge soltanto cio' che
+// richiede davvero il database — il provider Credentials, il callback `signIn`
+// di Google e la rivalidazione periodica del token nel callback `jwt`.
+// Il middleware istanzia un proprio `auth()` dalla sola `auth.config.ts`.
 
 import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
-import Google from "next-auth/providers/google";
+import { authConfig } from "./auth.config";
 import { prisma } from "./prisma";
-import { env } from "./env";
 import { CODICI_ERRORE_LOGIN, type CodiceErroreLogin } from "./auth-errors";
 import type { UserRole } from "@prisma/client";
 
@@ -40,49 +47,10 @@ export class ErroreLogin extends CredentialsSignin {
   }
 }
 
-// Estendi i tipi di NextAuth per includere i campi custom
-declare module "next-auth" {
-  interface User {
-    id: string;
-    email: string;
-    nome: string;
-    cognome: string;
-    ruolo: UserRole;
-    matricola?: string | null;
-    isPendolare: boolean;
-    necessitaAccessibilita: boolean;
-  }
-  
-  interface Session {
-    user: {
-      id: string;
-      email: string;
-      nome: string;
-      cognome: string;
-      ruolo: UserRole;
-      matricola?: string | null;
-      isPendolare: boolean;
-      necessitaAccessibilita: boolean;
-    };
-  }
-}
-
-declare module "@auth/core/jwt" {
-  interface JWT {
-    id: string;
-    nome: string;
-    cognome: string;
-    ruolo: UserRole;
-    matricola?: string | null;
-    isPendolare: boolean;
-    necessitaAccessibilita: boolean;
-    /**
-     * Epoch ms dell'ultima volta che il callback `jwt` ha riletto lo stato
-     * dell'utente dal database (rilievo di sicurezza R-2, vedi sotto).
-     */
-    ultimaVerifica?: number;
-  }
-}
+// NOTA: le estensioni di tipo di NextAuth (`User`, `Session`, `JWT` con i
+// campi applicativi di BiblioFlow) sono state spostate in `auth.config.ts`,
+// perche' ora anche il callback `session` vive li'. Essendo augmentation di
+// modulo restano valide per tutto il progetto, questo file compreso.
 
 // ============================================
 // DIFESE LOGIN (finding di sicurezza A-4 / A-5 / M-6)
@@ -212,29 +180,19 @@ export function isDominioIstituzionale(email: string): boolean {
 const INTERVALLO_RIVALIDAZIONE_JWT_MS = 60 * 1000;
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
+  // Base condivisa con il middleware: provider Google, `pages`, `session`,
+  // `trustHost` e i callback `session`/`authorized`. Vedi `auth.config.ts`.
+  ...authConfig,
+
   providers: [
-    // Google OAuth Provider per login universitario
-    Google({
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
-      authorization: {
-        params: {
-          // NOTA su `hd` (hosted domain): il parametro accetta UN SOLO dominio,
-          // mentre l'ateneo usa piu' domini Workspace distinti
-          // (studenti.unisa.it, biblioteca.unisa.it, unisa.it). Impostare
-          // `hd: "unisa.it"` bloccherebbe quindi gli studenti.
-          // In ogni caso `hd` e' solo un suggerimento lato client: viaggia
-          // nella URL di autorizzazione e un attaccante puo' rimuoverlo, per
-          // cui il filtro che conta e' quello server-side nel callback
-          // `signIn` (vedi DOMINI_GOOGLE_AMMESSI / isDominioIstituzionale).
-          prompt: "consent",
-          access_type: "offline",
-          response_type: "code",
-        },
-      },
-    }),
-    
-    // Credentials Provider (email/password)
+    // I provider dichiarativi (oggi solo Google) arrivano dalla config
+    // condivisa: vanno tenuti li' perche' il middleware deve poter istanziare
+    // Auth.js con la stessa identica lista, senza trascinarsi dietro Node.
+    ...authConfig.providers,
+
+    // Credentials Provider (email/password).
+    // RESTA QUI e non in `auth.config.ts`: `authorize` usa bcrypt e Prisma,
+    // cioe' esattamente cio' che sull'Edge Runtime non e' disponibile.
     Credentials({
       name: "credentials",
       credentials: {
@@ -375,6 +333,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   
   callbacks: {
+    // I callback condivisi (`session` e `authorized`) arrivano da
+    // `auth.config.ts`. Lo spread va PRIMA di quelli qui sotto, che aggiungono
+    // i soli callback che hanno bisogno del database.
+    ...authConfig.callbacks,
+
     // Callback per signin con Google OAuth
     async signIn({ user, account, profile }) {
       // Signin con Credentials - gestito dal provider
@@ -536,52 +499,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return token;
     },
     
-    // Personalizza la sessione
-    async session({ session, token }) {
-      if (token && session.user) {
-        session.user.id = token.id as string;
-        session.user.nome = token.nome as string;
-        session.user.cognome = token.cognome as string;
-        session.user.ruolo = token.ruolo as UserRole;
-        session.user.matricola = token.matricola as string | null | undefined;
-        session.user.isPendolare = token.isPendolare as boolean;
-        session.user.necessitaAccessibilita = token.necessitaAccessibilita as boolean;
-      }
-      return session;
-    },
-    
-    // Controlla accesso alle pagine
-    async authorized({ auth, request }) {
-      const isLoggedIn = !!auth?.user;
-      const { pathname } = request.nextUrl;
-      
-      // Route pubbliche
-      const publicRoutes = ["/login", "/registrazione", "/"];
-      if (publicRoutes.includes(pathname)) {
-        return true;
-      }
-      
-      // Route API pubbliche
-      if (pathname.startsWith("/api/auth")) {
-        return true;
-      }
-      
-      // Tutte le altre route richiedono autenticazione
-      return isLoggedIn;
-    },
+    // NOTA: i callback `session` e `authorized` NON sono piu' qui, arrivano
+    // dallo spread di `authConfig.callbacks` in cima a questo blocco.
+    //
+    // `authorized` in particolare conteneva una seconda lista di rotte
+    // pubbliche (`["/login", "/registrazione", "/"]`) che non veniva mai
+    // eseguita — il middleware non usava Auth.js — e che era gia' divergente
+    // da quella vera in `src/middleware.ts`. Ora esiste in un posto solo ed e'
+    // il controllo che il middleware esegue davvero.
   },
-  
-  pages: {
-    signIn: "/login",
-    error: "/login",
-  },
-  
-  session: {
-    strategy: "jwt",
-    maxAge: 24 * 60 * 60, // 24 ore
-  },
-  
-  // Messaggi di errore user-friendly (Trasparenza - principio HCI)
+
+  // `pages`, `session` e `trustHost` arrivano da `authConfig`: devono essere
+  // IDENTICI fra Node ed Edge, altrimenti il token emesso qui e quello atteso
+  // dal middleware potrebbero divergere (nome del cookie, scadenza, salt).
+
+  // Messaggi di errore user-friendly (Trasparenza - principio HCI).
+  // Resta solo lato Node: su Edge il log verboso di Auth.js finirebbe nei log
+  // di ogni singola richiesta che passa dal middleware.
   debug: process.env.NODE_ENV === "development",
 });
 

@@ -1,9 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
+import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/sale - Lista sale
 export async function GET(request: NextRequest) {
   try {
+    // Autenticazione DENTRO la rotta (difesa in profondita').
+    //
+    // PERCHE' E' STATA AGGIUNTA: questa rotta non si autenticava affatto. Il
+    // suo unico filtro era il middleware, che pero' si limitava a verificare
+    // che ESISTESSE un cookie di sessione: `curl -H 'Cookie:
+    // authjs.session-token=x' /api/sale` rispondeva 200 con i dati veri. Ora
+    // il middleware verifica il token sul serio, ma non deve restare l'unica
+    // barriera: il `matcher` e' una regex e una regex sbagliata ha gia'
+    // aggirato il controllo una volta (finding M-5).
+    //
+    // PERCHE' NON PUBBLICA: le sale non sono un dato personale, ma il loro
+    // unico chiamante e' `/prenota`, che e' una pagina riservata; nessuna
+    // pagina pubblica (home, login, registrazione, verifica email, reset
+    // password, accessibilita') chiama questa API. Renderla pubblica
+    // significherebbe pubblicare la mappa e l'occupazione in tempo reale
+    // della biblioteca a chiunque, senza che serva a nessuno.
+    await requireUser();
+
     const { searchParams } = new URL(request.url);
     
     // Parametri di filtro
@@ -79,6 +98,15 @@ export async function GET(request: NextRequest) {
       count: saleConStats.length,
     });
   } catch (error) {
+    // Una sessione mancante non e' un guasto del server: va tradotta nel suo
+    // 401/403, altrimenti finirebbe nel 500 generico qui sotto (e in Sentry).
+    if (error instanceof AuthError) {
+      return NextResponse.json(
+        { success: false, code: error.code, error: error.message },
+        { status: error.status },
+      );
+    }
+
     console.error("Errore GET /api/sale:", error);
     return NextResponse.json(
       { success: false, error: "Errore nel recupero delle sale" },

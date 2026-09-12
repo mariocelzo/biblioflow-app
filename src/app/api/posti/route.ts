@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { StatoPosto } from "@prisma/client";
+import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 // GET /api/posti - Lista posti con filtri e disponibilità
 export async function GET(request: NextRequest) {
   try {
+    // Autenticazione DENTRO la rotta (difesa in profondita'): prima non
+    // c'era, e l'unico filtro era il controllo di sola presenza del cookie
+    // fatto dal middleware — cioe' nessun filtro. Vedi il commento esteso in
+    // `src/app/api/sale/route.ts`.
+    //
+    // PERCHE' NON PUBBLICA: l'unico chiamante e' la pagina `/prenota`, che e'
+    // riservata. Questa rotta rivela quali posti sono liberi e quali occupati
+    // in una data e fascia oraria: informazione operativa della biblioteca,
+    // non un contenuto da vetrina.
+    await requireUser();
+
     const { searchParams } = new URL(request.url);
     
     // Parametri di filtro
@@ -162,6 +174,14 @@ export async function GET(request: NextRequest) {
       count: posti.length,
     });
   } catch (error) {
+    // Sessione assente/insufficiente: 401 o 403, non il 500 generico.
+    if (error instanceof AuthError) {
+      return NextResponse.json(
+        { success: false, code: error.code, error: error.message },
+        { status: error.status },
+      );
+    }
+
     console.error("Errore GET /api/posti:", error);
     return NextResponse.json(
       { success: false, error: "Errore nel recupero dei posti" },

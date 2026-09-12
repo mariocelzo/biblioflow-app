@@ -135,19 +135,27 @@ beforeEach(() => {
 });
 
 describe("autorizzazione admin e UI pre-modifica", () => {
-  it("[TC-PRE-014] reindirizza una pagina protetta anonima al login", () => {
-    const response = appMiddleware.middleware(
+  it("[TC-PRE-014] reindirizza una pagina protetta anonima al login", async () => {
+    const response = await appMiddleware.middleware(
       request("http://localhost/admin/prenotazioni"),
     );
 
     expect(response.status).toBe(307);
-    expect(response.headers.get("location")).toBe(
-      "http://localhost/login?callbackUrl=%2Fadmin%2Fprenotazioni",
+    // NOTA: si confrontano percorso e parametri, non la URL assoluta.
+    // Da quando il middleware usa Auth.js, l'origine della redirect viene
+    // normalizzata su `NEXTAUTH_URL` (`reqWithEnvURL` di next-auth), quindi
+    // dipende dall'ambiente in cui gira la suite. Cio' che conta per il caso
+    // di baseline — si finisce sul login conservando la destinazione — e'
+    // invariato.
+    const destinazione = new URL(response.headers.get("location") as string);
+    expect(destinazione.pathname).toBe("/login");
+    expect(destinazione.searchParams.get("callbackUrl")).toBe(
+      "/admin/prenotazioni",
     );
   });
 
   it("[TC-PRE-015] rifiuta una API protetta anonima con 401", async () => {
-    const response = appMiddleware.middleware(
+    const response = await appMiddleware.middleware(
       request("http://localhost/api/admin/statistiche?tipo=tasso-noshow"),
     );
 
@@ -158,8 +166,17 @@ describe("autorizzazione admin e UI pre-modifica", () => {
     });
   });
 
-  it("[TC-PRE-016] lascia proseguire la UI prenotazione con cookie di sessione", () => {
-    const response = appMiddleware.middleware(
+  // ⚠️ CASO CAPOVOLTO RISPETTO ALLA BASELINE ⚠️
+  // Si chiamava "[TC-PRE-016] lascia proseguire la UI prenotazione con cookie
+  // di sessione" e passava un cookie INVENTATO (`token-baseline`),
+  // aspettandosi 200. Non descriveva un requisito: fotografava il difetto per
+  // cui il middleware controllava solo che il cookie ESISTESSE, senza
+  // verificarne firma, scadenza o contenuto (`curl -H 'Cookie:
+  // authjs.session-token=x'` otteneva 200 e dati reali in produzione).
+  // Ora il token viene decifrato e verificato davvero, quindi un valore
+  // inventato porta al login come qualunque anonimo.
+  it("[TC-PRE-016] un cookie di sessione inventato non apre piu' la UI prenotazione", async () => {
+    const response = await appMiddleware.middleware(
       request(
         "http://localhost/prenota",
         "GET",
@@ -168,8 +185,9 @@ describe("autorizzazione admin e UI pre-modifica", () => {
       ),
     );
 
-    expect(response.status).toBe(200);
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.status).toBe(307);
+    const destinazione = new URL(response.headers.get("location") as string);
+    expect(destinazione.pathname).toBe("/login");
   });
 
   it("[TC-PRE-017] rifiuta uno studente sulle statistiche admin", async () => {
