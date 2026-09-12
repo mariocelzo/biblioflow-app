@@ -286,7 +286,9 @@ export default function HomePage() {
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <Header />
 
-      <main className="container mx-auto px-4 py-8 pb-24 max-w-6xl">
+      {/* `pb-24` riserva lo spazio della barra inferiore, che pero' esiste solo
+          sotto `md`: su desktop quel margine cieco non serve piu'. */}
+      <main className="container mx-auto px-4 py-8 pb-24 md:pb-8 max-w-6xl">
         {/* Hero Section con saluto */}
         <section className="mb-8">
           {isLoading ? (
@@ -729,8 +731,21 @@ export default function HomePage() {
         )}
       </main>
 
-      {/* Bottom Navigation Apple-style */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-xl border-t border-border py-2 px-4 shadow-lg">
+      {/*
+        Barra di navigazione inferiore, stile app mobile.
+
+        PERCHE' `md:hidden`: era `fixed bottom-0` senza alcun breakpoint, quindi
+        restava incollata in fondo anche a 1280px, sovrapposta al contenuto e
+        del tutto ridondante. Su desktop le stesse destinazioni ci sono gia':
+        Home (logo dell'header), Mappa/Prenota, Prestiti e Prenotazioni nella
+        <nav> dell'header, Profilo nel menu utente; il Catalogo Libri e' una
+        delle card di azione rapida qui sopra. Nascondendola sopra `md` non si
+        perde nessun percorso di navigazione.
+      */}
+      <nav
+        aria-label="Navigazione rapida"
+        className="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-xl border-t border-border py-2 px-4 shadow-lg md:hidden"
+      >
         <div className="container mx-auto flex justify-around max-w-md">
           <NavItem 
             icon={<Home className="h-5 w-5" />} 
@@ -773,6 +788,10 @@ function NavItem({
   return (
     <button
       onClick={onClick}
+      // `aria-current="page"` dice a chi usa uno screen reader dove si trova:
+      // finora la voce attiva si distingueva solo per colore e ingrandimento,
+      // cioe' per nulla se non si vede lo schermo (WCAG 1.4.1).
+      aria-current={active ? "page" : undefined}
       className={`
         flex flex-col items-center gap-1 px-4 py-2 rounded-xl
         transition-all duration-200 ease-out

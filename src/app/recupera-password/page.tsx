@@ -31,7 +31,13 @@ export default function RecuperaPasswordPage() {
       if (!res.ok) {
         setError(data.error || "Errore durante la richiesta");
       } else {
-        setMessage(data.message || "Se esiste un account riceverai un link (mock)");
+        // Messaggio di ripiego volutamente generico (e senza piu' "(mock)"):
+        // l'email di reset viene spedita davvero, e non si deve rivelare se
+        // l'indirizzo esista o meno.
+        setMessage(
+          data.message ||
+            "Se esiste un account con questa email riceverai un link per reimpostare la password.",
+        );
         if (data.data?.resetLink) setResetLink(data.data.resetLink);
       }
     } catch {
@@ -49,7 +55,10 @@ export default function RecuperaPasswordPage() {
             <Mail className="h-6 w-6 text-primary" />
           </div>
           <CardTitle>Recupera password</CardTitle>
-          <CardDescription>Inserisci la tua email universitaria per ricevere un link di reset (mock).</CardDescription>
+          {/* Niente piu' "(mock)": era un residuo di sviluppo rimasto visibile
+              in produzione e per giunta falso, perche' l'email di reset ora
+              viene spedita per davvero. */}
+          <CardDescription>Inserisci la tua email universitaria per ricevere un link di reset.</CardDescription>
         </CardHeader>
 
         <CardContent>
@@ -86,7 +95,13 @@ export default function RecuperaPasswordPage() {
 
           {resetLink && (
             <div className="mt-4 text-sm">
-              <div className="text-muted-foreground mb-2">Link mock generato:</div>
+              {/* L'API restituisce `resetLink` SOLO fuori produzione (vedi
+                  /api/auth/recupera-password): serve a completare il flusso in
+                  locale senza un servizio di posta. Il testo lo dice
+                  esplicitamente invece di chiamarlo "mock". */}
+              <div className="text-muted-foreground mb-2">
+                Link di reset (solo ambiente di sviluppo):
+              </div>
               <code className="block p-2 bg-muted/10 rounded">{resetLink}</code>
             </div>
           )}

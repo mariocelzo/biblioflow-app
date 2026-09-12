@@ -22,11 +22,34 @@
 //     `aria-controls` verso la listbox e `aria-activedescendant` sull'opzione
 //     evidenziata: il focus DOM resta nell'input (si continua a digitare)
 //     mentre lo screen reader annuncia l'opzione corrente;
-//   - ogni opzione e' `role="option"` con `aria-selected`;
+//   - ogni opzione e' `role="option"`; `aria-selected="true"` sta sull'opzione
+//     EVIDENZIATA (quella puntata da `aria-activedescendant`), perche' in una
+//     listbox a scelta singola e' cosi' che lo screen reader capisce "sei qui";
 //   - Frecce/Home/Fine spostano l'evidenziazione, Invio sceglie, Esc chiude e
 //     riporta il focus al pulsante, Tab chiude senza scegliere;
 //   - una live region `sr-only` annuncia quanti risultati sono rimasti dopo
 //     ogni battuta, altrimenti chi non vede la lista non ha alcun riscontro.
+//
+// PERCHE' I TASTI SONO GESTITI SUL CONTENITORE E NON SOLO SULL'INPUT
+// (correzione di un rilievo osservato in produzione: a menu aperto le frecce
+// non muovevano l'evidenziazione, Invio non sceglieva, Esc non chiudeva):
+//   la versione precedente appendeva `onKeyDown` SOLO al campo di ricerca e
+//   spostava il focus li' dentro con un `requestAnimationFrame`. Quel rAF non
+//   da' alcuna garanzia di girare dopo il commit del DOM: quando l'input non
+//   esiste ancora, `inputRef.current` e' null, il focus RESTA sul pulsante e da
+//   li' nessun tasto trova piu' un gestore. Peggio: ogni ArrowDown sul pulsante
+//   richiamava `apri()`, che riazzerava l'indice, quindi l'evidenziazione
+//   sembrava "incollata" alla prima opzione e Esc non faceva nulla.
+//   Con eventi sintetici (`dispatchEvent` sull'input) il difetto NON si vede,
+//   perche' quegli eventi arrivano all'input anche senza focus: per questo era
+//   passato inosservato.
+//   Due correzioni, entrambe necessarie:
+//     1. il focus si sposta in un `useLayoutEffect`, che per contratto React
+//        gira a DOM gia' aggiornato: l'input esiste sempre;
+//     2. la tastiera e' gestita una volta sola sul contenitore, dove gli eventi
+//        risalgono da QUALUNQUE elemento del widget (pulsante, campo di
+//        ricerca, "x" di azzeramento). Anche se il focus finisse altrove dentro
+//        il widget, il combobox continua a rispondere invece di morire.
 
 import * as React from "react";
 import { Check, ChevronsUpDown, Search, X } from "lucide-react";
@@ -79,6 +102,46 @@ export interface ComboboxProps {
 // campo, la strada corretta e' un `data-invalid` per lo stile piu' un messaggio
 // collegato via `aria-describedby`, che qui e' gia' previsto.
 
+/**
+ * Calcola quale opzione evidenziare dopo una freccia, Home o Fine.
+ *
+ * E' una funzione PURA e esportata di proposito: il difetto corretto qui
+ * (l'evidenziazione che non si muoveva) era per meta' di regia - il focus - e
+ * per meta' di calcolo, e senza un punto verificabile senza browser l'unica
+ * prova possibile sarebbe stata "ho premuto un tasto e ho guardato".
+ *
+ * - lo scorrimento e' CIRCOLARE (da fondo lista si torna in cima e viceversa):
+ *   su un elenco filtrato l'utente e' quasi sempre vicino a un estremo;
+ * - con zero opzioni resta 0, cosi' non si produce mai un indice negativo o
+ *   NaN da cui deriverebbe un `aria-activedescendant` che punta al nulla;
+ * - un indice fuori intervallo (lista appena ristretta da una battuta) viene
+ *   ricondotto dentro i limiti invece di propagarsi.
+ */
+export function spostaIndice(
+  tasto: string,
+  indiceCorrente: number,
+  totaleOpzioni: number,
+): number {
+  if (totaleOpzioni <= 0) return 0;
+
+  // Normalizza l'indice di partenza: negativo o oltre la fine viene riportato
+  // nell'intervallo valido.
+  const indice = Math.min(Math.max(indiceCorrente, 0), totaleOpzioni - 1);
+
+  switch (tasto) {
+    case "ArrowDown":
+      return (indice + 1) % totaleOpzioni;
+    case "ArrowUp":
+      return (indice - 1 + totaleOpzioni) % totaleOpzioni;
+    case "Home":
+      return 0;
+    case "End":
+      return totaleOpzioni - 1;
+    default:
+      return indice;
+  }
+}
+
 export function Combobox({
   id,
   value,
@@ -116,23 +179,44 @@ export function Combobox({
 
   // --- apertura / chiusura -------------------------------------------------
 
+  // Segnala all'effetto qui sotto che alla chiusura il focus va rimesso sul
+  // pulsante. E' un ref e non uno stato perche' non deve provocare render: e'
+  // un'istruzione per il commit corrente, non un dato da mostrare.
+  const focusAlPulsante = React.useRef(false);
+
   const apri = React.useCallback(() => {
     if (disabled) return;
-    setAperto(true);
+    // Riazzerare ricerca e indice SOLO alla vera apertura: se il menu e' gia'
+    // aperto (succedeva premendo ArrowDown col focus rimasto sul pulsante)
+    // azzerarli rimandava l'evidenziazione alla prima voce a ogni pressione,
+    // ed e' esattamente il sintomo "le frecce non fanno nulla".
+    if (aperto) return;
     setQuery("");
     setIndiceAttivo(0);
-    // Il focus va spostato dopo il render, quando l'input esiste davvero.
-    requestAnimationFrame(() => inputRef.current?.focus());
-  }, [disabled]);
+    setAperto(true);
+  }, [aperto, disabled]);
 
   const chiudi = React.useCallback((riportaIlFocus: boolean) => {
-    setAperto(false);
-    setQuery("");
     // Riportare il focus al pulsante e' obbligatorio quando si chiude con Esc
     // o scegliendo: senza, il focus tornerebbe al <body> e chi naviga da
     // tastiera dovrebbe ripercorrere tutta la pagina da capo.
-    if (riportaIlFocus) requestAnimationFrame(() => pulsanteRef.current?.focus());
+    focusAlPulsante.current = riportaIlFocus;
+    setAperto(false);
+    setQuery("");
   }, []);
+
+  // Spostamento del focus, l'unico punto in cui avviene.
+  // `useLayoutEffect` e non `requestAnimationFrame`: gira a DOM gia' aggiornato
+  // e PRIMA che il browser esegua l'azione predefinita del tasto appena premuto
+  // (serve per Tab: il browser deve ripartire dal pulsante, non dal <body>).
+  React.useLayoutEffect(() => {
+    if (aperto) {
+      inputRef.current?.focus();
+    } else if (focusAlPulsante.current) {
+      focusAlPulsante.current = false;
+      pulsanteRef.current?.focus();
+    }
+  }, [aperto]);
 
   const scegli = React.useCallback(
     (opzione: OpzioneCombobox) => {
@@ -171,35 +255,34 @@ export function Combobox({
 
   // --- tastiera ------------------------------------------------------------
 
-  const tastiPulsante = (evento: React.KeyboardEvent<HTMLButtonElement>) => {
-    // Freccia giu'/su aprono il menu direttamente sulla lista: e' la scorciatoia
-    // che chi naviga da tastiera si aspetta da un combobox.
-    if (evento.key === "ArrowDown" || evento.key === "ArrowUp") {
-      evento.preventDefault();
-      apri();
-    }
-  };
+  // UN SOLO gestore, agganciato al contenitore: gli eventi di tastiera risalgono
+  // qui da qualunque elemento interno, quindi il widget risponde ai tasti anche
+  // se il focus non e' (ancora) nel campo di ricerca. Prima il gestore stava
+  // solo sull'input e bastava un focus fuori posto per renderlo inservibile.
+  const tasti = (evento: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) return;
 
-  const tastiRicerca = (evento: React.KeyboardEvent<HTMLInputElement>) => {
+    // --- menu chiuso: frecce = apri, il resto e' affare del browser ---------
+    if (!aperto) {
+      // Freccia giu'/su aprono il menu: e' la scorciatoia che chi naviga da
+      // tastiera si aspetta da un combobox.
+      if (evento.key === "ArrowDown" || evento.key === "ArrowUp") {
+        evento.preventDefault();
+        apri();
+      }
+      return;
+    }
+
     switch (evento.key) {
+      // Lo spostamento dell'evidenziazione sta tutto in `spostaIndice`, che e'
+      // una funzione pura e quindi verificabile senza un browser (vedi
+      // tests/unit/combobox-tastiera.test.ts).
       case "ArrowDown":
-        evento.preventDefault();
-        // Scorrimento circolare: da fondo lista si torna in cima.
-        setIndiceAttivo((i) => (opzioni.length === 0 ? 0 : (i + 1) % opzioni.length));
-        break;
       case "ArrowUp":
-        evento.preventDefault();
-        setIndiceAttivo((i) =>
-          opzioni.length === 0 ? 0 : (i - 1 + opzioni.length) % opzioni.length,
-        );
-        break;
       case "Home":
-        evento.preventDefault();
-        setIndiceAttivo(0);
-        break;
       case "End":
         evento.preventDefault();
-        setIndiceAttivo(Math.max(0, opzioni.length - 1));
+        setIndiceAttivo((i) => spostaIndice(evento.key, i, opzioni.length));
         break;
       case "Enter": {
         evento.preventDefault();
@@ -214,8 +297,12 @@ export function Combobox({
       case "Tab":
         // Tab NON viene bloccato: chiude il menu e lascia proseguire la
         // navigazione, com'e' previsto dal pattern ARIA.
-        setAperto(false);
-        setQuery("");
+        // Il focus torna al pulsante (non al <body>): chiudendo, il campo di
+        // ricerca sparisce dal DOM e il browser ripartirebbe dall'inizio della
+        // pagina. Poiche' il focus viene rimesso in `useLayoutEffect`, cioe'
+        // prima che il browser esegua lo spostamento predefinito, Tab prosegue
+        // dal campo successivo del form, com'e' logico attendersi.
+        chiudi(true);
         break;
     }
   };
@@ -223,16 +310,25 @@ export function Combobox({
   // --- resa ----------------------------------------------------------------
 
   return (
-    <div ref={contenitoreRef} className={cn("relative", className)}>
+    // `onKeyDown` sta qui e non sui singoli elementi: vedi la nota in testa al
+    // file. Il contenitore non e' interattivo di suo (niente focus, niente
+    // ruolo), fa solo da punto di raccolta degli eventi dei figli.
+    <div
+      ref={contenitoreRef}
+      onKeyDown={tasti}
+      className={cn("relative", className)}
+    >
       <button
         ref={pulsanteRef}
         id={id}
         type="button"
         disabled={disabled}
         onClick={() => (aperto ? chiudi(true) : apri())}
-        onKeyDown={tastiPulsante}
         aria-haspopup="listbox"
         aria-expanded={aperto}
+        // A menu aperto il pulsante dichiara quale lista sta comandando: senza,
+        // lo screen reader annuncia "espanso" senza dire espanso su cosa.
+        aria-controls={aperto ? idListbox : undefined}
         aria-describedby={ariaDescribedBy}
         className={cn(
           "border-input dark:bg-input/30 dark:hover:bg-input/50 flex h-9 w-full items-center justify-between gap-2 rounded-md border bg-transparent py-2 pl-3 text-sm shadow-xs transition-[color,box-shadow,background-color] outline-none",
@@ -298,7 +394,6 @@ export function Combobox({
                 // sceglie il risultato piu' probabile.
                 setIndiceAttivo(0);
               }}
-              onKeyDown={tastiRicerca}
               className="placeholder:text-muted-foreground h-9 w-full bg-transparent text-sm outline-none"
             />
           </div>
@@ -318,7 +413,15 @@ export function Combobox({
                   key={opzione.valore}
                   id={idOpzione(indice)}
                   role="option"
-                  aria-selected={scelta}
+                  // `aria-selected` segue l'opzione EVIDENZIATA, non quella
+                  // gia' salvata nel form. In una listbox a scelta singola
+                  // pilotata da `aria-activedescendant` e' l'unico modo che ha
+                  // lo screen reader per dire "sei su questa voce": prima
+                  // l'opzione puntata risultava `aria-selected="false"` e chi
+                  // naviga da tastiera non aveva alcun riscontro.
+                  // Il valore gia' scelto resta comunque riconoscibile: c'e' la
+                  // spunta, e per chi non vede il testo "selezionato" qui sotto.
+                  aria-selected={attiva}
                   // `pointerdown` invece di `click`: il click farebbe prima
                   // perdere il focus all'input e chiuderebbe il pannello.
                   onPointerDown={(e) => {
@@ -339,6 +442,10 @@ export function Combobox({
                     aria-hidden="true"
                   />
                   <span className="truncate">{opzione.etichetta}</span>
+                  {/* La spunta e' solo grafica (`aria-hidden`): per chi usa uno
+                      screen reader il fatto che questa sia la voce gia' salvata
+                      va detto a parole. */}
+                  {scelta && <span className="sr-only">selezionato</span>}
                   {opzione.dettaglio && (
                     <span className="text-muted-foreground ml-auto shrink-0 text-xs">
                       {opzione.dettaglio}
