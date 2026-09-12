@@ -51,7 +51,7 @@ const mocks = vi.hoisted(() => {
         create: vi.fn(),
         update: vi.fn(),
       },
-      libro: { findUnique: vi.fn(), update: vi.fn() },
+      libro: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
       user: { findUnique: vi.fn() },
       logEvento: { create: vi.fn() },
       notifica: { create: vi.fn() },
@@ -143,7 +143,7 @@ const paramsPrestito = { params: Promise.resolve({ id: "prestito-1" }) };
 
 const tx = {
   prestito: { update: mocks.prisma.prestito.update, create: mocks.prisma.prestito.create },
-  libro: { update: mocks.prisma.libro.update },
+  libro: { update: mocks.prisma.libro.update, updateMany: mocks.prisma.libro.updateMany },
 };
 
 beforeAll(async () => {
@@ -163,6 +163,9 @@ beforeEach(() => {
     copieDisponibili: 3,
   });
   mocks.prisma.libro.update.mockResolvedValue({ id: "libro-1" });
+  // Decremento condizionato (fix corsa critica su copieDisponibili): di
+  // default c'e' sempre una copia da decrementare.
+  mocks.prisma.libro.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.prestito.findFirst.mockImplementation(
     async ({ where }: { where: Record<string, unknown> }) => filtra(where)[0] ?? null,
   );
@@ -242,6 +245,36 @@ describe("Integrita' dati - un prestito RINNOVATO e' ancora un prestito in corso
     );
 
     expect(response.status).toBe(200);
+  });
+
+  it("[TC-INT-RINN-004b] la PATCH rinnova estende di 14 giorni, non 30 (allineata a POST .../rinnova e al testo mostrato in UI)", async () => {
+    // DIFETTO VERIFICATO: PATCH /api/prestiti/[id] (azione "rinnova") estendeva
+    // di 30 giorni, mentre POST /api/prestiti/[id]/rinnova — l'endpoint che la
+    // UI chiama davvero — estende di 14, coerente col testo del dialog di
+    // conferma ("Il prestito sarà esteso di 14 giorni dalla data attuale").
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
+
+    mocks.prisma.prestito.findUnique.mockResolvedValue(
+      prestitoFinto({ stato: "ATTIVO", rinnovi: 0 }),
+    );
+
+    const response = await detailRoute.PATCH(
+      new NextRequest("http://localhost/api/prestiti/prestito-1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ azione: "rinnova" }),
+      }),
+      paramsPrestito,
+    );
+
+    expect(response.status).toBe(200);
+    const chiamata = mocks.prisma.prestito.update.mock.calls[0][0] as {
+      data: { dataScadenza: Date };
+    };
+    expect(chiamata.data.dataScadenza).toEqual(new Date("2030-01-15T00:00:00.000Z"));
+
+    vi.useRealTimers();
   });
 
   it("[TC-INT-RINN-005] l'anti-duplicato vede il prestito RINNOVATO: niente doppio prestito dello stesso libro", async () => {

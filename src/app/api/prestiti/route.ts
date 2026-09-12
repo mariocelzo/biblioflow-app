@@ -24,6 +24,36 @@ function errorResponse(error: unknown, fallback: string) {
   );
 }
 
+// CORSA CRITICA su `copieDisponibili` (integrita' dati): il controllo
+// `libro.copieDisponibili <= 0` qui sotto e' una LETTURA fatta PRIMA della
+// transazione, quindi non e' una guardia sufficiente. Due richieste quasi
+// simultanee per l'ultima copia leggono entrambe `copieDisponibili === 1`,
+// superano il controllo, ed entrambe eseguivano `decrement: 1` dentro la
+// transazione: senza alcuna condizione sulla riga aggiornata, Postgres non ha
+// motivo di far fallire nessuna delle due UPDATE (non e' un vincolo CHECK),
+// quindi il risultato finale era `copieDisponibili = -1` con DUE prestiti
+// attivi per una sola copia fisica.
+//
+// SCELTA: decremento CONDIZIONATO (`updateMany` con `where: { copieDisponibili:
+// { gt: 0 } }`) invece di alzare l'isolamento della transazione a Serializable
+// (il modello usato in `prenotazioni-service.ts` per gli intervalli). Motivo:
+// li' il conflitto puo' coinvolgere PIU' righe/predicati letti in fasi diverse
+// (sovrapposizioni di orario, sale, code) e serve la garanzia serializzabile
+// completa; qui il dato conteso e' UN SOLO intero su UNA SOLA riga, e Postgres
+// esegue una singola istruzione UPDATE in modo atomico a livello di riga GIA'
+// al default isolamento READ COMMITTED (la seconda UPDATE concorrente attende
+// il lock di riga della prima e poi rivaluta la propria clausola WHERE sul
+// valore aggiornato): un `updateMany` con `gt: 0` basta da solo a rendere il
+// check-and-decrement atomico, senza il costo/la complessita' di retry su
+// conflitti di serializzazione (`40001`) per un'operazione che non ne ha
+// bisogno.
+function erroreNessunaCopiaDisponibile() {
+  return NextResponse.json(
+    { success: false, error: "Nessuna copia disponibile per questo libro" },
+    { status: 409 },
+  );
+}
+
 // INTEGRITA' DATI: un prestito RINNOVATO e' ancora un prestito in corso.
 // Tutti i controlli qui sotto filtravano su `stato: "ATTIVO"` e quindi non
 // vedevano i prestiti rinnovati, con due conseguenze concrete:
@@ -200,11 +230,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Fast-fail per l'esperienza utente: NON e' la guardia che previene la
+    // corsa critica (quella e' il decremento condizionato dentro la
+    // transazione, piu' sotto), e' solo un controllo preliminare per evitare
+    // di aprire una transazione quando gia' non c'e' alcuna copia libera.
     if (libro.copieDisponibili <= 0) {
-      return NextResponse.json(
-        { success: false, error: "Nessuna copia disponibile per questo libro" },
-        { status: 409 }
-      );
+      return erroreNessunaCopiaDisponibile();
     }
 
     // Verifica che l'utente non abbia già questo libro in prestito.
@@ -244,43 +275,63 @@ export async function POST(request: NextRequest) {
     const dataScadenza = new Date();
     dataScadenza.setDate(dataScadenza.getDate() + durataDays);
 
+    // Segnale interno di rollback: nessuna copia libera al momento del
+    // decremento (vedi commento sulla corsa critica qui sopra). Non e' un 500:
+    // e' l'esito applicativo "un'altra richiesta ha preso l'ultima copia".
+    const NESSUNA_COPIA = Symbol("nessuna-copia-disponibile");
+
     // Crea il prestito in una transazione
-    const prestito = await prisma.$transaction(async (tx) => {
-      // Decrementa copie disponibili
-      await tx.libro.update({
-        where: { id: libroId },
-        data: { copieDisponibili: { decrement: 1 } },
-      });
+    let prestito;
+    try {
+      prestito = await prisma.$transaction(async (tx) => {
+        // Decremento CONDIZIONATO: aggiorna la riga SOLO se ha ancora almeno
+        // una copia libera. Se un'altra richiesta l'ha appena presa,
+        // `count` e' 0 e si abortisce la transazione (nessuna scrittura
+        // orfana di `Prestito` senza il corrispondente decremento).
+        const aggiornato = await tx.libro.updateMany({
+          where: { id: libroId, copieDisponibili: { gt: 0 } },
+          data: { copieDisponibili: { decrement: 1 } },
+        });
 
-      // Crea prestito
-      const newPrestito = await tx.prestito.create({
-        data: {
-          userId,
-          libroId,
-          dataScadenza,
-          stato: "ATTIVO",
-        },
-        include: {
-          user: {
-            select: {
-              id: true,
-              nome: true,
-              cognome: true,
-              email: true,
+        if (aggiornato.count === 0) {
+          throw NESSUNA_COPIA;
+        }
+
+        // Crea prestito
+        const newPrestito = await tx.prestito.create({
+          data: {
+            userId,
+            libroId,
+            dataScadenza,
+            stato: "ATTIVO",
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                nome: true,
+                cognome: true,
+                email: true,
+              },
+            },
+            libro: {
+              select: {
+                id: true,
+                titolo: true,
+                autore: true,
+              },
             },
           },
-          libro: {
-            select: {
-              id: true,
-              titolo: true,
-              autore: true,
-            },
-          },
-        },
-      });
+        });
 
-      return newPrestito;
-    });
+        return newPrestito;
+      });
+    } catch (error) {
+      if (error === NESSUNA_COPIA) {
+        return erroreNessunaCopiaDisponibile();
+      }
+      throw error;
+    }
 
     // Crea log evento
     await prisma.logEvento.create({

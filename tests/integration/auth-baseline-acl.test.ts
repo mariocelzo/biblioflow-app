@@ -318,7 +318,12 @@ describe("ACL baseline - userId dal client sempre ignorato (C-3/C-4/C-6)", () =>
     mocks.prisma.$transaction.mockImplementation(
       async (cb: (tx: unknown) => unknown) =>
         cb({
-          libro: { update: vi.fn().mockResolvedValue({}) },
+          // Decremento condizionato (fix corsa critica su copieDisponibili,
+          // src/app/api/prestiti/route.ts): `updateMany` sostituisce `update`.
+          libro: {
+            update: vi.fn().mockResolvedValue({}),
+            updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+          },
           prestito: { create: txPrestitoCreate },
         }),
     );

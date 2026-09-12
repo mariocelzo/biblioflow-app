@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { estraiLibriDaRisposta, urlRicercaLibri } from "@/lib/catalogo-libri";
 import {
   BookOpen,
   Search,
@@ -42,17 +43,22 @@ import {
 } from "lucide-react";
 
 // Tipi
+// I campi rispecchiano il modello `Libro` di prisma/schema.prisma: prima
+// c'erano `posizione`/`annoPubblicazione`/`genere`, campi MAI esistiti nello
+// schema (il modello reale ha `scaffale`+`piano`, `anno`, `categoria`), quindi
+// restavano sempre `undefined` a runtime.
 interface Libro {
   id: string;
   titolo: string;
   autore: string;
   isbn: string;
-  editore: string;
-  annoPubblicazione: number;
-  genere: string;
+  editore: string | null;
+  anno: number | null;
+  categoria: string | null;
   copieDisponibili: number;
   copieTotali: number;
-  posizione: string;
+  scaffale: string | null;
+  piano: number | null;
 }
 
 interface Prestito {
@@ -115,15 +121,23 @@ export default function PrestitiPage() {
   }, [status, session?.user?.id]);
 
   // Cerca libri
+  // BUG 1: mandava `?search=`, ma GET /api/libri legge `q` — il filtro non
+  // veniva mai applicato lato server.
+  // BUG 2: `data` e' l'intera risposta `{ success, data, pagination }`, non
+  // l'array di libri: `setLibri(data)` assegnava quell'oggetto a uno stato
+  // tipizzato `Libro[]`, e il primo `libri.map(...)` lanciava un TypeError.
+  // Stesso pattern gia' corretto in src/app/libri/page.tsx (`fetchLibri`).
+  // Le due funzioni sono in src/lib/catalogo-libri.ts (testate in isolamento
+  // in tests/unit/catalogo-libri.test.ts, senza dover montare il componente).
   const handleSearchLibri = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setLoadingLibri(true);
     try {
-      const res = await fetch(`/api/libri?search=${encodeURIComponent(searchQuery)}`);
+      const res = await fetch(urlRicercaLibri(searchQuery));
       if (res.ok) {
-        const data = await res.json();
-        setLibri(data);
+        const result = await res.json();
+        setLibri(estraiLibriDaRisposta<Libro>(result));
       }
     } catch (error) {
       console.error("Errore ricerca libri:", error);
@@ -308,6 +322,14 @@ export default function PrestitiPage() {
   // Card libro catalogo
   const LibroCard = ({ libro }: { libro: Libro }) => {
     const disponibile = libro.copieDisponibili > 0;
+    // `posizione` non esiste nello schema: la posizione fisica del libro è
+    // "scaffale" + "piano" (entrambi opzionali nel DB).
+    const posizione = [
+      libro.scaffale,
+      libro.piano !== null && libro.piano !== undefined ? `piano ${libro.piano}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
 
     return (
       <Card>
@@ -316,7 +338,7 @@ export default function PrestitiPage() {
             <div className="flex-shrink-0 w-12 h-16 bg-primary/10 rounded flex items-center justify-center">
               <BookMarked className="h-6 w-6 text-primary" />
             </div>
-            
+
             <div className="flex-1 min-w-0">
               <h3 className="font-medium truncate">{libro.titolo}</h3>
               <p className="text-sm text-muted-foreground">{libro.autore}</p>
@@ -324,9 +346,11 @@ export default function PrestitiPage() {
                 <Badge variant={disponibile ? "default" : "secondary"}>
                   {disponibile ? `${libro.copieDisponibili} disponibili` : "Non disponibile"}
                 </Badge>
-                <span className="text-xs text-muted-foreground">
-                  {libro.posizione}
-                </span>
+                {posizione && (
+                  <span className="text-xs text-muted-foreground">
+                    {posizione}
+                  </span>
+                )}
               </div>
             </div>
           </div>
