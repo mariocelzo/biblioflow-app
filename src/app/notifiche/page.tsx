@@ -183,9 +183,13 @@ export default function NotifichePage() {
     });
   };
 
+  // NOTA TEMA SCURO: prima qui c'era `bg-gray-50`, un colore fisso chiaro che
+  // in tema scuro produceva sfondo pagina bianco con testo bianco sopra
+  // (contrasto ~1:1). `bg-background` è il token del design system che
+  // cambia automaticamente tra `:root` e `.dark` (vedi globals.css).
   if (status === "loading") {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-background">
         <Header />
         <main className="container mx-auto px-4 py-8">
           <Skeleton className="h-8 w-48 mb-6" />
@@ -198,13 +202,15 @@ export default function NotifichePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <BackButton />
-        
-        <div className="flex items-center justify-between mb-6">
+
+        {/* Ritocco estetico: più respiro verticale tra header e lista, in
+            linea con le altre pagine già corrette (prestiti/prenotazioni) */}
+        <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
             <Bell className="h-8 w-8 text-blue-600 dark:text-blue-400" />
             <div>
@@ -214,7 +220,7 @@ export default function NotifichePage() {
               </p>
             </div>
           </div>
-          
+
           {nonLette > 0 && (
             <Button variant="outline" size="sm" onClick={segnaTutteComeLette}>
               <CheckCheck className="h-4 w-4 mr-2" />
@@ -285,20 +291,27 @@ export default function NotifichePage() {
             ) : (
               <div className="space-y-3">
                 {notifiche.map((notifica) => (
-                  <Card 
-                    key={notifica.id} 
+                  <Card
+                    key={notifica.id}
                     className={`transition-all hover:shadow-md ${
-                      !notifica.letta ? "border-l-4 border-l-blue-500 bg-blue-50/30" : ""
+                      // PERCHÉ: `bg-blue-50/30` era un azzurro fisso pensato solo
+                      // per sfondo chiaro. `bg-primary/5` usa il colore primario
+                      // del tema con alpha, quindi resta leggibile e coerente
+                      // sia in chiaro che in scuro (border-l-primary idem).
+                      !notifica.letta ? "border-l-4 border-l-primary bg-primary/5" : ""
                     }`}
                   >
                     <CardContent className="p-4">
                       <div className="flex gap-4">
                         <div className="flex-shrink-0 mt-1">
-                          <div className="h-10 w-10 rounded-full bg-card dark:bg-gray-700 border flex items-center justify-center">
+                          {/* `bg-card` da solo basta: il token cambia già valore
+                              in .dark, l'override fisso dark:bg-gray-700 era
+                              ridondante e disallineato dal design system */}
+                          <div className="h-10 w-10 rounded-full bg-card border border-border flex items-center justify-center">
                             {getTipoConfig(notifica.tipo).icona}
                           </div>
                         </div>
-                        
+
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -309,16 +322,23 @@ export default function NotifichePage() {
                                 {getTipoConfig(notifica.tipo).label}
                               </Badge>
                             </div>
-                            <span className="text-xs text-gray-400 whitespace-nowrap">
+                            {/* text-gray-400 fisso -> text-muted-foreground: stesso ruolo
+                                (testo secondario) ma leggibile anche in tema scuro */}
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
                               {formatData(notifica.createdAt)}
                             </span>
                           </div>
-                          
-                          <p className={`mt-1 text-sm ${!notifica.letta ? "text-gray-700" : "text-gray-500"}`}>
+
+                          {/* text-gray-700/500 fissi -> text-foreground/text-muted-foreground:
+                              stessa gerarchia (letta = attenuata, non letta = risalto) ma
+                              con contrasto corretto sia in chiaro che in scuro */}
+                          <p className={`mt-1 text-sm ${!notifica.letta ? "text-foreground" : "text-muted-foreground"}`}>
                             {notifica.messaggio}
                           </p>
-                          
-                          <div className="flex items-center gap-2 mt-3">
+
+                          {/* Ritocco estetico: gap leggermente maggiore tra le azioni,
+                              più respiro rispetto ai testi sopra */}
+                          <div className="flex items-center gap-2 mt-4">
                             {notifica.actionUrl && (
                               <Button 
                                 variant="outline" 
@@ -352,10 +372,15 @@ export default function NotifichePage() {
                               </Button>
                             )}
                             
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="sm"
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50 ml-auto"
+                              // hover:bg-red-50 era un rosso chiaro fisso: su sfondo
+                              // scuro (bg-card ~ oklch 0.18) restava praticamente
+                              // invisibile / creava un blocco chiaro fuori contesto.
+                              // dark:hover:bg-red-950 replica lo stesso "avviso rosso
+                              // soft" ma coerente col tema scuro.
+                              className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-500 dark:hover:text-red-400 dark:hover:bg-red-950 ml-auto"
                               onClick={() => eliminaNotifica(notifica.id)}
                             >
                               <Trash2 className="h-3 w-3" />

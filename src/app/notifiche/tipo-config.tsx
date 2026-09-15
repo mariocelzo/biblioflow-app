@@ -27,6 +27,16 @@ export interface TipoConfig {
  * - Per i 5 tipi storici: resa identica a quella originale
  * - Per i 5 nuovi tipi: configurazione sensata
  * - Per qualsiasi altro tipo: fallback neutro (non genera mai undefined)
+ *
+ * NOTA TEMA SCURO: i colori "colore" (bg-X-100 text-X-800) sono coppie fisse
+ * chiuse in sé stesse (sfondo chiaro + testo scuro sempre insieme), quindi
+ * NON sono il difetto di contrasto segnalato per /notifiche (che riguardava
+ * testo del tema, es. text-foreground, sopra uno sfondo pagina fisso chiaro).
+ * Qui il badge resta leggibile anche in tema scuro, solo esteticamente "un
+ * chip chiaro" fuori contesto. Non aggiungiamo varianti dark: perché
+ * `tests/unit/notifiche-tipo-config.test.ts` verifica queste stringhe con
+ * uguaglianza esatta come contratto di "resa identica" per i 5 tipi storici:
+ * quel test non è tra i file di nostra competenza e non va toccato qui.
  */
 export function getTipoConfig(tipo: string): TipoConfig {
   // Mappa consolidata: tipo → {icona, colore, label}

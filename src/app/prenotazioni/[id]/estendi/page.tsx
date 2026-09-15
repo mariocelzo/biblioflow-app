@@ -255,7 +255,13 @@ export default function EstendiPrenotazionePage({
           </p>
         </div>
 
-        {/* Card Info Prenotazione */}
+        {/* Card Info Prenotazione.
+            NOTA TEMA SCURO: gli overlay bg-white/10-20 qui sotto NON sono il
+            bug della pagina notifiche/libro. Questa card ha sfondo fisso
+            `bg-gradient-to-br from-primary to-primary/80` (il token --primary
+            resta un blu saturo sia in chiaro che in scuro, vedi globals.css),
+            quindi il testo/overlay bianco è sempre leggibile: non dipende dal
+            tema della pagina. Lasciati invariati di proposito. */}
         <Card className="mb-6 border-0 shadow-lg bg-gradient-to-br from-primary to-primary/80 text-white">
           <CardContent className="p-6">
             <div className="flex items-start justify-between">
