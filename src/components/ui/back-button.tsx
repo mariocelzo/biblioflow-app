@@ -30,8 +30,8 @@ export function BackButton({
       variant="ghost"
       onClick={handleBack}
       className={`
-        group flex items-center gap-2 px-0 
-        text-[#007AFF] hover:text-[#0051D5] 
+        group flex items-center gap-2 px-0
+        text-[var(--link)] hover:text-[var(--link-hover)]
         hover:bg-transparent
         transition-all duration-200
         ${className}

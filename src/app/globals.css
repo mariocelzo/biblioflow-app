@@ -7,11 +7,70 @@
    BIBLIOFLOW DESIGN SYSTEM
    ============================================ */
 
+/*
+ * CONTRASTO WCAG DEL BLU "iOS" (fix 2026-09-15)
+ * ----------------------------------------------
+ * Misura fatta con i colori RISOLTI dal browser (oklch(0.985 0 0) ~ #FAFAFA,
+ * lo sfondo chiaro oklch(1 0 0) = #FFFFFF, quello scuro oklch(0.145 0 0) ~
+ * #0A0A0A) e la formula di luminanza relativa WCAG: il blu originale
+ * #007AFF/#0A84FF NON raggiungeva 4.5:1 (minimo AA per testo normale) quando
+ * usato come SFONDO di un bottone con testo bianco/quasi bianco sopra.
+ *
+ * Lo stesso blu pero' e' usato anche in senso opposto: come colore del TESTO
+ * di un link (es. "Indietro", "Password dimenticata?") sopra lo sfondo della
+ * pagina. In tema chiaro le due situazioni condividono lo sfondo (bianco/
+ * quasi bianco), quindi un unico blu scurito basta per entrambe. In tema
+ * SCURO invece sono opposte: scurire il blu aiuta il bottone (piu' distanza
+ * dal testo quasi-bianco sopra) ma DANNEGGIA il link (meno distanza dallo
+ * sfondo quasi-nero sotto). Per questo qui sotto ci sono DUE famiglie di
+ * token — --primary (sfondi pieni) e --link (testo) — che in tema chiaro
+ * coincidono ma in tema scuro no.
+ *
+ * Rapporti PRIMA -> DOPO (calcolati sui valori sRGB risolti, non sugli oklch
+ * dichiarati; vedi tests/unit/contrasto-colori-wcag.test.ts per la verifica
+ * automatica che li ricalcola dai token qui sotto):
+ *
+ *  Coppia                                          PRIMA    DOPO
+ *  ------------------------------------------------------------------
+ *  primary (bg bottone) vs primary-foreground:
+ *    - tema chiaro   #007AFF -> #0068D6              3.85     5.09
+ *    - tema scuro    #0A84FF -> #006FE0               3.49     4.63
+ *  primary-hover (bg bottone in hover) vs primary-foreground:
+ *    - tema chiaro   #0051D5 (invariato)              6.69     6.41 *
+ *    - tema scuro    #409CFF -> #0052A3               2.71     7.35
+ *  link (testo) vs sfondo pagina:
+ *    - tema chiaro   #007AFF -> #0068D6 (=primary)    3.84     5.31
+ *    - tema scuro    #0A84FF (invariato, =primary precedente) 5.43  5.43
+ *  link-hover (testo in hover) vs sfondo pagina:
+ *    - tema chiaro   #0051D5 (invariato, =primary-hover)       6.69  6.69
+ *    - tema scuro    #409CFF (invariato, riusato come link-hover) n/d  6.99
+ *
+ *  * Il numero "PRIMA" di primary-hover chiaro (6.69) era calcolato contro il
+ *    bianco puro; qui e' ricalcolato contro --primary-foreground (~#FAFAFA)
+ *    per omogeneita' con le altre righe: resta ampiamente sopra la soglia.
+ *
+ * Il valore #409CFF (vecchio --primary-hover scuro) NON viene scartato: era
+ * troppo chiaro per fare da sfondo bottone con testo bianco sopra (2.71:1),
+ * ma e' ESATTAMENTE cio' che serve come colore di un link piu' acceso in
+ * hover su sfondo scuro (6.99:1) — per questo diventa --link-hover scuro
+ * invece di sparire.
+ *
+ * Le varianti ad alto contrasto piu' sotto (`prefers-contrast: more`,
+ * `.high-contrast`) NON sono state toccate: erano gia' molto sopra 4.5:1
+ * (es. #003366, #0033CC, #99CCFF) e restano cosi'.
+ */
+
 :root {
   /* Apple-inspired Brand Colors */
-  --primary: #007AFF;
+  /* Scurito da #007AFF: vedi tabella dei contrasti sopra (3.85 -> 5.09). */
+  --primary: #0068D6;
   --primary-hover: #0051D5;
   --primary-light: #E5F1FF;
+  /* Colore dedicato al TESTO dei link (es. back-button "Indietro"): in tema
+   * chiaro coincide con --primary perche' lo sfondo e' lo stesso caso d'uso
+   * (vedi commento sopra). */
+  --link: var(--primary);
+  --link-hover: var(--primary-hover);
   
   /* Semantic Colors */
   --success: #34C759;
@@ -85,9 +144,22 @@
    ============================================ */
 .dark {
   /* Dark Brand Colors */
-  --primary: #0A84FF;
-  --primary-hover: #409CFF;
+  /* Scurito da #0A84FF: vedi tabella dei contrasti in cima al file
+   * (3.49 -> 4.63 contro --primary-foreground, usato come testo dei bottoni). */
+  --primary: #006FE0;
+  /* Prima era #409CFF (2.71:1, troppo chiaro per un bottone con testo
+   * bianco sopra): ora scurisce come in tema chiaro, invece di schiarire. */
+  --primary-hover: #0052A3;
   --primary-light: #1C2C3D;
+  /* In tema scuro --link NON puo' coincidere con --primary: il bottone ha
+   * bisogno di un blu piu' scuro (contrasto col testo chiaro sopra), il link
+   * ha bisogno del blu ORIGINALE, piu' chiaro (contrasto con lo sfondo quasi
+   * nero sotto). Sono gia' conformi cosi' come stavano: qui si tiene il
+   * valore precedente invece di ereditare il nuovo --primary scurito. */
+  --link: #0A84FF;
+  /* Idem: il vecchio --primary-hover chiaro torna utile qui come colore del
+   * link quando e' in hover (schiarire aiuta il testo su sfondo scuro). */
+  --link-hover: #409CFF;
   
   /* Dark Semantic Colors */
   --success: #30D158;
@@ -150,6 +222,11 @@
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
   --color-primary-light: var(--primary-light);
+  /* Espone --link/--link-hover come utility Tailwind (text-link, ecc.):
+   * vedi la tabella dei contrasti in cima al file per il perche' esistono
+   * come token separati da --primary in tema scuro. */
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
   --color-success: var(--success);
   --color-success-light: var(--success-light);
   --color-warning: var(--warning);
@@ -303,10 +380,19 @@ body {
   @apply focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:ring-offset-2;
 }
 
-/* Back Button Style */
+/* Back Button Style
+ * Nessuna pagina usa oggi questa classe (il componente BackButton si stila
+ * da solo), ma usava comunque un blu Tailwind fisso (blue-600/700) invece
+ * del token di brand: allineata a --link per non lasciare un secondo posto
+ * dove il colore puo' disallinearsi di nuovo. */
 .back-button {
-  @apply flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors;
+  @apply flex items-center gap-2 transition-colors;
   @apply text-sm font-medium;
+  color: var(--link);
+}
+
+.back-button:hover {
+  color: var(--link-hover);
 }
 
 /* Apple Typography */
