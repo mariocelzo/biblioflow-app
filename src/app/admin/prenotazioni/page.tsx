@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -8,6 +9,7 @@ import PrenotazioniFiltri from "@/components/admin/prenotazioni-filtri";
 import PrenotazioniActions from "@/components/admin/prenotazioni-actions";
 import { Calendar, Clock, MapPin, User } from "lucide-react";
 import type { StatoPrenotazione } from "@prisma/client";
+import { formattaOraDb } from "@/lib/admin-tempo";
 
 type SearchParams = {
   stato?: string;
@@ -15,16 +17,25 @@ type SearchParams = {
   utente?: string;
 };
 
+export const metadata: Metadata = {
+  title: "Gestione prenotazioni",
+};
+
 export default async function PrenotazioniAdminPage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  // Next.js 16: searchParams e' una Promise da attendere. Prima veniva letta
+  // in modo sincrono e la console del dev server segnalava un errore ad ogni
+  // richiesta ("searchParams is a Promise and must be unwrapped").
+  searchParams: Promise<SearchParams>;
 }) {
   const session = await auth();
 
   if (!session?.user || (session.user.ruolo !== "ADMIN" && session.user.ruolo !== "BIBLIOTECARIO")) {
     redirect("/login");
   }
+
+  const params = await searchParams;
 
   // Build where clause
   type WhereInput = {
@@ -42,21 +53,21 @@ export default async function PrenotazioniAdminPage({
 
   const where: WhereInput = {};
 
-  if (searchParams.stato && searchParams.stato !== "tutti") {
-    where.stato = searchParams.stato as StatoPrenotazione;
+  if (params.stato && params.stato !== "tutti") {
+    where.stato = params.stato as StatoPrenotazione;
   }
 
-  if (searchParams.data) {
-    const dataSelezionata = new Date(searchParams.data);
+  if (params.data) {
+    const dataSelezionata = new Date(params.data);
     where.data = dataSelezionata;
   }
 
-  if (searchParams.utente) {
+  if (params.utente) {
     where.OR = [
-      { user: { nome: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { cognome: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { email: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { matricola: { contains: searchParams.utente, mode: "insensitive" } } },
+      { user: { nome: { contains: params.utente, mode: "insensitive" } } },
+      { user: { cognome: { contains: params.utente, mode: "insensitive" } } },
+      { user: { email: { contains: params.utente, mode: "insensitive" } } },
+      { user: { matricola: { contains: params.utente, mode: "insensitive" } } },
     ];
   }
 
@@ -225,7 +236,10 @@ export default async function PrenotazioniAdminPage({
                         </div>
                         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                           <Clock className="h-3.5 w-3.5" />
-                          {new Date(`1970-01-01T${prenotazione.oraInizio}`).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })} - {new Date(`1970-01-01T${prenotazione.oraFine}`).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                          {/* oraInizio/oraFine sono oggetti Date (colonna Time):
+                              formattaOraDb evita l'"Invalid Date" che compariva
+                              qui prima (vedi src/lib/admin-tempo.ts). */}
+                          {formattaOraDb(prenotazione.oraInizio)} - {formattaOraDb(prenotazione.oraFine)}
                         </div>
                       </div>
                     </TableCell>

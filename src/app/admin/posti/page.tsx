@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +34,10 @@ import {
 } from "lucide-react";
 import db from "@/lib/prisma";
 import { PostoActionButton } from "@/components/admin/posti-actions";
+
+export const metadata: Metadata = {
+  title: "Gestione posti",
+};
 
 export default async function AdminPostiPage() {
   const session = await auth();

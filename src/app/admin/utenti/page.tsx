@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,10 @@ import {
 } from "lucide-react";
 import db from "@/lib/prisma";
 import { UtenteActionButton } from "@/components/admin/utenti-actions";
+
+export const metadata: Metadata = {
+  title: "Gestione utenti",
+};
 
 export default async function AdminUtentiPage() {
   const session = await auth();

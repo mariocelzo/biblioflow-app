@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +25,11 @@ import {
 } from "lucide-react";
 import db from "@/lib/prisma";
 import { AnomalieActions, QuickActions, RowActionButton } from "@/components/admin/anomalie-actions";
+import { formattaOraDb } from "@/lib/admin-tempo";
+
+export const metadata: Metadata = {
+  title: "Anomalie & Alert",
+};
 
 export default async function AdminAnomaliesPage() {
   const session = await auth();
@@ -506,15 +512,12 @@ export default async function AdminAnomaliesPage() {
                       <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         <span className="text-sm">
-                          {new Date(prenotazione.oraInizio).toLocaleTimeString("it-IT", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}{" "}
-                          -{" "}
-                          {new Date(prenotazione.oraFine).toLocaleTimeString("it-IT", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {/* formattaOraDb forza il fuso UTC: oraInizio/oraFine
+                              sono salvate come istante UTC sul finto giorno
+                              1970-01-01 (vedi src/lib/admin-tempo.ts), quindi
+                              senza `timeZone: "UTC"` l'ora mostrata slitta
+                              del fuso del processo che la renderizza. */}
+                          {formattaOraDb(prenotazione.oraInizio)} - {formattaOraDb(prenotazione.oraFine)}
                         </span>
                       </div>
                     </TableCell>

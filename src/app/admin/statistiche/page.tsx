@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, TrendingUp, Users, BookOpen, Clock } from "lucide-react";
 import StatisticheCharts from "@/components/admin/statistiche-charts";
+
+export const metadata: Metadata = {
+  title: "Statistiche",
+};
 
 export default async function StatisticheAdminPage() {
   const session = await auth();

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -22,16 +23,25 @@ type SearchParams = {
   utente?: string;
 };
 
+export const metadata: Metadata = {
+  title: "Gestione prestiti",
+};
+
 export default async function PrestitiAdminPage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  // Next.js 16: searchParams e' una Promise da attendere (vedi lo stesso
+  // fix in admin/prenotazioni/page.tsx). Senza await il dev server segnalava
+  // un errore ad ogni richiesta.
+  searchParams: Promise<SearchParams>;
 }) {
   const session = await auth();
 
   if (!session?.user || (session.user.ruolo !== "ADMIN" && session.user.ruolo !== "BIBLIOTECARIO")) {
     redirect("/login");
   }
+
+  const params = await searchParams;
 
   // Build where clause
   type WhereInput = {
@@ -48,20 +58,20 @@ export default async function PrestitiAdminPage({
 
   const where: WhereInput = {};
 
-  if (searchParams.stato && searchParams.stato !== "tutti") {
-    where.stato = searchParams.stato as StatoPrestito;
+  if (params.stato && params.stato !== "tutti") {
+    where.stato = params.stato as StatoPrestito;
   }
 
-  if (searchParams.scadenza === "scaduti") {
+  if (params.scadenza === "scaduti") {
     // Un rinnovato in ritardo e' scaduto quanto un attivo in ritardo.
     Object.assign(where, filtroScadenzaScaduti());
   }
 
-  if (searchParams.utente) {
+  if (params.utente) {
     where.OR = [
-      { user: { nome: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { cognome: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { email: { contains: searchParams.utente, mode: "insensitive" } } },
+      { user: { nome: { contains: params.utente, mode: "insensitive" } } },
+      { user: { cognome: { contains: params.utente, mode: "insensitive" } } },
+      { user: { email: { contains: params.utente, mode: "insensitive" } } },
     ];
   }
 

@@ -13,13 +13,20 @@ export function RichiesteCard({ richiestePendenti }: RichiesteCardProps) {
     const router = useRouter();
 
     return (
-        <Card className="col-span-4">
+        // Prima "col-span-4" su una griglia lg:grid-cols-7 lasciava 3 colonne
+        // vuote nella riga della card "Attività Recente" (4+4 supera 7 e va a
+        // capo). Qui la card fa da banner a tutta larghezza sotto la coppia
+        // Attività/Anomalie, che insieme riempiono esattamente le 7 colonne.
+        <Card className="md:col-span-2 lg:col-span-7">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <Package className="h-5 w-5 text-blue-600" />
                     Richieste Libri
                 </CardTitle>
-                <CardDescription>Click & Collect service status</CardDescription>
+                {/* "Click & Collect" e' il nome del servizio (usato anche in
+                    /admin/richieste): solo "service status" era rimasto in
+                    inglese. */}
+                <CardDescription>Click & Collect — stato del servizio</CardDescription>
             </CardHeader>
             <CardContent>
                 <div className="flex items-center justify-between">
