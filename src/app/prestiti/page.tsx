@@ -63,7 +63,12 @@ interface Libro {
 
 interface Prestito {
   id: string;
-  dataInizio: string;
+  // DIFETTO 2: qui c'era `dataInizio`, campo mai esistito. Lo schema Prisma
+  // (model `Prestito`) e GET /api/prestiti (che ordina proprio per questo
+  // campo) usano `dataPrestito`: leggere `prestito.dataPrestito` restituiva
+  // sempre `undefined`, quindi `new Date(undefined)` produceva "Invalid Date"
+  // sia a schermo sia nell'aria-label letta dagli screen reader.
+  dataPrestito: string;
   dataScadenza: string;
   dataRestituzione: string | null;
   stato: "ATTIVO" | "RESTITUITO" | "SCADUTO" | "RINNOVATO";
@@ -220,7 +225,7 @@ export default function PrestitiPage() {
     const puoRinnovare = prestito.rinnovi < prestito.maxRinnovi && !isScaduto;
 
     const cardAriaLabel = `Prestito libro ${prestito.libro.titolo} di ${prestito.libro.autore}, 
-      preso il ${new Date(prestito.dataInizio).toLocaleDateString("it-IT")}, 
+      preso il ${new Date(prestito.dataPrestito).toLocaleDateString("it-IT")}, 
       scadenza ${new Date(prestito.dataScadenza).toLocaleDateString("it-IT")}, 
       stato: ${prestito.stato.toLowerCase()}${isScaduto ? ', SCADUTO' : inScadenza ? ', in scadenza' : ''}`;
 
@@ -251,7 +256,7 @@ export default function PrestitiPage() {
               <div className="flex flex-wrap gap-4 mt-2 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  Preso: {new Date(prestito.dataInizio).toLocaleDateString("it-IT")}
+                  Preso: {new Date(prestito.dataPrestito).toLocaleDateString("it-IT")}
                 </div>
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />
