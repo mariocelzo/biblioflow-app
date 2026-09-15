@@ -18,10 +18,43 @@ async function main() {
   await prisma.logEvento.deleteMany();
   await prisma.notifica.deleteMany();
   await prisma.prestito.deleteMany();
+  // ListaAttesa ha FK obbligatorie sia verso User sia verso Posto: va
+  // cancellata prima di entrambi (vedi anche la nota su AuthToken piu' sotto
+  // per il perche' l'ordine di queste query non e' arbitrario).
+  await prisma.listaAttesa.deleteMany();
   await prisma.prenotazione.deleteMany();
   await prisma.posto.deleteMany();
   await prisma.libro.deleteMany();
   await prisma.sala.deleteMany();
+  // AuthToken ha una FK verso User (`AuthToken_userId_fkey`) e NON un
+  // `onDelete: Cascade` a livello di schema (prisma/schema.prisma, model
+  // AuthToken): va quindi cancellato PRIMA di `user.deleteMany()`,
+  // altrimenti Postgres rifiuta la delete con un "Foreign key constraint
+  // violated". Sul primo seed su DB vuoto il vincolo non si nota (nessuna
+  // riga da cancellare); basta pero' che il flusso di verifica email/reset
+  // password abbia girato UNA volta (creando righe in AuthToken per gli
+  // utenti demo) perche' il seed successivo fallisca qui: per questo la
+  // correzione si verifica rieseguendo il seed due volte di fila, non una
+  // sola.
+  //
+  // Si e' scelto di ordinare le cancellazioni invece di aggiungere
+  // `onDelete: Cascade` allo schema: quest'ultimo richiederebbe una
+  // migrazione e cambierebbe il comportamento anche in produzione (un utente
+  // cancellato manualmente si porterebbe dietro silenziosamente i suoi
+  // token), mentre qui il problema e' solo l'ordine delle query in QUESTO
+  // script.
+  //
+  // NB: il modello `RichiestaPreparazione` ha la stessa FK verso User, ma
+  // NON viene toccato qui: la sua tabella non esiste ancora su questo DB
+  // (drift noto e documentato in
+  // prisma/migrations/20260902113000_enable_rls_public_tables/migration.sql,
+  // righe 11-21 — "RichiestaPreparazione" e' gestita li' con un controllo di
+  // esistenza proprio perche' la migrazione che crea la tabella non e' stata
+  // ancora scritta). Aggiungere `richiestaPreparazione.deleteMany()` qui
+  // romperebbe il seed su ogni DB allineato allo stato attuale delle
+  // migrazioni; e' un problema separato, fuori dallo scope di questa
+  // correzione (FK `AuthToken_userId_fkey`).
+  await prisma.authToken.deleteMany();
   await prisma.user.deleteMany();
 
   // ============================================
