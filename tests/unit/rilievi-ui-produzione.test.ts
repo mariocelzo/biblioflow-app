@@ -54,7 +54,11 @@ describe("/recupera-password", () => {
 });
 
 describe("barra di navigazione inferiore", () => {
-  const sorgente = leggi("src/app/page.tsx");
+  // La barra vive ora in `home-client.tsx`: `src/app/page.tsx` e' diventato
+  // un Server Component che calcola le statistiche della home (DIFETTO 1,
+  // vedi i commenti li' dentro) e delega tutta la parte interattiva —
+  // sessione, countdown, e questa barra — al componente client.
+  const sorgente = leggi("src/app/home-client.tsx");
 
   it("e' nascosta da `md` in su: su desktop duplicava l'header", () => {
     const barra = sorgente.match(/<nav[\s\S]*?className="([^"]*fixed bottom-0[^"]*)"/);
