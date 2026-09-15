@@ -29,6 +29,12 @@ export function InstallBanner() {
 
   return (
     <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 z-50">
+      {/* NOTA TEMA SCURO: il banner ha già un gradiente blu fisso con la sua
+          variante dark: (from-blue-700 dark:from-blue-700...), quindi
+          bg-white/20, bg-white (pulsante "Installa") e hover:bg-white/20 qui
+          sotto restano leggibili in entrambi i temi: non sono lo sfondo
+          pagina, sono elementi su un contenitore sempre colorato. Lasciati
+          invariati di proposito, non sono il difetto segnalato. */}
       <div className="bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-700 dark:to-blue-800 text-white rounded-lg shadow-lg p-4">
         <div className="flex items-start gap-3">
           <div className="p-2 bg-white/20 rounded-lg">

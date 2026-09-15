@@ -103,6 +103,11 @@ export default function AdminRichiestePage() {
             case "PRONTA_RITIRO":
                 return <Badge className="bg-green-500 hover:bg-green-600">Pronta</Badge>;
             case "COMPLETATA":
+                // NOTA TEMA SCURO: bg-gray-500 qui è un chip di stato a tinta piena
+                // (come bg-yellow-500/bg-blue-500/bg-green-500 sopra), col testo
+                // fisso a text-primary-foreground (quasi bianco) ereditato dal
+                // componente Badge: resta leggibile sia in chiaro che in scuro,
+                // non è il difetto "sfondo pagina chiaro" della UI attorno.
                 return <Badge className="bg-gray-500">Completata</Badge>;
             case "RIFIUTATA":
                 return <Badge variant="destructive">Rifiutata</Badge>;
@@ -166,7 +171,11 @@ export default function AdminRichiestePage() {
                                         <TableCell>
                                             {req.libro.scaffale ? (
                                                 <div className="flex flex-col text-sm">
-                                                    <span className="font-mono bg-slate-100 px-1 rounded inline-block w-fit">
+                                                    {/* bg-slate-100 era fisso chiaro: il testo dentro non ha un colore
+                                                        proprio (eredita text-foreground dall'ambiente), quindi in tema
+                                                        scuro diventava testo quasi bianco su sfondo slate-100 chiaro
+                                                        fisso. bg-muted segue il token e risolve il contrasto. */}
+                                                    <span className="font-mono bg-muted px-1 rounded inline-block w-fit">
                                                         Scaffale: {req.libro.scaffale}
                                                     </span>
                                                     {req.libro.piano && <span className="text-xs text-muted-foreground">Piano: {req.libro.piano}</span>}

@@ -22,6 +22,10 @@ export function OfflineIndicator() {
   };
 
   return (
+    // NOTA TEMA SCURO: bg-amber-500 ha già la variante dark: (bg-amber-600),
+    // quindi hover:bg-white/20 sul pulsante "Riprova" qui sotto resta
+    // leggibile in entrambi i temi (contenitore sempre colorato, non sfondo
+    // pagina). Lasciato invariato di proposito.
     <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 dark:bg-amber-600 text-white px-4 py-2">
       <div className="container mx-auto flex items-center justify-between">
         <div className="flex items-center gap-2">

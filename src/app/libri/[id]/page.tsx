@@ -202,9 +202,14 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
     return diff;
   };
 
+  // NOTA TEMA SCURO: `bg-gray-50` era fisso chiaro e produceva sfondo pagina
+  // bianco con testo (text-foreground) bianco sopra in tema scuro. `bg-white/20`
+  // sugli skeleton dentro l'header a gradiente blu invece resta invariato: quel
+  // contenitore ha sfondo blu fisso (bg-gradient-to-br from-blue-600 ...),
+  // indipendente dal tema, quindi l'overlay bianco trasparente è corretto.
   if (status === "loading" || loading) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-background">
         <Header />
         <main className="container mx-auto px-4 py-8 max-w-4xl">
           <BackButton />
@@ -236,12 +241,12 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
 
   if (!libro) {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-background">
         <Header />
         <main className="container mx-auto px-4 py-8 max-w-4xl">
           <div className="text-center py-12">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Libro non trovato</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-2">Libro non trovato</h2>
             <Button onClick={() => router.push("/libri")}>Torna al catalogo</Button>
           </div>
         </main>
@@ -255,7 +260,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
     : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-24">
+    <div className="min-h-screen bg-background pb-24">
       <Header />
 
       <main className="container mx-auto px-4 py-8 max-w-4xl">
@@ -319,13 +324,19 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
             <CardContent className="p-6">
               {/* Barra disponibilità */}
               <div className="mb-6">
+                {/* Difetto misurato nel task: "Disponibilità" era a 2.48:1 con
+                    text-gray-600 fisso su sfondo scuro. text-muted-foreground
+                    è lo stesso ruolo semantico (testo secondario) ma con
+                    contrasto garantito dal token del tema. */}
                 <div className="flex justify-between text-sm mb-2">
-                  <span className="text-gray-600">Disponibilità</span>
-                  <span className="font-medium">
+                  <span className="text-muted-foreground">Disponibilità</span>
+                  <span className="font-medium text-foreground">
                     {libro.copieDisponibili} / {libro.copieTotali} copie
                   </span>
                 </div>
-                <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                {/* bg-gray-100 -> bg-muted: stessa "traccia" della barra di
+                    progresso ma che segue il token invece di restare chiara fissa */}
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${percentualeDisponibilita > 50
                       ? "bg-emerald-500"
@@ -340,7 +351,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
 
               {/* Dettagli */}
               <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center gap-3 p-3 bg-muted dark:bg-gray-800 rounded-xl">
+                <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
                   <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
                     <Hash className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   </div>
@@ -351,7 +362,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                 </div>
 
                 {libro.editore && (
-                  <div className="flex items-center gap-3 p-3 bg-muted dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
                     <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-full flex items-center justify-center">
                       <Building2 className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                     </div>
@@ -363,7 +374,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                 )}
 
                 {libro.annoPubblicazione && (
-                  <div className="flex items-center gap-3 p-3 bg-muted dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
                     <div className="w-10 h-10 bg-amber-100 dark:bg-amber-900 rounded-full flex items-center justify-center">
                       <Calendar className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                     </div>
@@ -375,7 +386,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                 )}
 
                 {libro.posizione && (
-                  <div className="flex items-center gap-3 p-3 bg-muted dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3 p-3 bg-muted rounded-xl">
                     <div className="w-10 h-10 bg-emerald-100 dark:bg-emerald-900 rounded-full flex items-center justify-center">
                       <MapPin className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
                     </div>
@@ -394,7 +405,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
             <Card className="border-0 shadow-md">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
-                  <BookOpen className="w-5 h-5 text-blue-600" />
+                  <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                   Descrizione
                 </CardTitle>
               </CardHeader>
@@ -433,7 +444,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
                     </p>
                     <Button
                       variant="link"
-                      className="text-blue-600 p-0 h-auto mt-2"
+                      className="text-blue-600 dark:text-blue-400 p-0 h-auto mt-2"
                       onClick={() => router.push("/prestiti")}
                     >
                       Vai ai miei prestiti <ArrowRight className="w-4 h-4 ml-1" />
@@ -454,17 +465,17 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-3 gap-4 text-center">
-                <div className="p-4 bg-muted dark:bg-gray-800 rounded-xl">
+                <div className="p-4 bg-muted rounded-xl">
                   <Users className="w-6 h-6 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
                   <p className="text-2xl font-bold text-foreground">{libro.prestitiTotali || 0}</p>
                   <p className="text-xs text-muted-foreground">Prestiti totali</p>
                 </div>
-                <div className="p-4 bg-muted dark:bg-gray-800 rounded-xl">
+                <div className="p-4 bg-muted rounded-xl">
                   <Star className="w-6 h-6 text-amber-500 mx-auto mb-2" />
                   <p className="text-2xl font-bold text-foreground">4.5</p>
                   <p className="text-xs text-muted-foreground">Valutazione</p>
                 </div>
-                <div className="p-4 bg-muted dark:bg-gray-800 rounded-xl">
+                <div className="p-4 bg-muted rounded-xl">
                   <Clock className="w-6 h-6 text-emerald-600 dark:text-emerald-400 mx-auto mb-2" />
                   <p className="text-2xl font-bold text-foreground">14</p>
                   <p className="text-xs text-muted-foreground">Giorni medi</p>
@@ -480,8 +491,12 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
         <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur border-t border-border p-4 z-50">
           <div className="container mx-auto max-w-4xl flex gap-3">
             <Button
+              // bg-white era fisso chiaro: sulla barra azioni (già dark-aware
+              // con bg-background/95) restava un riquadro bianco acceso anche
+              // in tema scuro. bg-card + varianti dark: sul testo/bordo
+              // mantengono lo stesso stile "pulsante secondario outline".
               className={`flex-1 h-14 text-lg font-semibold rounded-xl shadow-lg border-2 ${disponibile
-                ? "bg-white text-blue-600 border-blue-100 hover:bg-blue-50"
+                ? "bg-card text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-900 hover:bg-blue-50 dark:hover:bg-blue-950"
                 : "bg-muted text-muted-foreground cursor-not-allowed border-transparent"
                 }`}
               disabled={!disponibile}
@@ -527,18 +542,21 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
             <DialogDescription>Stai richiedendo il prestito di:</DialogDescription>
           </DialogHeader>
 
-          <div className="p-4 bg-gray-50 rounded-xl my-4">
-            <h3 className="font-semibold text-gray-900">{libro.titolo}</h3>
-            <p className="text-sm text-gray-600">{libro.autore}</p>
+          {/* bg-gray-50/text-gray-900/600 fissi -> bg-muted/text-foreground/
+              text-muted-foreground: box informativo del dialog leggibile
+              anche in tema scuro */}
+          <div className="p-4 bg-muted rounded-xl my-4">
+            <h3 className="font-semibold text-foreground">{libro.titolo}</h3>
+            <p className="text-sm text-muted-foreground">{libro.autore}</p>
             {libro.posizione && (
-              <p className="text-sm text-blue-600 mt-2 flex items-center gap-1">
+              <p className="text-sm text-blue-600 dark:text-blue-400 mt-2 flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
                 {libro.posizione}
               </p>
             )}
           </div>
 
-          <div className="text-sm text-gray-600 space-y-2">
+          <div className="text-sm text-muted-foreground space-y-2">
             <p>📍 Ritira il libro al banco prestiti entro 24 ore</p>
             <p>📅 Durata prestito: 30 giorni</p>
             <p>🔄 Possibilità di rinnovo: 2 volte</p>
@@ -578,9 +596,12 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
             </DialogDescription>
           </DialogHeader>
 
-          <div className="p-4 bg-amber-50 rounded-xl my-4 border border-amber-100">
-            <h3 className="font-semibold text-gray-900 mb-1">Nota per il bibliotecario</h3>
-            <p className="text-sm text-gray-600">
+          {/* bg-amber-50 senza dark: era un giallo chiaro fisso, invisibile
+              come contenitore su sfondo dialog scuro. dark:bg-amber-950 segue
+              lo stesso criterio già usato per gli altri toni ambra nel file */}
+          <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-xl my-4 border border-amber-100 dark:border-amber-900">
+            <h3 className="font-semibold text-foreground mb-1">Nota per il bibliotecario</h3>
+            <p className="text-sm text-muted-foreground">
               &ldquo;Vorrei trovare questo libro già pronto al banco prestiti per favore.&rdquo;
             </p>
           </div>
