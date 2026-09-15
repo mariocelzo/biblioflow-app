@@ -31,22 +31,6 @@
       "purpose": "maskable"
     }
   ],
-  "screenshots": [
-    {
-      "src": "/screenshots/home.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Homepage BiblioFlow"
-    },
-    {
-      "src": "/screenshots/prenota.png",
-      "sizes": "390x844",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Prenotazione posto"
-    }
-  ],
   "shortcuts": [
     {
       "name": "Prenota Posto",

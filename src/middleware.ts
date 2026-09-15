@@ -173,7 +173,8 @@ export const config = {
      * - _next/image   (ottimizzazione immagini)
      * - favicon.ico   (icona)
      * - file statici serviti da /public riconosciuti per estensione
-     *   (immagini, css, js, ...) MA SOLO se il path NON inizia con "api/".
+     *   (immagini, css, js, json, ...) MA SOLO se il path NON inizia con
+     *   "api/".
      *
      * Hardening M-5 (audit sicurezza 2026-09-04): la vecchia esclusione
      * `.*\.(svg|png|...|css|js)$` era ancorata alla FINE del path, quindi una
@@ -182,7 +183,18 @@ export const config = {
      * stringa) — NON passava dal middleware e ne aggirava il controllo di
      * sessione. Il lookahead `(?!api/)` limita l'esclusione ai soli path
      * pubblici: qualunque cosa sotto `/api/` attraversa sempre il middleware.
+     *
+     * BUG (verificato dal vivo su produzione): `.json` NON era fra le
+     * estensioni escluse. `/manifest.json` (collegato da `<link
+     * rel="manifest">` in ogni pagina) attraversava quindi il middleware
+     * come una pagina qualsiasi, non era fra le `publicRoutes`, e veniva
+     * rediretto a `/login` — il browser riceveva HTML al posto del JSON e la
+     * PWA non risultava installabile. Aggiungere "json" qui risolve il caso
+     * SENZA indebolire M-5: il lookahead `(?!api/)` resta al suo posto, quindi
+     * un ipotetico `/api/qualcosa.json` continua ad attraversare il
+     * middleware ed essere protetto (vedi test di guardia
+     * `tests/unit/asset-statici-pubblici.test.ts`).
      */
-    "/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|json)$).*)",
   ],
 };
