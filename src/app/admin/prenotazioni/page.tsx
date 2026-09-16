@@ -8,8 +8,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import PrenotazioniFiltri from "@/components/admin/prenotazioni-filtri";
 import PrenotazioniActions from "@/components/admin/prenotazioni-actions";
 import { Calendar, Clock, MapPin, User } from "lucide-react";
-import type { StatoPrenotazione } from "@prisma/client";
+import { StatoPrenotazione } from "@prisma/client";
 import { formattaOraDb } from "@/lib/admin-tempo";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
 type SearchParams = {
   stato?: string;
@@ -53,8 +54,11 @@ export default async function PrenotazioniAdminPage({
 
   const where: WhereInput = {};
 
-  if (params.stato && params.stato !== "tutti") {
-    where.stato = params.stato as StatoPrenotazione;
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const statoValido = valoreEnumAmmesso(StatoPrenotazione, params.stato);
+  if (statoValido) {
+    where.stato = statoValido;
   }
 
   if (params.data) {

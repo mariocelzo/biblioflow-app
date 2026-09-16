@@ -22,10 +22,12 @@ import {
   Mail,
   Clock,
 } from "lucide-react";
-import type { Prisma, UserRole } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import db from "@/lib/prisma";
 import { UtenteActionButton } from "@/components/admin/utenti-actions";
 import UtentiFiltri from "@/components/admin/utenti-filtri";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
 export const metadata: Metadata = {
   title: "Gestione utenti",
@@ -64,8 +66,11 @@ export default async function AdminUtentiPage({
       { email: { contains: params.q, mode: "insensitive" } },
     ];
   }
-  if (params.ruolo && params.ruolo !== "tutti") {
-    where.ruolo = params.ruolo as UserRole;
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const ruoloValido = valoreEnumAmmesso(UserRole, params.ruolo);
+  if (ruoloValido) {
+    where.ruolo = ruoloValido;
   }
   if (params.stato === "attivo") where.attivo = true;
   if (params.stato === "disattivato") where.attivo = false;

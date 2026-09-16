@@ -20,10 +20,12 @@ import {
   Sun,
   Accessibility,
 } from "lucide-react";
-import type { Prisma, StatoPosto } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
+import { StatoPosto } from "@prisma/client";
 import db from "@/lib/prisma";
 import { PostoActionButton } from "@/components/admin/posti-actions";
 import PostiFiltri from "@/components/admin/posti-filtri";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
 export const metadata: Metadata = {
   title: "Gestione posti",
@@ -69,8 +71,11 @@ export default async function AdminPostiPage({
   if (params.sala && params.sala !== "tutte") {
     where.salaId = params.sala;
   }
-  if (params.stato && params.stato !== "tutti") {
-    where.stato = params.stato as StatoPosto;
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const statoValido = valoreEnumAmmesso(StatoPosto, params.stato);
+  if (statoValido) {
+    where.stato = statoValido;
   }
 
   // Fetch posti con sala info. Prima non c'era filtro server-side (i filtri

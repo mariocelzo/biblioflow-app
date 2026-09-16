@@ -9,13 +9,14 @@ import PrestitiFiltri from "@/components/admin/prestiti-filtri";
 import PrestitiActions from "@/components/admin/prestiti-actions";
 import { SollecitaTuttiButton } from "@/components/admin/sollecita-tutti-button";
 import { BookOpen, Calendar, User } from "lucide-react";
-import type { StatoPrestito } from "@prisma/client";
+import { StatoPrestito } from "@prisma/client";
 import {
   contaScaduti,
   filtraDaSollecitare,
   filtroScadenzaScaduti,
   prestitoInCorso,
 } from "@/lib/prestiti-scaduti";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
 type SearchParams = {
   stato?: string;
@@ -58,8 +59,11 @@ export default async function PrestitiAdminPage({
 
   const where: WhereInput = {};
 
-  if (params.stato && params.stato !== "tutti") {
-    where.stato = params.stato as StatoPrestito;
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const statoValido = valoreEnumAmmesso(StatoPrestito, params.stato);
+  if (statoValido) {
+    where.stato = statoValido;
   }
 
   if (params.scadenza === "scaduti") {
