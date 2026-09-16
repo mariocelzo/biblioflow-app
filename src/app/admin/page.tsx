@@ -246,33 +246,21 @@ export default async function AdminDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
-                  <div
-                    className={`flex items-center gap-1 text-xs font-medium ${stat.trendUp ? "text-green-600" : "text-red-600"
-                      }`}
-                  >
-                    {stat.trendUp ? (
-                      <ArrowUp className="h-3 w-3" />
-                    ) : (
-                      <ArrowDown className="h-3 w-3" />
-                    )}
-                    {stat.trend}
-                  </div>
-                </div>
+                <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
               </CardContent>
             </Card>
           );
         })}
       </div>
 
-      {/* Main Content Grid */}
+      {/* Main Content Grid.
+          Attività Recente (col-span-4) + Anomalie (col-span-3) riempiono
+          esattamente le 7 colonne su desktop; prima Richieste era in mezzo
+          con lo stesso col-span-4 di Attività Recente, mandava Anomalie a
+          capo da sola e lasciava 3 colonne vuote nella prima riga. */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         {/* Attività Recente */}
         <DashboardActivityCard activities={recentActivity} />
-
-        {/* Widget Richieste Click & Collect */}
-        <RichiesteCard richiestePendenti={richiestePendenti} />
 
         {/* Anomalie e Alert */}
         <DashboardAnomalieCard
@@ -280,6 +268,9 @@ export default async function AdminDashboardPage() {
           postiManutenzione={postiManutenzione}
           prestitiInScadenza={prestitiInScadenza}
         />
+
+        {/* Widget Richieste Click & Collect: banner a piena larghezza */}
+        <RichiesteCard richiestePendenti={richiestePendenti} />
       </div>
 
       {/* Quick Actions */}
