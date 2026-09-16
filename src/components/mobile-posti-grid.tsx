@@ -105,7 +105,9 @@ export function MobilePostiGrid({
             {/* Legend — stesse voci della mappa, inclusa "Coda disponibile" (BIB-53) */}
             <div className="flex flex-wrap gap-2 text-xs px-1">
                 <div className="flex items-center gap-1">
-                    <div className="w-3 h-3 rounded-full bg-green-500" />
+                    {/* bg-success (non bg-green-500): stesso token dei
+                        badge di stato, vedi src/app/globals.css. */}
+                    <div className="w-3 h-3 rounded-full bg-success" />
                     <span className="text-muted-foreground">Disponibile</span>
                 </div>
                 <div className="flex items-center gap-1">

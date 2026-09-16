@@ -73,7 +73,27 @@
   --link-hover: var(--primary-hover);
   
   /* Semantic Colors */
-  --success: #34C759;
+  /*
+   * --success (fix 2026-09-16, stessa metodologia del blu qui sopra):
+   * i badge di stato "Disponibile"/"Attivo"/"In corso" (testo bianco su
+   * questo verde) misuravano 2.12:1 — ben sotto il minimo AA 4.5:1 — perche'
+   * erano scritti a mano nelle pagine con `bg-green-500`/`bg-green-600` di
+   * Tailwind (non con questo token, che infatti non era usato da nessuna
+   * parte: verificato con `git grep bg-success`). Scurito al minimo
+   * indispensabile per arrivare a 4.5:1 con testo bianco, mantenendo la
+   * stessa tinta verde (H~135°, non spostata verso il giallo o il ciano):
+   *   #34C759 (originale) -> #23873D    2.22:1 -> 4.56:1
+   * Il nuovo verde resta distinguibile da --danger (sotto) anche per un
+   * lettore daltonico: non solo la tinta cambia (verde ~135° vs rosso ~3°),
+   * ma ora anche la LUMINOSITA' e' molto diversa (33% vs 59%), che e' il
+   * segnale piu' affidabile quando la tinta non si distingue bene (es. in
+   * deuteranopia/protanopia). Il testo del badge ("Disponibile", "Attivo",
+   * ...) resta comunque presente: e' la prima difesa, indipendente dal
+   * colore (WCAG 1.4.1).
+   * Vedi il nuovo variant "success" in src/components/ui/badge.tsx e
+   * tests/unit/contrasto-colori-wcag.test.ts per la verifica automatica.
+   */
+  --success: #23873D;
   --success-light: #E8F5E9;
   --warning: #FF9500;
   --warning-light: #FFF4E5;
@@ -162,7 +182,9 @@
   --link-hover: #409CFF;
   
   /* Dark Semantic Colors */
-  --success: #30D158;
+  /* Scurito da #30D158: stesso fix di --success in :root (2.02:1 -> 4.59:1
+   * contro testo bianco), vedi il commento esteso li' sopra. */
+  --success: #1E8738;
   --success-light: #1C2E20;
   --warning: #FFB340;
   --warning-light: #2E2619;

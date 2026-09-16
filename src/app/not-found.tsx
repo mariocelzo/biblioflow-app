@@ -153,7 +153,10 @@ export default function NotFound() {
 
         <p className="text-center text-sm text-muted-foreground">
           Hai bisogno di impostazioni di lettura diverse?{" "}
-          <Link href="/accessibilita" className="text-primary hover:underline">
+          {/* text-link, non text-primary: colore del TESTO di un link, non
+              sfondo di un bottone. Spiegazione completa in
+              src/app/globals.css, sopra la definizione di --link. */}
+          <Link href="/accessibilita" className="text-link hover:underline">
             Opzioni di accessibilità
           </Link>
         </p>

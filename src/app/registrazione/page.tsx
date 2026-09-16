@@ -460,7 +460,10 @@ export default function RegistrazionePage() {
                     <div
                       className={cn(
                         "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300",
-                        isCompleted && "bg-green-500 text-white",
+                        // bg-success (non bg-green-500): testo bianco su
+                        // verde conforme al contrasto WCAG AA, vedi
+                        // src/app/globals.css.
+                        isCompleted && "bg-success text-white",
                         isCurrent &&
                           "bg-primary text-primary-foreground ring-primary/25 scale-110 ring-4",
                         !isCompleted && !isCurrent && "bg-muted text-muted-foreground",
@@ -489,7 +492,9 @@ export default function RegistrazionePage() {
                     <div className="bg-muted mt-[18px] h-1 w-8 overflow-hidden rounded-full" aria-hidden="true">
                       <div
                         className={cn(
-                          "h-full rounded-full bg-green-500 transition-all duration-500 ease-out",
+                          // Stesso token del cerchio "completato" sopra
+                          // (--success), per coerenza visiva.
+                          "h-full rounded-full bg-success transition-all duration-500 ease-out",
                           isCompleted ? "w-full" : "w-0",
                         )}
                       />
@@ -968,7 +973,10 @@ export default function RegistrazionePage() {
           </div>
           <p className="text-sm text-center text-muted-foreground">
             Hai già un account?{" "}
-            <Link href="/login" className="font-medium text-primary hover:underline">Accedi</Link>
+            {/* text-link, non text-primary: colore del TESTO di un link, non
+                sfondo di un bottone. Spiegazione completa in
+                src/app/globals.css, sopra la definizione di --link. */}
+            <Link href="/login" className="font-medium text-link hover:underline">Accedi</Link>
           </p>
         </CardFooter>
       </Card>

@@ -23,6 +23,13 @@
 //     e' --primary-foreground (quasi bianco in entrambi i temi).
 //   - --link / --link-hover: colore del TESTO di link come "Indietro", lo
 //     sfondo sotto e' quello della pagina (--background), diverso per tema.
+//
+// (2026-09-16) Aggiunto anche --success, stesso problema misurato sui badge
+// di stato "Disponibile"/"Attivo"/"In corso" (testo bianco su verde,
+// 2.12:1): vedi il commento su --success in globals.css. In piu' un
+// controllo che --success resti distinguibile da --danger anche per un
+// lettore daltonico (tinta E luminosita' diverse, non solo la tinta), visto
+// che entrambi i colori compaiono su badge che comunicano stati opposti.
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -135,6 +142,26 @@ function contrasto(a: RGB, b: RGB): number {
   return (chiaro + 0.05) / (scuro + 0.05);
 }
 
+/** Tinta (0-360) e luminosita' HSL (0-100) di un colore sRGB. Usata solo per
+ * il controllo di distinguibilita' --success/--danger qui sotto: la formula
+ * di contrasto WCAG sopra non dice nulla su QUANTO due colori "si vedono
+ * diversi" fra loro, solo sul contrasto di ciascuno col proprio testo. */
+function tintaELuminosita([r, g, b]: RGB): { h: number; l: number } {
+  const rn = r / 255, gn = g / 255, bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, l: l * 100 };
+  const d = max - min;
+  let h: number;
+  switch (max) {
+    case rn: h = ((gn - bn) / d + (gn < bn ? 6 : 0)); break;
+    case gn: h = (bn - rn) / d + 2; break;
+    default: h = (rn - gn) / d + 4; break;
+  }
+  return { h: h * 60, l: l * 100 };
+}
+
 const MINIMO_AA_TESTO_NORMALE = 4.5;
 
 describe("contrasto WCAG del blu di brand (globals.css)", () => {
@@ -197,9 +224,47 @@ describe("contrasto WCAG del blu di brand (globals.css)", () => {
       () => esadecimale(dark, "link-hover"),
       backgroundScuro,
     ],
+    [
+      "tema chiaro: --success (sfondo badge 'Disponibile'/'Attivo') vs testo bianco",
+      () => esadecimale(root, "success"),
+      [255, 255, 255] as RGB,
+    ],
+    [
+      "tema scuro: --success (sfondo badge 'Disponibile'/'Attivo') vs testo bianco",
+      () => esadecimale(dark, "success"),
+      [255, 255, 255] as RGB,
+    ],
   ] as const)("%s >= 4.5:1", (_descrizione, prendiColore, sfondoOTesto) => {
     const rapporto = contrasto(prendiColore(), sfondoOTesto);
     expect(rapporto).toBeGreaterThanOrEqual(MINIMO_AA_TESTO_NORMALE);
+  });
+
+  it.each([
+    ["chiaro", root] as const,
+    ["scuro", dark] as const,
+  ])("tema %s: --success resta distinguibile da --danger anche per un lettore daltonico", (_tema, blocco_) => {
+    const successo = tintaELuminosita(esadecimale(blocco_, "success"));
+    const pericolo = tintaELuminosita(esadecimale(blocco_, "danger"));
+
+    // Differenza di tinta: verde (~135°) contro rosso (~3-5°) sono agli
+    // antipodi della ruota colore. La soglia (60°) e' larga apposta: qui
+    // vogliamo scoprire se qualcuno sposta uno dei due verso una tinta
+    // ambigua (es. un verde-giallo troppo vicino al rosso in una simulazione
+    // di daltonismo), non fare micro-tuning estetico.
+    const distanzaTinta = Math.min(
+      Math.abs(successo.h - pericolo.h),
+      360 - Math.abs(successo.h - pericolo.h),
+    );
+    expect(distanzaTinta).toBeGreaterThan(60);
+
+    // Differenza di luminosita': e' la protezione che conta di piu' quando
+    // la tinta smette di essere affidabile (deuteranopia/protanopia, o
+    // semplicemente uno schermo scadente). Il fix di --success l'ha resa
+    // grande (~26-29 punti) come effetto collaterale dello scurimento
+    // necessario per il contrasto col testo bianco: questo test lo blocca
+    // li', cosi' un futuro "abbellimento" del verde non la faccia sparire.
+    const distanzaLuminosita = Math.abs(successo.l - pericolo.l);
+    expect(distanzaLuminosita).toBeGreaterThan(15);
   });
 
   it("--primary-foreground e' effettivamente quasi bianco in entrambi i temi", () => {

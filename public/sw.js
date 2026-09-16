@@ -35,30 +35,30 @@ const OFFLINE_URL = '/offline.html';
 //   - /offline: non e' una rotta Next.js (nessun src/app/offline/page.tsx),
 //     solo il file statico public/offline.html.
 // Ogni voce qui sotto e' stata verificata con `curl -o /dev/null -w
-// "%{http_code}" http://localhost:3310/<path>` sul dev server prima di
+// "%{http_code}" http://localhost:3311/<path>` sul dev server prima di
 // essere inclusa: tutte rispondono 200.
 //
-// `/manifest.json` NON e' in elenco. Oggi (curl confermato: 307) il
-// middleware lo reindirizza a /login, perche' la rotta non e' fra quelle
-// pubbliche di `src/middleware.ts` e la sua regex di esclusione dei file
-// statici copre le estensioni immagine/css/js ma non `.json`. C'e' gia' una
-// PR (#68, non ancora mergiata) che sistema il middleware per questo caso:
-// di proposito questa lista NON dipende da quella PR, perche' se venisse
-// inclusa oggi `cache.addAll()` seguirebbe il redirect e metterebbe in cache
-// la PAGINA DI LOGIN sotto la chiave "/manifest.json" — un errore silenzioso
-// anche peggiore del 404 originale. Quando #68 sara' mergiata e verificata
-// con lo stesso curl, si potra' aggiungere qui.
-//
-// `/offline.html` (il file HTML vero, a differenza di `/offline`) HA LO
-// STESSO PROBLEMA di `/manifest.json`: anche le estensioni `.html` non sono
-// escluse dal middleware, quindi un visitatore SENZA sessione valida viene
-// rediretto a /login pure su questo file (curl confermato: 307). Per questo
-// non e' nemmeno lui nell'elenco atomico qui sotto: viene pre-cachato a
-// parte, in modo da non far fallire l'installazione dell'intero shell se in
-// quel momento il redirect scatta (vedi `precacheOfflineFallback()` piu' in
-// basso, che scarta la risposta se e' un redirect invece di salvarla).
+// STORIA DI `/manifest.json` E `/offline.html` (perche' non sono ovvie):
+// fino al 2026-09-15 ENTRAMBE venivano rediretto a `/login` (307) da
+// `src/middleware.ts` per un visitatore senza sessione valida, perche' la
+// sua regex di esclusione dei file statici copriva le estensioni
+// immagine/css/js ma non `.json` ne' `.html` — quindi NON potevano stare
+// in questo elenco atomico: `cache.addAll()` avrebbe seguito il redirect e
+// messo in cache la PAGINA DI LOGIN sotto la chiave sbagliata, un errore
+// silenzioso anche peggiore del 404 originale. La PR #68 ha aggiunto "json"
+// alla regex (risolve /manifest.json) e questa stessa PR ha aggiunto "html"
+// con lo stesso ragionamento (risolve /offline.html — che, essendo il
+// fallback offline, era il caso piu' assurdo: raggiungibile SOLO da chi era
+// gia' autenticato). Il test di guardia `tests/unit/asset-statici-
+// pubblici.test.ts` verifica che il middleware continui a escludere
+// entrambe le estensioni. Ora che curl conferma 200 per tutte e due, sono
+// tornate nell'elenco atomico qui sotto, senza bisogno di alcun trattamento
+// speciale (vedi anche `git log` di questo file per la versione precedente,
+// che le pre-cachava con un fetch separato per aggirare il problema).
 const PRECACHE_URLS = [
   '/',
+  '/manifest.json',
+  '/offline.html',
   '/icons/icon-192.svg',
   '/icons/icon-512.svg',
 ];
@@ -106,13 +106,11 @@ self.addEventListener('install', (event) => {
       .then(async (cache) => {
         console.log('📦 Service Worker: Pre-caching app shell');
         // Elenco atomico: ogni voce qui e' stata verificata con curl (200
-        // certo, non dietro auth). Se una di queste comincia a fallire,
-        // VOGLIAMO che l'installazione fallisca rumorosamente, come prima:
-        // e' il segnale che l'elenco va corretto di nuovo.
+        // certo, non dietro auth, non un redirect — vedi il commento sopra
+        // PRECACHE_URLS). Se una di queste comincia a fallire, VOGLIAMO che
+        // l'installazione fallisca rumorosamente, come prima: e' il segnale
+        // che l'elenco va corretto di nuovo.
         await cache.addAll(PRECACHE_URLS);
-        // La pagina offline invece e' "best effort": vedi il commento sulla
-        // funzione per il perche' non puo' stare nell'addAll qui sopra.
-        await precacheOfflineFallback(cache);
       })
       .then(() => {
         console.log('✅ Service Worker: Installed');
@@ -120,40 +118,6 @@ self.addEventListener('install', (event) => {
       })
   );
 });
-
-/**
- * Pre-cache di /offline.html, separata dall'elenco atomico.
- *
- * PERCHE' NON PUO' STARE IN `cache.addAll(PRECACHE_URLS)`: quella chiamata
- * SEGUE i redirect in automatico e considera "riuscita" anche una risposta
- * 200 ottenuta dopo un redirect — cioe' la metterebbe in cache comunque,
- * ma con il contenuto sbagliato (la pagina di login) sotto la chiave giusta
- * (/offline.html). Un utente davvero offline vedrebbe il form di login al
- * posto dell'avviso "sei offline", il che e' anche piu' fuorviante del
- * 503 generico che si otterrebbe senza pre-cache.
- *
- * Qui invece si legge `response.redirected`: se e' true (middleware che ha
- * rediretto a /login perche' la richiesta non aveva una sessione valida —
- * vedi il commento su PRECACHE_URLS) si scarta la risposta e si prosegue
- * senza cachare nulla, senza far fallire l'installazione. Quando l'utente
- * installa il service worker da autenticato (il caso comune: la richiesta
- * di permesso/registrazione avviene dopo il login), il redirect non scatta
- * e la vera pagina offline viene salvata normalmente.
- */
-async function precacheOfflineFallback(cache) {
-  try {
-    const response = await fetch(OFFLINE_URL, { cache: 'no-store' });
-    if (response.ok && !response.redirected) {
-      await cache.put(OFFLINE_URL, response);
-    } else {
-      console.warn(
-        '⚠️ Service Worker: pagina offline non pre-cachata (risposta non valida o redirect — probabile middleware auth su utente non autenticato)',
-      );
-    }
-  } catch (error) {
-    console.error('⚠️ Service Worker: pre-cache della pagina offline fallita', error);
-  }
-}
 
 // Activate event - cleanup old caches
 self.addEventListener('activate', (event) => {

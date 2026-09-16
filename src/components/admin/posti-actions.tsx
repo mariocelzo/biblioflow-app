@@ -546,8 +546,9 @@ export function PostoActionButton({
               disabled={isLoading}
               variant={actionType === "MANUTENZIONE" ? "destructive" : "default"}
               className={
+                // bg-success (non bg-green-600): vedi src/app/globals.css.
                 actionType === "DISPONIBILE"
-                  ? "bg-green-600 hover:bg-green-700"
+                  ? "bg-success hover:bg-success/90"
                   : ""
               }
             >

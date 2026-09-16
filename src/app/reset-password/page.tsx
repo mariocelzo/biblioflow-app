@@ -141,7 +141,10 @@ function ResetPasswordForm() {
           <CardFooter className="justify-center">
             <Link
               href="/login"
-              className="text-sm text-primary hover:underline"
+              // text-link, non text-primary: colore del TESTO di un link,
+              // non sfondo di un bottone. Spiegazione completa in
+              // src/app/globals.css, sopra la definizione di --link.
+              className="text-sm text-link hover:underline"
             >
               Torna al login
             </Link>
@@ -319,7 +322,10 @@ function ResetPasswordForm() {
         </CardContent>
 
         <CardFooter className="justify-center">
-          <Link href="/login" className="text-sm text-primary hover:underline">
+          {/* text-link, non text-primary: colore del TESTO di un link, non
+              sfondo di un bottone. Spiegazione completa in
+              src/app/globals.css, sopra la definizione di --link. */}
+          <Link href="/login" className="text-sm text-link hover:underline">
             Torna al login
           </Link>
         </CardFooter>

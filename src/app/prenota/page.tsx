@@ -192,8 +192,9 @@ function StepIndicator({ step, currentStep, label }: { step: number; currentStep
   const isCompleted = step < currentStep;
   return (
     <div className="flex items-center gap-1 sm:gap-2">
+      {/* bg-success (non bg-green-500): vedi src/app/globals.css. */}
       <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-xs sm:text-sm font-bold transition-all
-        ${isCompleted ? "bg-green-500 text-white" : ""}
+        ${isCompleted ? "bg-success text-white" : ""}
         ${isActive ? "bg-blue-600 text-white ring-2 sm:ring-4 ring-blue-200 dark:ring-blue-800" : ""}
         ${!isActive && !isCompleted ? "bg-muted text-muted-foreground" : ""}`}>
         {isCompleted ? <CheckCircle2 className="h-4 w-4 sm:h-5 sm:w-5" /> : step}
@@ -739,7 +740,7 @@ export default function PrenotaPage() {
 
         <div className="mt-6 flex justify-between gap-3 sm:gap-4">
           {currentStep > 1 ? <Button variant="outline" onClick={handleIndietro} className="flex-1 sm:max-w-[200px] h-11 sm:h-10">Indietro</Button> : <div />}
-          {currentStep < 4 ? <Button onClick={handleAvanti} disabled={!canProceed()} className="flex-1 sm:max-w-[200px] h-11 sm:h-10">Avanti<ChevronRight className="ml-2 h-4 w-4" /></Button> : <Button onClick={() => setDialogAperto(true)} disabled={!postoSelezionato} className="flex-1 sm:max-w-[200px] h-11 sm:h-10 bg-green-600 hover:bg-green-700"><CheckCircle2 className="mr-2 h-4 w-4" />Conferma</Button>}
+          {currentStep < 4 ? <Button onClick={handleAvanti} disabled={!canProceed()} className="flex-1 sm:max-w-[200px] h-11 sm:h-10">Avanti<ChevronRight className="ml-2 h-4 w-4" /></Button> : <Button onClick={() => setDialogAperto(true)} disabled={!postoSelezionato} className="flex-1 sm:max-w-[200px] h-11 sm:h-10 bg-success hover:bg-success/90"><CheckCircle2 className="mr-2 h-4 w-4" />Conferma</Button>}
         </div>
       </main>
 
@@ -782,7 +783,8 @@ export default function PrenotaPage() {
 
           <DialogFooter className="gap-2 sm:gap-0 flex-col sm:flex-row">
             <Button variant="outline" onClick={() => setDialogAperto(false)} className="h-11 sm:h-10 w-full sm:w-auto">Annulla</Button>
-            <Button onClick={handleConfermaPrenotazione} disabled={prenotazioneInCorso} className="bg-green-600 hover:bg-green-700 h-11 sm:h-10 w-full sm:w-auto">
+            {/* bg-success (non bg-green-600): vedi src/app/globals.css. */}
+            <Button onClick={handleConfermaPrenotazione} disabled={prenotazioneInCorso} className="bg-success hover:bg-success/90 h-11 sm:h-10 w-full sm:w-auto">
               {prenotazioneInCorso ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Prenotazione...</> : <><CheckCircle2 className="mr-2 h-4 w-4" />Conferma</>}
             </Button>
           </DialogFooter>

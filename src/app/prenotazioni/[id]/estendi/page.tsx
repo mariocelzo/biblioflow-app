@@ -383,8 +383,11 @@ export default function EstendiPrenotazionePage({
                               {isDisabled ? "Non disponibile" : `+${parseInt(slot.oraFine) - parseInt(slot.oraInizio)}h`}
                             </span>
                           </div>
+                          {/* variant "success" (non bg-green-500 scritto a
+                              mano): testo bianco su verde conforme al
+                              contrasto WCAG AA, vedi src/app/globals.css. */}
                           {!isDisabled && (
-                            <Badge variant={isSelected ? "default" : "secondary"} className={isSelected ? "bg-green-500" : ""}>
+                            <Badge variant={isSelected ? "success" : "secondary"}>
                               Tot: {slot.durataTotale}h
                             </Badge>
                           )}
@@ -409,7 +412,7 @@ export default function EstendiPrenotazionePage({
                           Durata totale: {durataTotale} ore
                         </p>
                       </div>
-                      <Badge className="bg-green-500 text-white">
+                      <Badge variant="success">
                         +{durataTotale - data.durataAttuale}h
                       </Badge>
                     </div>
@@ -429,8 +432,10 @@ export default function EstendiPrenotazionePage({
           >
             Annulla
           </Button>
-          <Button 
-            className="flex-1 bg-green-500 hover:bg-green-600"
+          {/* bg-success (non bg-green-500 scritto a mano): stesso token del
+              variant "success" di Badge, vedi src/app/globals.css. */}
+          <Button
+            className="flex-1 bg-success hover:bg-success/90"
             disabled={selectedSlots.length === 0 || extending}
             onClick={handleEstendi}
           >
