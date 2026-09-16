@@ -260,7 +260,11 @@ function LoginForm() {
             Non hai un account?{" "}
             <Link
               href="/registrazione"
-              className="font-medium text-primary hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
+              // text-link, non text-primary: e' il colore del TESTO di un
+              // link (contrasto contro lo sfondo, non contro il testo sopra
+              // un bottone). Vedi la spiegazione completa in
+              // src/app/globals.css, sopra la definizione di --link.
+              className="font-medium text-link hover:underline focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 rounded"
             >
               Registrati qui
             </Link>

@@ -173,8 +173,8 @@ export const config = {
      * - _next/image   (ottimizzazione immagini)
      * - favicon.ico   (icona)
      * - file statici serviti da /public riconosciuti per estensione
-     *   (immagini, css, js, json, ...) MA SOLO se il path NON inizia con
-     *   "api/".
+     *   (immagini, css, js, json, html, ...) MA SOLO se il path NON inizia
+     *   con "api/".
      *
      * Hardening M-5 (audit sicurezza 2026-09-04): la vecchia esclusione
      * `.*\.(svg|png|...|css|js)$` era ancorata alla FINE del path, quindi una
@@ -194,7 +194,19 @@ export const config = {
      * un ipotetico `/api/qualcosa.json` continua ad attraversare il
      * middleware ed essere protetto (vedi test di guardia
      * `tests/unit/asset-statici-pubblici.test.ts`).
+     *
+     * STESSO BUG, STESSA CAUSA, TROVATO DI NUOVO PER `.html` (2026-09-16):
+     * `public/offline.html` — il fallback che il service worker (`public/
+     * sw.js`) mostra quando la rete manca — veniva anch'esso rediretto a
+     * `/login` (307) per chi non ha una sessione valida, perche' `.html` non
+     * era fra le estensioni escluse. Paradosso: la pagina "sei offline" era
+     * raggiungibile solo per chi era GIA' autenticato, cioe' esattamente al
+     * contrario di quando un fallback offline serve davvero (es. la prima
+     * visita, senza rete, prima ancora di essere riusciti ad accedere).
+     * Aggiungere "html" qui risolve il caso con lo stesso ragionamento del
+     * "json" qui sopra: il lookahead `(?!api/)` continua a proteggere
+     * qualsiasi `/api/qualcosa.html` (vedi test di guardia aggiornato).
      */
-    "/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|json)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|(?!api/).*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|json|html)$).*)",
   ],
 };

@@ -18,7 +18,13 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
           "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
-        link: "text-primary underline-offset-4 hover:underline",
+        // Testo di un link, non sfondo di un bottone: usa il token --link,
+        // non --primary. In tema scuro i due divergono di proposito (vedi
+        // il commento in cima a src/app/globals.css): --primary e' stato
+        // scurito per il contrasto dei bottoni pieni (bg-primary + testo
+        // chiaro sopra), ma la stessa tinta scurita, usata come TESTO su
+        // sfondo scuro, scenderebbe sotto 4.5:1 invece di restarci sopra.
+        link: "text-link underline-offset-4 hover:underline hover:text-link-hover",
       },
       size: {
         default: "h-10 px-4 py-2 has-[>svg]:px-3", // Aumentato da h-9 a h-10 (40px)

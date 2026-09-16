@@ -108,7 +108,10 @@ export default function RecuperaPasswordPage() {
         </CardContent>
 
         <CardFooter className="text-sm text-center">
-          <a className="text-primary hover:underline" href="/login">Torna al login</a>
+          {/* text-link, non text-primary: colore del TESTO di un link, non
+              sfondo di un bottone. Spiegazione completa in
+              src/app/globals.css, sopra la definizione di --link. */}
+          <a className="text-link hover:underline" href="/login">Torna al login</a>
         </CardFooter>
       </Card>
     </div>

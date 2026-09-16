@@ -462,7 +462,8 @@ export function MappaBiblioteca({
       <Card className="border-border">
         <CardContent className="p-4">
           <div className="flex flex-wrap gap-4 text-sm">
-            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-green-500" /><span>Disponibile</span></div>
+            {/* bg-success (non bg-green-500): vedi src/app/globals.css. */}
+            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-success" /><span>Disponibile</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-amber-500" /><span>Prenotato</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-red-500" /><span>Occupato</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">+</div><span>{ETICHETTE_CODA.legenda}</span></div>
@@ -541,7 +542,7 @@ export function MappaBiblioteca({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-semibold text-foreground">Posto {postoSelezionatoData.numero}</h4>
-                <Badge className="bg-green-500 text-white">Disponibile</Badge>
+                <Badge variant="success">Disponibile</Badge>
               </div>
               <div className="flex flex-wrap gap-2">
                 {postoSelezionatoData.caratteristiche.presaElettrica && <Badge variant="secondary" className="flex items-center gap-1"><Zap className="h-3 w-3" />Presa elettrica</Badge>}

@@ -15,6 +15,14 @@ const badgeVariants = cva(
           "border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
         destructive:
           "border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        // Stati positivi ("Disponibile", "Attivo", "In corso", ...): prima
+        // ogni pagina scriveva a mano `bg-green-500`/`bg-green-600` (testo
+        // bianco su quel verde misurava 2.12:1, sotto il minimo AA 4.5:1).
+        // Un solo variant condiviso, sul token --success gia' scurito in
+        // globals.css, cosi' il fix vive in un punto solo invece che essere
+        // ripetuto pagina per pagina.
+        success:
+          "border-transparent bg-success text-white [a&]:hover:bg-success/90",
         outline:
           "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
       },

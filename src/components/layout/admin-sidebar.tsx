@@ -154,7 +154,10 @@ export function AdminSidebar({ className }: SidebarProps) {
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
                   "w-full justify-start gap-3",
-                  isActive && "bg-primary/10 text-primary hover:bg-primary/15",
+                  // text-link, non text-primary: e' il testo di un link di
+                  // navigazione attivo. Vedi src/app/globals.css sopra la
+                  // definizione di --link per il perche' dei due token.
+                  isActive && "bg-primary/10 text-link hover:bg-primary/15",
                   collapsed && "justify-center px-2"
                 )}
               >
@@ -190,7 +193,9 @@ export function AdminSidebar({ className }: SidebarProps) {
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
                   "w-full justify-start gap-3",
-                  isActive && "bg-primary/10 text-primary",
+                  // text-link, non text-primary: stesso ragionamento del
+                  // blocco sopra (link di navigazione attivo).
+                  isActive && "bg-primary/10 text-link",
                   collapsed && "justify-center px-2"
                 )}
               >

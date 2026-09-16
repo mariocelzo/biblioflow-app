@@ -21,6 +21,12 @@
 // pagina qualsiasi, non era fra le `publicRoutes`, e finiva rediretta. La
 // PWA risultava di fatto non installabile.
 //
+// STESSO BUG, TROVATO DI NUOVO PER `.html` (2026-09-16): `public/
+// offline.html`, il fallback che il service worker mostra quando manca la
+// rete, per lo stesso identico motivo veniva rediretto a `/login` per chi
+// non ha una sessione valida — cioe' proprio quando un fallback offline
+// serve di piu'. Risolto aggiungendo "html" alla stessa lista di estensioni.
+//
 // Questo test lega la lista delle estensioni escluse ai file REALMENTE
 // presenti in `public/`: se domani qualcuno restringe di nuovo il matcher
 // (o toglie un'estensione) la suite si ferma, invece di scoprirlo di nuovo
@@ -84,7 +90,7 @@ function attraversaIlMiddleware(pathname: string): boolean {
 
 /** Elenca ricorsivamente i file sotto /public, come path assoluti da root ("/manifest.json", "/icons/icon-192.svg", ...). */
 function fileStaticiConEstensioneNota(): string[] {
-  const estensioni = ["svg", "png", "jpg", "jpeg", "gif", "webp", "ico", "css", "js", "json"];
+  const estensioni = ["svg", "png", "jpg", "jpeg", "gif", "webp", "ico", "css", "js", "json", "html"];
   const radicePublic = path.join(RADICE, "public");
   const risultato: string[] = [];
 
@@ -114,6 +120,16 @@ describe("asset statici di /public raggiungibili senza sessione", () => {
       "/manifest.json attraversa il middleware: senza sessione verrebbe " +
         "rediretto a /login e il browser riceverebbe HTML invece di JSON, " +
         "rendendo la PWA non installabile (bug riprodotto in produzione).",
+    ).toBe(false);
+  });
+
+  it("[TC-ASSET-PUB-001b] /offline.html (fallback offline del service worker) e' escluso dal middleware", () => {
+    expect(
+      attraversaIlMiddleware("/offline.html"),
+      "/offline.html attraversa il middleware: senza sessione verrebbe " +
+        "rediretto a /login, cioe' esattamente quando il fallback offline " +
+        "serve di piu' (bug riprodotto in produzione, stessa causa del " +
+        "manifest: l'estensione .html non era esclusa).",
     ).toBe(false);
   });
 
@@ -148,6 +164,7 @@ describe("hardening M-5: le API restano protette anche con suffisso statico", ()
     "/api/libri/x.js",
     "/api/prenotazioni/id.css",
     "/api/qualcosa.json",
+    "/api/qualcosa.html",
   ])(
     "[TC-ASSET-PUB-005] %s attraversa il middleware nonostante il suffisso statico (M-5)",
     (pathname) => {
@@ -155,8 +172,8 @@ describe("hardening M-5: le API restano protette anche con suffisso statico", ()
         attraversaIlMiddleware(pathname),
         `${pathname} e' stato escluso dal middleware per via del suo ` +
           "suffisso: e' esattamente la regressione M-5 che il lookahead " +
-          "`(?!api/)` deve impedire, anche dopo l'aggiunta di \"json\" fra " +
-          "le estensioni statiche escluse.",
+          "`(?!api/)` deve impedire, anche dopo l'aggiunta di \"json\" e " +
+          "\"html\" fra le estensioni statiche escluse.",
       ).toBe(true);
     },
   );

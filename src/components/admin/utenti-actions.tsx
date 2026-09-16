@@ -842,7 +842,8 @@ export function UtenteActionButton({
               onClick={cambiaStato}
               disabled={isLoading}
               variant={nuovoStato ? "default" : "destructive"}
-              className={nuovoStato ? "bg-green-600 hover:bg-green-700" : ""}
+              // bg-success (non bg-green-600): vedi src/app/globals.css.
+              className={nuovoStato ? "bg-success hover:bg-success/90" : ""}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

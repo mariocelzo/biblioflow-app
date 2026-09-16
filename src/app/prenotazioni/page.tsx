@@ -221,7 +221,9 @@ export default function PrenotazioniPage() {
       case "CONFERMATA":
         return <Badge className="bg-blue-500">Confermata</Badge>;
       case "CHECK_IN":
-        return <Badge className="bg-green-500">In corso</Badge>;
+        // variant "success" (non bg-green-500 scritto a mano): vedi il
+        // commento su --success in src/app/globals.css.
+        return <Badge variant="success">In corso</Badge>;
       case "COMPLETATA":
         return <Badge variant="outline">Completata</Badge>;
       case "CANCELLATA":
