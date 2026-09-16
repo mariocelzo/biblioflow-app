@@ -272,7 +272,7 @@ export function QuickActions({ stats }: AnomalieActionsProps) {
         <div className="text-left">
           <div className="font-medium">Avvisa No-Show</div>
           <div className="text-xs text-muted-foreground">
-            {stats.noShow} utenti da avvisare
+            {stats.noShow} {stats.noShow === 1 ? "utente" : "utenti"} da avvisare
           </div>
         </div>
       </Button>
@@ -291,7 +291,7 @@ export function QuickActions({ stats }: AnomalieActionsProps) {
         <div className="text-left">
           <div className="font-medium">Sollecita Prestiti</div>
           <div className="text-xs text-muted-foreground">
-            {stats.prestitiScaduti} prestiti scaduti
+            {stats.prestitiScaduti} {stats.prestitiScaduti === 1 ? "prestito scaduto" : "prestiti scaduti"}
           </div>
         </div>
       </Button>
@@ -310,7 +310,7 @@ export function QuickActions({ stats }: AnomalieActionsProps) {
         <div className="text-left">
           <div className="font-medium">Annulla Senza Check-in</div>
           <div className="text-xs text-muted-foreground">
-            {stats.ritardiCheckIn} prenotazioni
+            {stats.ritardiCheckIn} {stats.ritardiCheckIn === 1 ? "prenotazione" : "prenotazioni"}
           </div>
         </div>
       </Button>

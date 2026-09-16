@@ -272,7 +272,7 @@ export default async function PrestitiAdminPage({
                     <TableCell>
                       {prestito.giorniRitardo > 0 ? (
                         <Badge variant="destructive">
-                          {prestito.giorniRitardo} giorni
+                          {prestito.giorniRitardo} {prestito.giorniRitardo === 1 ? "giorno" : "giorni"}
                         </Badge>
                       ) : (
                         <span className="text-sm text-muted-foreground">-</span>

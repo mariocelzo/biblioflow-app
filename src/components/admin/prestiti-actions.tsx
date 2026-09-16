@@ -73,7 +73,9 @@ export default function PrestitiActions({ prestito }: Props) {
       }
 
       if (data.giorniRitardo > 0) {
-        toast.success(`Prestito restituito con ${data.giorniRitardo} giorni di ritardo`);
+        toast.success(
+          `Prestito restituito con ${data.giorniRitardo} ${data.giorniRitardo === 1 ? "giorno" : "giorni"} di ritardo`
+        );
       } else {
         toast.success("Prestito restituito con successo");
       }
@@ -219,7 +221,7 @@ export default function PrestitiActions({ prestito }: Props) {
               </div>
               {prestito.giorniRitardo > 0 && (
                 <div className="text-sm font-medium text-red-600">
-                  Ritardo: {prestito.giorniRitardo} giorni
+                  Ritardo: {prestito.giorniRitardo} {prestito.giorniRitardo === 1 ? "giorno" : "giorni"}
                 </div>
               )}
             </div>
@@ -295,7 +297,7 @@ export default function PrestitiActions({ prestito }: Props) {
                 {prestito.libro.titolo}
               </div>
               <div className="text-sm font-medium text-red-600">
-                Scaduto da: {prestito.giorniRitardo} giorni
+                Scaduto da: {prestito.giorniRitardo} {prestito.giorniRitardo === 1 ? "giorno" : "giorni"}
               </div>
             </div>
           </div>

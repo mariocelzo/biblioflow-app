@@ -3,8 +3,6 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -306,7 +304,7 @@ export default async function AdminAnomaliesPage() {
               </CardDescription>
             </div>
             <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
-              {stats.noShow} eventi
+              {stats.noShow} {stats.noShow === 1 ? "evento" : "eventi"}
             </Badge>
           </div>
         </CardHeader>
@@ -380,7 +378,7 @@ export default async function AdminAnomaliesPage() {
               <CardDescription>Libri non restituiti oltre la scadenza</CardDescription>
             </div>
             <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
-              {stats.prestitiScaduti} prestiti
+              {stats.prestitiScaduti} {stats.prestitiScaduti === 1 ? "prestito" : "prestiti"}
             </Badge>
           </div>
         </CardHeader>
@@ -469,7 +467,7 @@ export default async function AdminAnomaliesPage() {
               </CardDescription>
             </div>
             <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300">
-              {stats.ritardiCheckIn} prenotazioni
+              {stats.ritardiCheckIn} {stats.ritardiCheckIn === 1 ? "prenotazione" : "prenotazioni"}
             </Badge>
           </div>
         </CardHeader>
@@ -590,11 +588,12 @@ export default async function AdminAnomaliesPage() {
               </Badge>
             </div>
 
-            <Separator />
-
-            <Button variant="outline" className="w-full">
-              Configura Azioni Automatiche
-            </Button>
+            {/* PRIMA c'era qui un bottone "Configura Azioni Automatiche"
+                senza alcun gestore: non esiste (ancora) una schermata di
+                configurazione delle automazioni, i tre parametri sopra sono
+                fissi via codice (automation-service.ts). Stessa scelta gia'
+                fatta per "Aggiungi Posto"/"Esporta Lista": tolto invece di
+                lasciare un bottone che non fa nulla. */}
           </div>
         </CardContent>
       </Card>
