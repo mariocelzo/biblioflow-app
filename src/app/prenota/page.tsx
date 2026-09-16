@@ -23,6 +23,19 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+// Regole di dominio condivise col server (src/lib/prenotazioni-service.ts),
+// importate da qui e non da quel file: prenotazioni-service.ts importa
+// @prisma/client come VALORE, quindi importarlo da un componente "use client"
+// trascinerebbe @prisma/client nel bundle del browser. Vedi il commento in
+// cima a prenotazioni-regole.ts.
+import {
+  DURATA_MINIMA_PRENOTAZIONE_MINUTI,
+  dataCorrenteBiblioteca,
+  formatDurataMinuti,
+  minutiCorrentiBiblioteca,
+  minutiInOrario,
+  orarioInMinuti,
+} from "@/lib/prenotazioni-regole";
 import {
   Plug,
   Accessibility,
@@ -47,15 +60,32 @@ import {
 } from "lucide-react";
 
 // Tipi
+//
+// Deve rispecchiare ESATTAMENTE la risposta di GET /api/sale (vedi
+// src/app/api/sale/route.ts): prima dichiarava `capienza` e `tipoSala`, due
+// campi che quella API non ha mai restituito — probabilmente copiati a mano
+// dal modello Prisma `Sala`, che pero' ha `capienzaMax` e `isSilenziosa`/
+// `isGruppi`, non quei due nomi. Risultato dal vivo in produzione: la card
+// mostrava "posti" senza numero e l'icona sala restava sempre sul fallback
+// generico (MapPin), perche' `sala.tipoSala === "SILENZIOSA"`/`"GRUPPO"` non
+// erano mai vere. `stats` (calcolato dall'API sui posti reali) permette di
+// mostrare i posti DAVVERO disponibili, non solo la capienza massima teorica.
 interface Sala {
   id: string;
   nome: string;
   descrizione: string;
   piano: number;
-  capienza: number;
-  tipoSala: string;
+  isSilenziosa: boolean;
+  isGruppi: boolean;
+  capienzaMax: number;
   orarioApertura: string;
   orarioChiusura: string;
+  stats: {
+    postiTotali: number;
+    postiDisponibili: number;
+    postiOccupati: number;
+    percentualeOccupazione: number;
+  };
 }
 
 interface Posto {
@@ -69,9 +99,17 @@ interface Posto {
   posizioneY: number;
 }
 
-// Costanti orari biblioteca
-const ORARIO_APERTURA = "09:00";
-const ORARIO_CHIUSURA = "18:00";
+// Usati SOLO come valore di partenza, prima che GET /api/sale risponda
+// (skeleton iniziale): ogni sala ha i propri orari nel DB (Sala Studio
+// Principale 08:00-22:00, Sala Gruppi 09:00-19:00, Sala Lettura Silenziosa
+// 08:00-20:00) e i valori usati DAVVERO per generare slot e intestazione
+// sono l'inviluppo calcolato da `sale` (vedi `orarioBiblioteca` piu' sotto,
+// nel componente). PRIMA questi due erano usati SEMPRE al posto degli orari
+// reali: risultato dal vivo in produzione, la Sala Studio Principale
+// (08:00-22:00) non era prenotabile ne' alle 8 del mattino ne' dopo le 18,
+// pur essendo aperta in quelle fasce.
+const ORARIO_APERTURA_FALLBACK = "09:00";
+const ORARIO_CHIUSURA_FALLBACK = "18:00";
 
 type TipoDurata = "2h" | "mezza_mattina" | "mezza_pomeriggio" | "giornata";
 
@@ -82,13 +120,39 @@ interface Slot2Ore {
   label: string;
 }
 
-const SLOTS_2_ORE: Slot2Ore[] = [
-  { id: "slot1", oraInizio: "09:00", oraFine: "11:00", label: "09:00 - 11:00" },
-  { id: "slot2", oraInizio: "11:00", oraFine: "13:00", label: "11:00 - 13:00" },
-  { id: "slot3", oraInizio: "13:00", oraFine: "15:00", label: "13:00 - 15:00" },
-  { id: "slot4", oraInizio: "15:00", oraFine: "17:00", label: "15:00 - 17:00" },
-  { id: "slot5", oraInizio: "17:00", oraFine: "18:00", label: "17:00 - 18:00 (1h)" },
-];
+/**
+ * Genera gli slot fissi da `apertura` a `chiusura` con passo di 2 ore (la
+ * durata "naturale" di questa categoria, come i vecchi slot fissi
+ * 09-11/11-13/...). L'ultimo pezzo di giornata puo' essere piu' corto (es.
+ * l'attuale "17:00 - 18:00 (1h)" quando l'inviluppo chiude alle 18): se dura
+ * almeno quanto la durata minima di dominio lo teniamo comunque, con
+ * l'etichetta che riporta la durata reale; altrimenti lo scartiamo, perche'
+ * offrirlo farebbe fallire la prenotazione lato server con
+ * DURATA_TROPPO_BREVE.
+ */
+function generaSlotFissi(apertura: string, chiusura: string): Slot2Ore[] {
+  const PASSO_MINUTI = 120;
+  const fineBiblioteca = orarioInMinuti(chiusura);
+  const slots: Slot2Ore[] = [];
+  let inizio = orarioInMinuti(apertura);
+  let indice = 1;
+  while (inizio < fineBiblioteca) {
+    const fine = Math.min(inizio + PASSO_MINUTI, fineBiblioteca);
+    const durata = fine - inizio;
+    if (durata >= DURATA_MINIMA_PRENOTAZIONE_MINUTI) {
+      const suffisso = durata < PASSO_MINUTI ? ` (${formatDurataMinuti(durata)})` : "";
+      slots.push({
+        id: `slot${indice}`,
+        oraInizio: minutiInOrario(inizio),
+        oraFine: minutiInOrario(fine),
+        label: `${minutiInOrario(inizio)} - ${minutiInOrario(fine)}${suffisso}`,
+      });
+      indice++;
+    }
+    inizio = fine;
+  }
+  return slots;
+}
 
 interface OpzioneDurata {
   id: TipoDurata;
@@ -98,12 +162,65 @@ interface OpzioneDurata {
   oraFine: string;
 }
 
-const OPZIONI_DURATA: OpzioneDurata[] = [
-  { id: "2h", label: "2 ore", descrizione: "Scegli uno slot di 2 ore", oraInizio: "", oraFine: "" },
-  { id: "mezza_mattina", label: "Mezza giornata (mattina)", descrizione: "09:00 - 13:00", oraInizio: "09:00", oraFine: "13:00" },
-  { id: "mezza_pomeriggio", label: "Mezza giornata (pomeriggio)", descrizione: "13:00 - 18:00", oraInizio: "13:00", oraFine: "18:00" },
-  { id: "giornata", label: "Giornata intera", descrizione: "09:00 - 18:00", oraInizio: "09:00", oraFine: "18:00" },
-];
+// Confine mattina/pomeriggio delle "mezze giornate": e' una convenzione
+// istituzionale (la pausa pranzo), non l'orario di apertura/chiusura di una
+// sala specifica, quindi resta fisso mentre apertura/chiusura seguono
+// l'inviluppo delle sale (vedi `generaOpzioniDurata`).
+const CONFINE_MEZZA_GIORNATA_MINUTI = orarioInMinuti("13:00");
+
+/**
+ * Genera le 4 opzioni di durata sull'inviluppo `apertura`-`chiusura` di
+ * TUTTE le sale, invece che su un orario fisso 09:00-18:00: il wizard
+ * chiede la durata (step 2) PRIMA della sala (step 3), quindi qui non si sa
+ * ancora quale sala scegliera' l'utente. Le sale incompatibili con
+ * l'intervallo scelto vengono poi disabilitate allo step 3/4 (vedi
+ * `salaCoprente` piu' sotto nel componente).
+ */
+function generaOpzioniDurata(apertura: string, chiusura: string): OpzioneDurata[] {
+  const aperturaMinuti = orarioInMinuti(apertura);
+  const chiusuraMinuti = orarioInMinuti(chiusura);
+  // Il confine resta dentro [apertura, chiusura]: cosi' le due mezze
+  // giornate non si invertono anche se un giorno l'inviluppo delle sale non
+  // dovesse piu' coprire le 13:00.
+  const confineMinuti = Math.min(
+    Math.max(CONFINE_MEZZA_GIORNATA_MINUTI, aperturaMinuti),
+    chiusuraMinuti,
+  );
+  const confine = minutiInOrario(confineMinuti);
+
+  return [
+    {
+      id: "2h",
+      label: "Fascia oraria",
+      // Difetto verificato dal vivo in produzione: qui c'era scritto a mano
+      // "Scegli uno slot di 2 ore", ma fra gli slot generati da
+      // `generaSlotFissi` c'e' anche quello da 1 ora (quando la chiusura
+      // dell'inviluppo non e' un multiplo di 2h dall'apertura). Il testo ora
+      // deriva dalla vera durata minima di dominio, non e' piu' scritto a
+      // mano: non puo' tornare a divergere.
+      descrizione: `Scegli uno slot da ${formatDurataMinuti(DURATA_MINIMA_PRENOTAZIONE_MINUTI)} o 2 ore`,
+      oraInizio: "",
+      oraFine: "",
+    },
+    { id: "mezza_mattina", label: "Mezza giornata (mattina)", descrizione: `${apertura} - ${confine}`, oraInizio: apertura, oraFine: confine },
+    { id: "mezza_pomeriggio", label: "Mezza giornata (pomeriggio)", descrizione: `${confine} - ${chiusura}`, oraInizio: confine, oraFine: chiusura },
+    { id: "giornata", label: "Giornata intera", descrizione: `${apertura} - ${chiusura}`, oraInizio: apertura, oraFine: chiusura },
+  ];
+}
+
+/**
+ * Una sala "copre" l'intervallo scelto se il suo orario di apertura/chiusura
+ * lo contiene per intero. Usata per disabilitare (non nascondere, stesso
+ * principio applicato agli slot orari passati) le sale che non possono
+ * ospitare la prenotazione con l'orario gia' scelto allo step 2.
+ */
+function salaCoprente(sala: Sala, oraInizio: string, oraFine: string): boolean {
+  if (!oraInizio || !oraFine) return true;
+  return (
+    orarioInMinuti(sala.orarioApertura) <= orarioInMinuti(oraInizio) &&
+    orarioInMinuti(sala.orarioChiusura) >= orarioInMinuti(oraFine)
+  );
+}
 
 // Festività italiane 2026
 const FESTIVITA_2026 = [
@@ -312,14 +429,97 @@ export default function PrenotaPage() {
     if (status === "authenticated") fetchSale();
   }, [status]);
 
+  // BUG CORRETTO (difetto "orari fissi 09:00-18:00"): l'inviluppo di TUTTI
+  // gli orari di apertura/chiusura delle sale caricate, usato per generare
+  // gli slot allo step 2 (quando la sala non e' ancora stata scelta). Finche'
+  // `sale` non e' arrivata usiamo un fallback ragionevole (skeleton iniziale).
+  const orarioBiblioteca = useMemo(() => {
+    if (sale.length === 0) {
+      return { apertura: ORARIO_APERTURA_FALLBACK, chiusura: ORARIO_CHIUSURA_FALLBACK };
+    }
+    const aperture = sale.map((s) => orarioInMinuti(s.orarioApertura));
+    const chiusure = sale.map((s) => orarioInMinuti(s.orarioChiusura));
+    return {
+      apertura: minutiInOrario(Math.min(...aperture)),
+      chiusura: minutiInOrario(Math.max(...chiusure)),
+    };
+  }, [sale]);
+
+  const slots2Ore = useMemo(
+    () => generaSlotFissi(orarioBiblioteca.apertura, orarioBiblioteca.chiusura),
+    [orarioBiblioteca],
+  );
+  const opzioniDurata = useMemo(
+    () => generaOpzioniDurata(orarioBiblioteca.apertura, orarioBiblioteca.chiusura),
+    [orarioBiblioteca],
+  );
+
+  // BUG CORRETTO (difetto "si prenotano fasce orarie gia' passate"): "adesso"
+  // lato client, aggiornato ogni 30s. Serve a disabilitare gli slot di oggi
+  // gia' iniziati SENZA dover ricaricare la pagina. Il server e' comunque
+  // l'unica vera rete di sicurezza (vedi ORARIO_NEL_PASSATO in
+  // src/lib/prenotazioni-service.ts): questo e' solo per l'esperienza utente.
+  const [adesso, setAdesso] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setAdesso(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // "Oggi" e "ora corrente" nel fuso della biblioteca (Europe/Rome), stessa
+  // fonte di verita' del server (prenotazioni-regole.ts) invece di leggere
+  // `new Date()` grezzo nel fuso del browser.
+  const oggiBiblioteca = useMemo(
+    () => dataCorrenteBiblioteca(adesso).toISOString().split("T")[0],
+    [adesso],
+  );
+  const minutiAttualiBiblioteca = useMemo(
+    () => minutiCorrentiBiblioteca(adesso),
+    [adesso],
+  );
+
+  // Una fascia oraria che INIZIA oggi prima di adesso e' "passata" — incluso
+  // il caso limite di uno slot gia' iniziato ma non ancora finito (confronto
+  // sull'ora di INIZIO, non su quella di fine): stessa regola applicata dal
+  // server in validaIntervallo (src/lib/prenotazioni-service.ts), commentata
+  // li' per esteso. Tenerle allineate e' voluto: uno slot che il client
+  // lascia selezionabile ma che il server rifiuta sarebbe un errore scoperto
+  // solo alla conferma finale, invece che subito allo step 2.
+  const isSlotOggiPassato = useCallback(
+    (oraInizioSlot: string): boolean => {
+      if (!oraInizioSlot || dataPrenotazione !== oggiBiblioteca) return false;
+      return orarioInMinuti(oraInizioSlot) < minutiAttualiBiblioteca;
+    },
+    [dataPrenotazione, oggiBiblioteca, minutiAttualiBiblioteca],
+  );
+
   const getOrariSelezionati = useCallback((): { oraInizio: string; oraFine: string } => {
     if (tipoDurata === "2h" && slot2OreSelezionato) {
-      const slot = SLOTS_2_ORE.find(s => s.id === slot2OreSelezionato);
+      const slot = slots2Ore.find(s => s.id === slot2OreSelezionato);
       return slot ? { oraInizio: slot.oraInizio, oraFine: slot.oraFine } : { oraInizio: "", oraFine: "" };
     }
-    const opzione = OPZIONI_DURATA.find(o => o.id === tipoDurata);
+    const opzione = opzioniDurata.find(o => o.id === tipoDurata);
     return opzione ? { oraInizio: opzione.oraInizio, oraFine: opzione.oraFine } : { oraInizio: "", oraFine: "" };
-  }, [tipoDurata, slot2OreSelezionato]);
+  }, [tipoDurata, slot2OreSelezionato, slots2Ore, opzioniDurata]);
+
+  // Difesa in profondita': se il tempo passa mentre l'utente e' fermo allo
+  // step 2 (es. sta ancora leggendo), una selezione valida al momento della
+  // scelta puo' "scadere". Qui la annulliamo e avvisiamo, invece di lasciare
+  // che l'utente scopra il problema solo al passo di conferma finale.
+  useEffect(() => {
+    if (tipoDurata === "2h" && slot2OreSelezionato) {
+      const slot = slots2Ore.find((s) => s.id === slot2OreSelezionato);
+      if (slot && isSlotOggiPassato(slot.oraInizio)) {
+        setSlot2OreSelezionato("");
+        toast.error("La fascia oraria scelta e' nel frattempo iniziata: selezionane un'altra.");
+      }
+    } else if (tipoDurata && tipoDurata !== "2h") {
+      const opzione = opzioniDurata.find((o) => o.id === tipoDurata);
+      if (opzione && isSlotOggiPassato(opzione.oraInizio)) {
+        setTipoDurata("");
+        toast.error("La durata scelta e' nel frattempo iniziata: selezionane un'altra.");
+      }
+    }
+  }, [adesso, tipoDurata, slot2OreSelezionato, slots2Ore, opzioniDurata, isSlotOggiPassato]);
 
   useEffect(() => {
     const fetchPosti = async () => {
@@ -547,7 +747,8 @@ export default function PrenotaPage() {
           <BackButton href="/" />
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Prenota un Posto</h1>
-            <p className="text-sm sm:text-base text-muted-foreground mt-1">Biblioteca aperta dalle {ORARIO_APERTURA} alle {ORARIO_CHIUSURA} • Chiusa domenica e festivi</p>
+            {/* Inviluppo di tutte le sale: ogni sala ha poi il proprio orario, mostrato allo step "Sala" (vedi orarioBiblioteca). */}
+            <p className="text-sm sm:text-base text-muted-foreground mt-1">Aperta dalle {orarioBiblioteca.apertura} alle {orarioBiblioteca.chiusura} (varia per sala) • Chiusa domenica e festivi</p>
           </div>
         </div>
 
@@ -595,30 +796,60 @@ export default function PrenotaPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Clock className="h-5 w-5 text-blue-600 dark:text-blue-400" />Per quanto tempo?</CardTitle>
-              <CardDescription>Scegli la durata della tua prenotazione (minimo 2 ore)</CardDescription>
+              {/* Il testo "minimo 2 ore" era scritto a mano e non corrispondeva piu' al vero minimo lato
+                  server (DURATA_MINIMA_PRENOTAZIONE_MINUTI = 60, cioe' 1 ora: vedi lo slot da 1h fra quelli
+                  generati sotto). Ora deriva dalla costante condivisa, non puo' tornare a divergere. */}
+              <CardDescription>Scegli la durata della tua prenotazione (minimo {formatDurataMinuti(DURATA_MINIMA_PRENOTAZIONE_MINUTI)})</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {OPZIONI_DURATA.map((opzione) => (
-                  <button key={opzione.id} onClick={() => { setTipoDurata(opzione.id); if (opzione.id !== "2h") setSlot2OreSelezionato(""); }}
-                    className={`p-4 rounded-lg border-2 text-left transition-all ${tipoDurata === opzione.id ? "border-blue-500 bg-blue-50 dark:bg-blue-950 ring-2 ring-blue-200 dark:ring-blue-800" : "border-border hover:border-muted-foreground/50 hover:bg-muted"}`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`p-2 rounded-full ${tipoDurata === opzione.id ? "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"}`}>{getDurataIcon(opzione.id)}</div>
-                      <div><p className="font-semibold">{opzione.label}</p><p className="text-sm text-muted-foreground">{opzione.descrizione}</p></div>
-                    </div>
-                  </button>
-                ))}
+                {opzioniDurata.map((opzione) => {
+                  // Le opzioni "mezza giornata"/"giornata intera" hanno un oraInizio fisso: se la data
+                  // scelta e' oggi e quell'orario e' gia' passato, l'opzione va disabilitata con un motivo
+                  // visibile (stessa regola degli slot fissi sotto e del server, vedi isSlotOggiPassato).
+                  const passata = isSlotOggiPassato(opzione.oraInizio);
+                  return (
+                    <button
+                      key={opzione.id}
+                      type="button"
+                      disabled={passata}
+                      onClick={() => { setTipoDurata(opzione.id); if (opzione.id !== "2h") setSlot2OreSelezionato(""); }}
+                      className={`p-4 rounded-lg border-2 text-left transition-all ${passata ? "opacity-50 cursor-not-allowed border-border" : tipoDurata === opzione.id ? "border-blue-500 bg-blue-50 dark:bg-blue-950 ring-2 ring-blue-200 dark:ring-blue-800" : "border-border hover:border-muted-foreground/50 hover:bg-muted"}`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-full ${tipoDurata === opzione.id && !passata ? "bg-blue-100 dark:bg-blue-900 text-blue-600 dark:text-blue-400" : "bg-muted text-muted-foreground"}`}>{getDurataIcon(opzione.id)}</div>
+                        <div>
+                          <p className="font-semibold">{opzione.label}</p>
+                          <p className="text-sm text-muted-foreground">{opzione.descrizione}</p>
+                          {passata && <p className="text-xs text-red-600 dark:text-red-400 mt-1">Gia&apos; iniziata per oggi: scegli un&apos;altra data o durata</p>}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
               {tipoDurata === "2h" && (
                 <div className="mt-6 p-4 bg-muted dark:bg-gray-800 rounded-lg">
                   <Label className="text-base font-semibold mb-3 block">Seleziona fascia oraria</Label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {SLOTS_2_ORE.map((slot) => (
-                      <button key={slot.id} onClick={() => setSlot2OreSelezionato(slot.id)}
-                        className={`p-3 rounded-lg border text-center transition-all ${slot2OreSelezionato === slot.id ? "border-blue-500 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold" : "border-border bg-card hover:border-blue-300"}`}>
-                        {slot.label}
-                      </button>
-                    ))}
+                    {slots2Ore.map((slot) => {
+                      // BUG CORRETTO, il piu' grave dei quattro: alle 14:58 gli slot 09:00-11:00,
+                      // 11:00-13:00 e 13:00-15:00 di OGGI restavano selezionabili (mai disabilitati).
+                      // Qui li disabilitiamo con un motivo visibile invece di nasconderli, cosi'
+                      // l'utente capisce perche' non compaiono piu' invece di pensare a un bug della UI.
+                      const passato = isSlotOggiPassato(slot.oraInizio);
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          disabled={passato}
+                          onClick={() => setSlot2OreSelezionato(slot.id)}
+                          title={passato ? "Questa fascia e' gia' iniziata" : undefined}
+                          className={`p-3 rounded-lg border text-center transition-all ${passato ? "opacity-50 cursor-not-allowed border-border text-muted-foreground line-through" : slot2OreSelezionato === slot.id ? "border-blue-500 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold" : "border-border bg-card hover:border-blue-300"}`}>
+                          {slot.label}
+                          {passato && <span className="block text-[11px] font-normal no-underline">Gia&apos; iniziata</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -634,21 +865,47 @@ export default function PrenotaPage() {
               <CardDescription>Scegli la sala che preferisci</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {sale.map((sala) => (
-                <button key={sala.id} onClick={() => setSalaSelezionata(sala.id)}
-                  className={`w-full p-4 rounded-lg border-2 text-left transition-all ${salaSelezionata === sala.id ? "border-blue-500 bg-blue-50 dark:bg-blue-950 ring-2 ring-blue-200 dark:ring-blue-800" : "border-border hover:border-muted-foreground/50 hover:bg-muted"}`}>
-                  <div className="flex items-start gap-4">
-                    <div className={`p-3 rounded-full ${salaSelezionata === sala.id ? "bg-blue-100 dark:bg-blue-900" : "bg-muted"}`}>
-                      {sala.tipoSala === "SILENZIOSA" ? <VolumeX className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} /> : sala.tipoSala === "GRUPPO" ? <Volume2 className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-orange-500"}`} /> : <MapPin className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} />}
+              {sale.map((sala) => {
+                // BUG CORRETTO (difetto "orari fissi"): una sala che non copre per intero
+                // l'intervallo scelto allo step 2 (es. Sala Gruppi 09:00-19:00 con uno slot
+                // 20:00-22:00) va disabilitata con un motivo visibile, invece di lasciarla
+                // selezionabile e far fallire la conferma finale con FUORI_ORARIO_SALA.
+                const compatibile = salaCoprente(sala, oraInizio, oraFine);
+                return (
+                  <button
+                    key={sala.id}
+                    type="button"
+                    disabled={!compatibile}
+                    onClick={() => setSalaSelezionata(sala.id)}
+                    className={`w-full p-4 rounded-lg border-2 text-left transition-all ${!compatibile ? "opacity-50 cursor-not-allowed border-border" : salaSelezionata === sala.id ? "border-blue-500 bg-blue-50 dark:bg-blue-950 ring-2 ring-blue-200 dark:ring-blue-800" : "border-border hover:border-muted-foreground/50 hover:bg-muted"}`}>
+                    <div className="flex items-start gap-4">
+                      <div className={`p-3 rounded-full ${salaSelezionata === sala.id ? "bg-blue-100 dark:bg-blue-900" : "bg-muted"}`}>
+                        {/* Prima si leggeva `sala.tipoSala` ("SILENZIOSA"/"GRUPPO"), campo che l'API non
+                            restituisce mai (vedi commento sull'interfaccia Sala sopra): l'icona finiva
+                            sempre sul fallback MapPin. I campi veri sono questi due booleani. */}
+                        {sala.isSilenziosa ? <VolumeX className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} /> : sala.isGruppi ? <Volume2 className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-orange-500"}`} /> : <MapPin className={`h-6 w-6 ${salaSelezionata === sala.id ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`} />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2"><p className="font-semibold text-lg">{sala.nome}</p><Badge variant="secondary">Piano {sala.piano}</Badge></div>
+                        <p className="text-muted-foreground text-sm mt-1">{sala.descrizione}</p>
+                        {/* Prima: `{sala.capienza} posti`, campo inesistente nella risposta dell'API (che ha
+                            `capienzaMax` e `stats.postiDisponibili`) — la card mostrava "posti" senza numero.
+                            Mostriamo i posti DISPONIBILI, l'informazione utile per scegliere dove studiare. */}
+                        <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                          <span>{sala.stats.postiDisponibili} posti disponibili (su {sala.capienzaMax})</span>
+                          <span>•</span>
+                          <span>{sala.orarioApertura} - {sala.orarioChiusura}</span>
+                        </div>
+                        {!compatibile && (
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-1">
+                            Non copre l&apos;orario scelto ({oraInizio} - {oraFine}): aperta solo {sala.orarioApertura} - {sala.orarioChiusura}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2"><p className="font-semibold text-lg">{sala.nome}</p><Badge variant="secondary">Piano {sala.piano}</Badge></div>
-                      <p className="text-muted-foreground text-sm mt-1">{sala.descrizione}</p>
-                      <div className="flex gap-4 mt-2 text-sm text-muted-foreground"><span>{sala.capienza} posti</span><span>•</span><span>{sala.orarioApertura} - {sala.orarioChiusura}</span></div>
-                    </div>
-                  </div>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </CardContent>
           </Card>
         )}
@@ -680,21 +937,30 @@ export default function PrenotaPage() {
                   setPostoSelezionato(null);
                 }} className="w-full">
                   <TabsList className="w-full flex-wrap h-auto gap-1 bg-slate-100 p-1">
-                    {sale.map((sala) => (
-                      <TabsTrigger
-                        key={sala.id}
-                        value={sala.id}
-                        className="flex-1 min-w-[120px] data-[state=active]:bg-blue-600 data-[state=active]:text-white"
-                      >
-                        <div className="flex items-center gap-2">
-                          {sala.tipoSala === "SILENZIOSA" ? <VolumeX className="h-4 w-4" /> :
-                            sala.tipoSala === "GRUPPO" ? <Volume2 className="h-4 w-4" /> :
-                              <MapPin className="h-4 w-4" />}
-                          <span className="truncate">{sala.nome.replace("Sala ", "")}</span>
-                          <Badge variant="outline" className="ml-1 text-xs">P{sala.piano}</Badge>
-                        </div>
-                      </TabsTrigger>
-                    ))}
+                    {sale.map((sala) => {
+                      // Stesso controllo dello step 3: questo switch rapido e' un'altra strada che
+                      // porta alla stessa sala senza rifare lo step 3, quindi va protetto allo stesso
+                      // modo (altrimenti si potrebbe scegliere qui una sala che non copre l'orario gia'
+                      // scelto, scoprendo l'errore solo alla conferma finale).
+                      const compatibile = salaCoprente(sala, oraInizio, oraFine);
+                      return (
+                        <TabsTrigger
+                          key={sala.id}
+                          value={sala.id}
+                          disabled={!compatibile}
+                          title={!compatibile ? `Aperta ${sala.orarioApertura} - ${sala.orarioChiusura}: non copre l'orario scelto` : undefined}
+                          className="flex-1 min-w-[120px] data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                        >
+                          <div className="flex items-center gap-2">
+                            {sala.isSilenziosa ? <VolumeX className="h-4 w-4" /> :
+                              sala.isGruppi ? <Volume2 className="h-4 w-4" /> :
+                                <MapPin className="h-4 w-4" />}
+                            <span className="truncate">{sala.nome.replace("Sala ", "")}</span>
+                            <Badge variant="outline" className="ml-1 text-xs">P{sala.piano}</Badge>
+                          </div>
+                        </TabsTrigger>
+                      );
+                    })}
                   </TabsList>
                 </Tabs>
               </CardContent>

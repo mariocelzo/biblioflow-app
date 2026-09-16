@@ -17,7 +17,12 @@ import {
   type PrismaTransactionRunner,
 } from "@/lib/prenotazioni-service";
 
-const oggi = new Date("2030-01-15T12:00:00.000Z");
+// 05:00 Europe/Rome: volutamente prima di qualunque `oraInizio` usato nelle
+// fixture sotto (la piu' presto e' le "07:00" di TC-BIB27-013), cosi' il
+// nuovo controllo "slot di oggi gia' iniziato" (vedi TC-BIB27-021/024 sotto)
+// non fa scattare falsi positivi sui test preesistenti che non riguardano
+// quel controllo.
+const oggi = new Date("2030-01-15T04:00:00.000Z");
 const sala = {
   attiva: true,
   orarioApertura: "08:00",
@@ -299,6 +304,65 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     expect(intervalliSiSovrappongono(9 * 60, 11 * 60, 10 * 60, 12 * 60)).toBe(
       true,
     );
+  });
+
+  // Difetto verificato dal vivo in produzione: alle 14:58 gli slot
+  // 09:00-11:00, 11:00-13:00 e 13:00-15:00 di oggi risultavano ancora
+  // prenotabili perche' `validaIntervallo` confrontava solo la DATA, mai
+  // l'ORA. Questi test coprono i quattro casi richiesti: slot interamente
+  // passato, slot futuro di oggi, stesso orario ma data di domani (deve
+  // restare valido), e il caso limite scelto (slot gia' iniziato ma non
+  // ancora finito -> rifiutato, vedi commento su ORARIO_NEL_PASSATO in
+  // src/lib/prenotazioni-service.ts).
+  it("[TC-BIB27-021] rifiuta uno slot di oggi gia' interamente concluso", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-01-15",
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: new Date("2030-01-15T14:58:00+01:00"),
+      }),
+    ).toThrowError(
+      expect.objectContaining({ code: "ORARIO_NEL_PASSATO", status: 422 }),
+    );
+  });
+
+  it("[TC-BIB27-022] accetta uno slot di oggi ancora futuro", () => {
+    expect(
+      validaIntervallo({
+        data: "2030-01-15",
+        oraInizio: "15:00",
+        oraFine: "17:00",
+        adesso: new Date("2030-01-15T14:58:00+01:00"),
+      }),
+    ).toEqual({
+      data: new Date("2030-01-15T00:00:00.000Z"),
+      oraInizioMinuti: 15 * 60,
+      oraFineMinuti: 17 * 60,
+      durataMinuti: 2 * 60,
+    });
+  });
+
+  it("[TC-BIB27-023] accetta lo stesso orario se la data e' domani", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-01-16",
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: new Date("2030-01-15T14:58:00+01:00"),
+      }),
+    ).not.toThrow();
+  });
+
+  it("[TC-BIB27-024] caso limite: rifiuta uno slot di oggi gia' iniziato ma non ancora finito", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-01-15",
+        oraInizio: "13:00",
+        oraFine: "15:00",
+        adesso: new Date("2030-01-15T14:00:00+01:00"),
+      }),
+    ).toThrowError(expect.objectContaining({ code: "ORARIO_NEL_PASSATO" }));
   });
 });
 

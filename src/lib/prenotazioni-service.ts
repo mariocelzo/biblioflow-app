@@ -28,9 +28,24 @@ export {
   type PrenotazioneErrorCode,
 } from "@/lib/prenotazioni-errors";
 
-export const DURATA_MINIMA_PRENOTAZIONE_MINUTI = 60;
-export const DURATA_MASSIMA_PRENOTAZIONE_MINUTI = 8 * 60;
-export const TIME_ZONE_BIBLIOTECA = "Europe/Rome";
+// Le regole "pure" (durata min/max, fuso orario, calcolo data/ora corrente
+// della biblioteca) vivono in prenotazioni-regole.ts, SENZA dipendenza da
+// Prisma, cosi' da poter essere importate anche da componenti client (vedi
+// il commento in cima a quel file). Qui le ri-esportiamo per non rompere gli
+// import esistenti (es. tests/unit/prenotazioni-service.test.ts).
+import {
+  DURATA_MASSIMA_PRENOTAZIONE_MINUTI,
+  DURATA_MINIMA_PRENOTAZIONE_MINUTI,
+  dataCorrenteBiblioteca,
+  minutiCorrentiBiblioteca,
+  orarioInMinuti,
+} from "@/lib/prenotazioni-regole";
+
+export {
+  DURATA_MASSIMA_PRENOTAZIONE_MINUTI,
+  DURATA_MINIMA_PRENOTAZIONE_MINUTI,
+  TIME_ZONE_BIBLIOTECA,
+} from "@/lib/prenotazioni-regole";
 
 const STATI_PRENOTAZIONE_ATTIVI = new Set(["CONFERMATA", "CHECK_IN"]);
 const CODICI_CONFLITTO_POSTGRES = new Set(["23P01", "40001", "40P01"]);
@@ -143,43 +158,16 @@ function dataCalendario(value: DataPrenotazione): Date {
   );
 }
 
-function dataCorrenteBiblioteca(adesso: Date): Date {
-  if (Number.isNaN(adesso.getTime())) {
-    throw new ValidazioneError("DATA_NON_VALIDA", "Inserisci una data valida");
-  }
-
-  const parti = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TIME_ZONE_BIBLIOTECA,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(adesso);
-  const valore = (tipo: Intl.DateTimeFormatPartTypes): number =>
-    Number(parti.find((parte) => parte.type === tipo)?.value);
-
-  return new Date(Date.UTC(valore("year"), valore("month") - 1, valore("day")));
-}
+// `dataCorrenteBiblioteca`/`minutiCorrentiBiblioteca` (data e ora correnti nel
+// fuso della biblioteca) vivono in prenotazioni-regole.ts — importate sopra —
+// perche' servono anche al client (vedi commento in cima a quel file).
 
 function minutiDaMezzanotte(value: OraPrenotazione): number {
   if (typeof value === "string") {
-    const match = /^(\d{2}):(\d{2})$/.exec(value);
-    if (!match) {
-      throw new ValidazioneError(
-        "ORARIO_NON_VALIDO",
-        "Inserisci un orario valido",
-      );
-    }
-
-    const ore = Number(match[1]);
-    const minuti = Number(match[2]);
-    if (ore > 23 || minuti > 59) {
-      throw new ValidazioneError(
-        "ORARIO_NON_VALIDO",
-        "Inserisci un orario valido",
-      );
-    }
-
-    return ore * 60 + minuti;
+    // Parsing/validazione di "HH:MM" condivisi col client tramite
+    // `orarioInMinuti` (prenotazioni-regole.ts): stessa regex, stesso
+    // messaggio di errore, un solo posto da aggiornare.
+    return orarioInMinuti(value);
   }
 
   if (Number.isNaN(value.getTime())) {
@@ -203,8 +191,11 @@ export function intervalliSiSovrappongono(
 }
 
 export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
+  // Calcolato una sola volta: serve sia per il giorno (dataCorrenteBiblioteca)
+  // sia per l'orario corrente (minutiCorrentiBiblioteca) qui sotto.
+  const adesso = input.adesso ?? new Date();
   const data = dataCalendario(input.data);
-  const oggi = dataCorrenteBiblioteca(input.adesso ?? new Date());
+  const oggi = dataCorrenteBiblioteca(adesso);
   const oraInizioMinuti = minutiDaMezzanotte(input.oraInizio);
   const oraFineMinuti = minutiDaMezzanotte(input.oraFine);
   const durataMinima =
@@ -217,6 +208,32 @@ export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
       "DATA_NEL_PASSATO",
       "Scegli una data di oggi o successiva",
     );
+  }
+
+  // BUG VISTO IN PRODUZIONE: questo controllo prima confrontava solo le
+  // DATE, mai l'ORA. Una prenotazione per "oggi 09:00-11:00" inviata alle
+  // 15:00 passava la validazione perche' `data < oggi` e' falso quando la
+  // data e' proprio oggi. Qui aggiungiamo il confronto sull'orario, ma solo
+  // quando la data scelta e' effettivamente oggi (per le date future il
+  // controllo sull'ora non ha senso).
+  //
+  // Scelta di design sul caso limite "slot gia' iniziato ma non ancora
+  // finito" (es. sono le 14:00 e lo slot e' 13:00-15:00): lo trattiamo come
+  // nel passato e lo rifiutiamo (oraInizioMinuti < minutiAttuali, non <=).
+  // Motivo: il check-in e' pensato per avvenire all'ora di inizio
+  // dichiarata; ammettere una prenotazione a meta' fascia darebbe all'utente
+  // un servizio piu' corto di quello mostrato, senza che se ne accorga prima
+  // di prenotare. Il client applica la STESSA regola (vedi
+  // `isSlotOggiPassato` in `src/app/prenota/page.tsx`), cosi' lo slot
+  // risulta gia' disabilitato in UI prima ancora di arrivare qui.
+  if (data.getTime() === oggi.getTime()) {
+    const minutiAttuali = minutiCorrentiBiblioteca(adesso);
+    if (oraInizioMinuti < minutiAttuali) {
+      throw new ValidazioneError(
+        "ORARIO_NEL_PASSATO",
+        "Questa fascia oraria e' gia' iniziata: scegli un orario futuro",
+      );
+    }
   }
 
   if (oraFineMinuti <= oraInizioMinuti) {
