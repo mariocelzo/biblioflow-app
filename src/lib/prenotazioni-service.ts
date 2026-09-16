@@ -84,6 +84,16 @@ export type IntervalloInput = {
   adesso?: Date;
   durataMinimaMinuti?: number;
   durataMassimaMinuti?: number;
+  // Disattiva il controllo ORARIO_NEL_PASSATO (vedi validaIntervallo). Di
+  // default `false`/assente: una richiesta NUOVA (prenotazione diretta o
+  // ingresso in coda) deve sempre riguardare un orario futuro. Va a `true`
+  // solo per operazioni che agiscono su uno slot GIA' ESISTENTE e non su una
+  // richiesta nuova dell'utente: la promozione dalla coda (`promuoviPrimoInCoda`,
+  // che crea la prenotazione per uno slot appena liberato da un no-show — per
+  // definizione gia' in corso o concluso) e la lettura della posizione di una
+  // richiesta di coda esistente (`posizioneInCoda`, che non deve fallire solo
+  // perche' lo slot per cui si e' in attesa e' nel frattempo iniziato).
+  permettiOrarioPassato?: boolean;
 };
 
 export type ValidazionePrenotazioneInput = IntervalloInput & {
@@ -226,7 +236,7 @@ export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
   // di prenotare. Il client applica la STESSA regola (vedi
   // `isSlotOggiPassato` in `src/app/prenota/page.tsx`), cosi' lo slot
   // risulta gia' disabilitato in UI prima ancora di arrivare qui.
-  if (data.getTime() === oggi.getTime()) {
+  if (!input.permettiOrarioPassato && data.getTime() === oggi.getTime()) {
     const minutiAttuali = minutiCorrentiBiblioteca(adesso);
     if (oraInizioMinuti < minutiAttuali) {
       throw new ValidazioneError(
@@ -653,7 +663,12 @@ export async function posizioneInCoda(
   input: CodaIntervalloInput,
   client: PrismaTransactionRunner,
 ): Promise<number> {
-  const intervallo = validaIntervallo(input);
+  // Legge la posizione di una richiesta di coda GIA' ESISTENTE (data/orario
+  // gia' salvati quando l'utente e' entrato in coda, non una richiesta
+  // nuova): niente ORARIO_NEL_PASSATO, altrimenti la pagina "la mia lista
+  // d'attesa" smetterebbe di caricarsi non appena lo slot per cui si e' in
+  // coda inizia, anche se la richiesta e' ancora legittimamente IN_ATTESA.
+  const intervallo = validaIntervallo({ ...input, permettiOrarioPassato: true });
   const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
   const oraFine = oraPrisma(intervallo.oraFineMinuti);
 
@@ -699,7 +714,12 @@ export async function promuoviPrimoInCoda(
   input: Omit<CodaIntervalloInput, "userId">,
   client: PrismaTransactionRunner,
 ): Promise<PromozioneCoda | null> {
-  const intervallo = validaIntervallo(input);
+  // La promozione opera su uno slot GIA' LIBERATO (tipicamente da un
+  // no-show: l'intero scenario presuppone che lo slot originale sia gia' in
+  // corso o concluso), non su una richiesta nuova dell'utente: niente
+  // ORARIO_NEL_PASSATO qui, altrimenti la promozione automatica fallirebbe
+  // sistematicamente proprio nel caso d'uso per cui esiste.
+  const intervallo = validaIntervallo({ ...input, permettiOrarioPassato: true });
   const oraInizio = oraPrisma(intervallo.oraInizioMinuti);
   const oraFine = oraPrisma(intervallo.oraFineMinuti);
   const dataSql = intervallo.data.toISOString().slice(0, 10);
@@ -748,6 +768,10 @@ export async function promuoviPrimoInCoda(
             data: richiesta.data,
             oraInizio: richiesta.oraInizio,
             oraFine: richiesta.oraFine,
+            // Stesso motivo di sopra: questa e' la creazione EFFETTIVA della
+            // prenotazione per lo slot appena liberato, non una richiesta
+            // nuova dell'utente promosso.
+            permettiOrarioPassato: true,
           },
           tx,
         );

@@ -364,6 +364,27 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
       }),
     ).toThrowError(expect.objectContaining({ code: "ORARIO_NEL_PASSATO" }));
   });
+
+  // Regressione presa dalla CI: `promuoviPrimoInCoda` (promozione dalla lista
+  // d'attesa dopo un no-show) e `posizioneInCoda` (lettura posizione di una
+  // richiesta di coda gia' esistente) operano su slot che, per definizione,
+  // possono essere gia' iniziati o conclusi — NON sono richieste nuove
+  // dell'utente. Senza `permettiOrarioPassato: true` il controllo aggiunto
+  // sopra le rompeva sistematicamente (vedi tests/integration/automazioni.test.ts,
+  // scenario no-show + promozione). Qui si verifica solo `validaIntervallo`
+  // (puro); i test end-to-end di `promuoviPrimoInCoda`/`posizioneInCoda`
+  // restano quelli con DB in tests/integration/automazioni.test.ts.
+  it("[TC-BIB27-025] permettiOrarioPassato disattiva il controllo ORARIO_NEL_PASSATO", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-01-15",
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: new Date("2030-01-15T14:58:00+01:00"),
+        permettiOrarioPassato: true,
+      }),
+    ).not.toThrow();
+  });
 });
 
 const dataDb = new Date("2030-01-15T00:00:00.000Z");
@@ -591,5 +612,64 @@ describe("servizio di dominio BIB-28—BIB-31", () => {
         targetUserId: richiestaCoda.userId,
       }),
     });
+  });
+
+  // Regressione: la prima versione del controllo ORARIO_NEL_PASSATO (aggiunto
+  // in TC-BIB27-021/024) rifiutava anche la promozione dalla coda, perche'
+  // quello scenario è ESATTAMENTE uno slot di oggi gia' iniziato (il caso
+  // d'uso e' il no-show: lo slot per cui si promuove e' per definizione in
+  // corso o concluso). Qui "adesso" e' volutamente DOPO l'oraInizio dello
+  // slot promosso (14:58, slot 09:00-11:00): senza `permettiOrarioPassato:
+  // true` nella chiamata interna a `validaIntervallo`, questa promozione
+  // fallirebbe con ORARIO_NEL_PASSATO invece di creare la prenotazione.
+  it("[TC-BIB31-008] la promozione riesce anche se lo slot di oggi e' gia' iniziato (scenario no-show)", async () => {
+    const tx = {
+      $queryRaw: vi.fn().mockResolvedValue([richiestaCoda]),
+      posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+      prenotazione: {
+        findFirst: vi.fn().mockResolvedValue(null),
+        findMany: vi.fn().mockResolvedValue([]),
+        create: vi.fn().mockResolvedValue(prenotazioneCreata),
+      },
+      listaAttesa: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      logEvento: { create: vi.fn().mockResolvedValue({ id: "evento-promozione" }) },
+    };
+    const { client } = transactionRunner(tx);
+    const input = {
+      postoId: posto.id,
+      data: "2030-01-15",
+      oraInizio: "09:00",
+      oraFine: "11:00",
+      adesso: new Date("2030-01-15T14:58:00+01:00"),
+    };
+
+    await expect(promuoviPrimoInCoda(input, client)).resolves.toMatchObject({
+      richiestaId: richiestaCoda.id,
+      prenotazione: prenotazioneCreata,
+    });
+  });
+
+  // Stessa regressione, per `posizioneInCoda`: leggere la posizione di una
+  // richiesta di coda gia' esistente (es. per mostrare "la mia lista
+  // d'attesa") non deve fallire solo perche' lo slot per cui si e' in coda e'
+  // nel frattempo iniziato.
+  it("[TC-BIB31-009] posizioneInCoda funziona anche se lo slot di oggi e' gia' iniziato", async () => {
+    const tx = {
+      listaAttesa: {
+        findFirst: vi.fn().mockResolvedValue({ id: richiestaCoda.id, createdAt: timestampDb }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+    };
+    const { client } = transactionRunner(tx);
+    const input = {
+      userId: richiestaCoda.userId,
+      postoId: posto.id,
+      data: "2030-01-15",
+      oraInizio: "09:00",
+      oraFine: "11:00",
+      adesso: new Date("2030-01-15T14:58:00+01:00"),
+    };
+
+    await expect(posizioneInCoda(input, client)).resolves.toBe(1);
   });
 });
