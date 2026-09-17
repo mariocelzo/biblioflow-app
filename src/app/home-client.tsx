@@ -699,8 +699,10 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
                               {libro.categoria}
                             </Badge>
                             <Badge
-                              variant={libro.disponibile ? "default" : "destructive"}
-                              className={`text-xs ${libro.disponibile ? 'bg-green-500' : ''}`}
+                              // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+                              // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+                              variant={libro.disponibile ? "success" : "destructive"}
+                              className="text-xs"
                             >
                               {libro.disponibile ? 'Disponibile' : 'In prestito'}
                             </Badge>
@@ -750,8 +752,10 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-xl font-bold text-foreground">{posto.numero}</span>
                             <Badge
-                              variant={posto.disponibile ? "default" : "secondary"}
-                              className={`text-xs ${posto.disponibile ? 'bg-green-500' : ''}`}
+                              // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+                              // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+                              variant={posto.disponibile ? "success" : "secondary"}
+                              className="text-xs"
                             >
                               {posto.disponibile ? 'Libero' : 'Occupato'}
                             </Badge>

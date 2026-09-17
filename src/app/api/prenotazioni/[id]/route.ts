@@ -166,7 +166,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
         if (adesso < aperturaCheckIn) {
           return NextResponse.json(
-            { success: false, error: "E' troppo presto per effettuare il check-in" },
+            { success: false, error: "È troppo presto per effettuare il check-in" },
             { status: 400 },
           );
         }

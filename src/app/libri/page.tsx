@@ -431,7 +431,9 @@ export default function LibriPage() {
                       {libro.categoria}
                     </Badge>
                     {libro.disponibile ? (
-                      <Badge className="bg-green-500 text-white text-xs">
+                      // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+                      // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+                      <Badge variant="success" className="text-xs">
                         <CheckCircle2 className="h-3 w-3 mr-1" />
                         Disponibile
                       </Badge>

@@ -116,7 +116,9 @@ export default async function PrenotazioniAdminPage({
       case "CHECK_IN":
         return <Badge className="bg-blue-500">Check-in</Badge>;
       case "COMPLETATA":
-        return <Badge className="bg-green-500">Completata</Badge>;
+        // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+        // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+        return <Badge variant="success">Completata</Badge>;
       case "CANCELLATA":
         return <Badge variant="destructive">Cancellata</Badge>;
       case "NO_SHOW":

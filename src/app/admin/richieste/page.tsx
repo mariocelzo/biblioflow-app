@@ -101,7 +101,9 @@ export default function AdminRichiestePage() {
             case "IN_LAVORAZIONE":
                 return <Badge className="bg-blue-500 hover:bg-blue-600">In Lav.</Badge>;
             case "PRONTA_RITIRO":
-                return <Badge className="bg-green-500 hover:bg-green-600">Pronta</Badge>;
+                // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+                // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+                return <Badge variant="success">Pronta</Badge>;
             case "COMPLETATA":
                 // NOTA TEMA SCURO: bg-gray-500 qui è un chip di stato a tinta piena
                 // (come bg-yellow-500/bg-blue-500/bg-green-500 sopra), col testo
@@ -206,7 +208,9 @@ export default function AdminRichiestePage() {
                                             {req.stato === "IN_LAVORAZIONE" && (
                                                 <Button
                                                     size="sm"
-                                                    className="bg-green-600 hover:bg-green-700"
+                                                    // token --success (non bg-green-600 scritto a mano): stesso
+                                                    // criterio di contrasto del Badge, vedi badge.tsx.
+                                                    className="bg-success hover:bg-success/90"
                                                     onClick={() => updateStato(req.id, "PRONTA_RITIRO")}
                                                     disabled={processingId === req.id}
                                                 >
