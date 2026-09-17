@@ -45,6 +45,7 @@ import {
   User,
   History,
 } from "lucide-react";
+import { formattaOraDb } from "@/lib/admin-tempo";
 
 interface DettagliPostoData {
   posto: {
@@ -399,15 +400,14 @@ export function PostoActionButton({
                         <div className="flex items-center gap-2 text-sm text-muted-foreground mt-2">
                           <Clock className="h-3 w-3" />
                           <span>
-                            {new Date(`1970-01-01T${dettagliData.prenotazioneAttuale.oraInizio}`).toLocaleTimeString("it-IT", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}{" "}
+                            {/* formattaOraDb: qui i dati arrivano da una fetch
+                                JSON, quindi oraInizio/oraFine sono gia' stringhe
+                                ISO ("1970-01-01T14:00:00.000Z"). Il vecchio
+                                `new Date(`1970-01-01T${valore}`)` duplicava la
+                                data e produceva "Invalid Date" a schermo. */}
+                            {formattaOraDb(dettagliData.prenotazioneAttuale.oraInizio)}{" "}
                             -{" "}
-                            {new Date(`1970-01-01T${dettagliData.prenotazioneAttuale.oraFine}`).toLocaleTimeString("it-IT", {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                            {formattaOraDb(dettagliData.prenotazioneAttuale.oraFine)}
                           </span>
                         </div>
                       </div>
@@ -441,12 +441,7 @@ export function PostoActionButton({
                             <Calendar className="h-3 w-3" />
                             <span>{new Date(pren.data).toLocaleDateString("it-IT")}</span>
                             <Clock className="h-3 w-3 ml-2" />
-                            <span>
-                              {new Date(`1970-01-01T${pren.oraInizio}`).toLocaleTimeString("it-IT", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </span>
+                            <span>{formattaOraDb(pren.oraInizio)}</span>
                           </div>
                         </div>
                         <Badge variant={pren.stato === "CHECK_IN" || pren.stato === "COMPLETATA" ? "default" : "secondary"} className="text-xs">

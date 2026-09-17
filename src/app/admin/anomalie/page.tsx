@@ -1,9 +1,8 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -24,6 +23,11 @@ import {
 } from "lucide-react";
 import db from "@/lib/prisma";
 import { AnomalieActions, QuickActions, RowActionButton } from "@/components/admin/anomalie-actions";
+import { formattaOraDb } from "@/lib/admin-tempo";
+
+export const metadata: Metadata = {
+  title: "Anomalie & Alert",
+};
 
 export default async function AdminAnomaliesPage() {
   const session = await auth();
@@ -300,7 +304,7 @@ export default async function AdminAnomaliesPage() {
               </CardDescription>
             </div>
             <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
-              {stats.noShow} eventi
+              {stats.noShow} {stats.noShow === 1 ? "evento" : "eventi"}
             </Badge>
           </div>
         </CardHeader>
@@ -374,7 +378,7 @@ export default async function AdminAnomaliesPage() {
               <CardDescription>Libri non restituiti oltre la scadenza</CardDescription>
             </div>
             <Badge className="bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
-              {stats.prestitiScaduti} prestiti
+              {stats.prestitiScaduti} {stats.prestitiScaduti === 1 ? "prestito" : "prestiti"}
             </Badge>
           </div>
         </CardHeader>
@@ -463,7 +467,7 @@ export default async function AdminAnomaliesPage() {
               </CardDescription>
             </div>
             <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-300">
-              {stats.ritardiCheckIn} prenotazioni
+              {stats.ritardiCheckIn} {stats.ritardiCheckIn === 1 ? "prenotazione" : "prenotazioni"}
             </Badge>
           </div>
         </CardHeader>
@@ -506,15 +510,12 @@ export default async function AdminAnomaliesPage() {
                       <div className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         <span className="text-sm">
-                          {new Date(prenotazione.oraInizio).toLocaleTimeString("it-IT", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}{" "}
-                          -{" "}
-                          {new Date(prenotazione.oraFine).toLocaleTimeString("it-IT", {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })}
+                          {/* formattaOraDb forza il fuso UTC: oraInizio/oraFine
+                              sono salvate come istante UTC sul finto giorno
+                              1970-01-01 (vedi src/lib/admin-tempo.ts), quindi
+                              senza `timeZone: "UTC"` l'ora mostrata slitta
+                              del fuso del processo che la renderizza. */}
+                          {formattaOraDb(prenotazione.oraInizio)} - {formattaOraDb(prenotazione.oraFine)}
                         </span>
                       </div>
                     </TableCell>
@@ -587,11 +588,12 @@ export default async function AdminAnomaliesPage() {
               </Badge>
             </div>
 
-            <Separator />
-
-            <Button variant="outline" className="w-full">
-              Configura Azioni Automatiche
-            </Button>
+            {/* PRIMA c'era qui un bottone "Configura Azioni Automatiche"
+                senza alcun gestore: non esiste (ancora) una schermata di
+                configurazione delle automazioni, i tre parametri sopra sono
+                fissi via codice (automation-service.ts). Stessa scelta gia'
+                fatta per "Aggiungi Posto"/"Esporta Lista": tolto invece di
+                lasciare un bottone che non fa nulla. */}
           </div>
         </CardContent>
       </Card>

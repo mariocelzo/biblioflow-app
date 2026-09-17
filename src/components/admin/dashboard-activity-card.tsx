@@ -4,7 +4,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Activity, AlertTriangle, BookOpen } from "lucide-react";
+import {
+  CheckCircle2,
+  Activity,
+  AlertTriangle,
+  BookOpen,
+  Calendar,
+  XCircle,
+  LogOut,
+  Shield,
+  Users,
+  Clock,
+  History,
+} from "lucide-react";
 
 interface Activity {
   tipo: string;
@@ -13,6 +25,11 @@ interface Activity {
   tempo: string;
   iconName: string;
   color: string;
+  // Sfondo del cerchio dell'icona (es. "bg-green-100 dark:bg-green-950").
+  // Prima si usava `${activity.color} bg-opacity-10`, ma `color` e' una
+  // classe `text-*`: senza un `bg-*` accoppiato `bg-opacity-10` non ha
+  // alcun effetto visibile e il cerchio restava sempre trasparente.
+  bgColor: string;
 }
 
 interface DashboardActivityCardProps {
@@ -24,6 +41,12 @@ const iconMap = {
   Activity,
   AlertTriangle,
   BookOpen,
+  Calendar,
+  XCircle,
+  LogOut,
+  Shield,
+  Users,
+  Clock,
 };
 
 export function DashboardActivityCard({ activities }: DashboardActivityCardProps) {
@@ -40,7 +63,7 @@ export function DashboardActivityCard({ activities }: DashboardActivityCardProps
         <div className="flex items-center justify-between">
           <div>
             <CardTitle>Attività Recente</CardTitle>
-            <CardDescription>Eventi e azioni degli ultimi minuti</CardDescription>
+            <CardDescription>Ultimi eventi registrati nel sistema</CardDescription>
           </div>
           <Button variant="outline" size="sm" onClick={handleVediTutto}>
             Vedi tutto
@@ -48,13 +71,23 @@ export function DashboardActivityCard({ activities }: DashboardActivityCardProps
         </div>
       </CardHeader>
       <CardContent>
+        {activities.length === 0 ? (
+          // Prima questa card mostrava sempre 4 attivita' finte, scritte a
+          // mano e identiche a ogni caricamento (Mario Rossi, Laura Bianchi,
+          // ...): ora i dati sono veri (ultimi LogEvento) e quando non ce ne
+          // sono ancora si mostra uno stato vuoto onesto invece di inventarli.
+          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-muted-foreground">
+            <History className="h-8 w-8" />
+            <p>Nessuna attività registrata per ora</p>
+          </div>
+        ) : (
         <div className="space-y-4">
           {activities.map((activity, index) => {
             const Icon = iconMap[activity.iconName as keyof typeof iconMap] || CheckCircle2;
             return (
               <div key={index}>
                 <div className="flex items-start gap-4">
-                  <div className={`rounded-full p-2 ${activity.color} bg-opacity-10`}>
+                  <div className={`rounded-full p-2 ${activity.bgColor}`}>
                     <Icon className={`h-4 w-4 ${activity.color}`} />
                   </div>
                   <div className="flex-1 space-y-1">
@@ -70,6 +103,7 @@ export function DashboardActivityCard({ activities }: DashboardActivityCardProps
             );
           })}
         </div>
+        )}
       </CardContent>
     </Card>
   );

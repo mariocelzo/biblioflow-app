@@ -1,16 +1,8 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -21,8 +13,6 @@ import {
 } from "@/components/ui/table";
 import {
   Users,
-  Search,
-  Filter,
   UserCheck,
   UserX,
   Shield,
@@ -32,10 +22,30 @@ import {
   Mail,
   Clock,
 } from "lucide-react";
+import type { Prisma } from "@prisma/client";
+import { UserRole } from "@prisma/client";
 import db from "@/lib/prisma";
 import { UtenteActionButton } from "@/components/admin/utenti-actions";
+import UtentiFiltri from "@/components/admin/utenti-filtri";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
-export default async function AdminUtentiPage() {
+export const metadata: Metadata = {
+  title: "Gestione utenti",
+};
+
+type SearchParams = {
+  q?: string;
+  ruolo?: string;
+  stato?: string;
+};
+
+export default async function AdminUtentiPage({
+  searchParams,
+}: {
+  // Next.js 16: searchParams e' una Promise (stesso motivo del fix gia'
+  // applicato alle altre liste admin).
+  searchParams: Promise<SearchParams>;
+}) {
   const session = await auth();
 
   if (!session?.user) {
@@ -46,8 +56,32 @@ export default async function AdminUtentiPage() {
     redirect("/");
   }
 
-  // Fetch utenti con statistiche
+  const params = await searchParams;
+
+  const where: Prisma.UserWhereInput = {};
+  if (params.q) {
+    where.OR = [
+      { nome: { contains: params.q, mode: "insensitive" } },
+      { cognome: { contains: params.q, mode: "insensitive" } },
+      { email: { contains: params.q, mode: "insensitive" } },
+    ];
+  }
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const ruoloValido = valoreEnumAmmesso(UserRole, params.ruolo);
+  if (ruoloValido) {
+    where.ruolo = ruoloValido;
+  }
+  if (params.stato === "attivo") where.attivo = true;
+  if (params.stato === "disattivato") where.attivo = false;
+  if (params.stato === "verificato") where.emailVerificata = true;
+  if (params.stato === "non-verificato") where.emailVerificata = false;
+
+  // Fetch utenti con statistiche. Prima campo di ricerca e select non
+  // filtravano nulla (nessun gestore) e la tabella era tagliata a 50 righe
+  // con un bottone "Carica altri" senza alcun gestore per mostrarne altre.
   const utenti = await db.user.findMany({
+    where,
     include: {
       _count: {
         select: {
@@ -60,16 +94,28 @@ export default async function AdminUtentiPage() {
     orderBy: {
       createdAt: "desc",
     },
+    take: 100,
   });
 
-  // Statistiche rapide
+  // Statistiche rapide: sempre su TUTTI gli utenti, non sul risultato
+  // filtrato, cosi' le card in alto restano stabili mentre si cerca.
+  const [totaleUtenti, studentiUtenti, staffUtenti, attiviUtenti, disattivatiUtenti, verificateUtenti] =
+    await Promise.all([
+      db.user.count(),
+      db.user.count({ where: { ruolo: "STUDENTE" } }),
+      db.user.count({ where: { ruolo: { in: ["BIBLIOTECARIO", "ADMIN"] } } }),
+      db.user.count({ where: { attivo: true } }),
+      db.user.count({ where: { attivo: false } }),
+      db.user.count({ where: { emailVerificata: true } }),
+    ]);
+
   const stats = {
-    totale: utenti.length,
-    studenti: utenti.filter((u) => u.ruolo === "STUDENTE").length,
-    staff: utenti.filter((u) => u.ruolo === "BIBLIOTECARIO" || u.ruolo === "ADMIN").length,
-    attivi: utenti.filter((u) => u.attivo).length,
-    disattivati: utenti.filter((u) => !u.attivo).length,
-    emailVerificate: utenti.filter((u) => u.emailVerificata).length,
+    totale: totaleUtenti,
+    studenti: studentiUtenti,
+    staff: staffUtenti,
+    attivi: attiviUtenti,
+    disattivati: disattivatiUtenti,
+    emailVerificate: verificateUtenti,
   };
 
   const getRuoloBadge = (ruolo: string) => {
@@ -113,20 +159,18 @@ export default async function AdminUtentiPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">
-            Gestione Utenti
-          </h1>
-          <p className="text-muted-foreground">
-            Visualizza e gestisci tutti gli utenti della biblioteca
-          </p>
-        </div>
-        <Button className="gap-2">
-          <Users className="h-4 w-4" />
-          Esporta Lista
-        </Button>
+      {/* Header.
+          PRIMA c'era un bottone "Esporta Lista" senza alcun gestore: nessuna
+          API genera un export, quindi (come per "Aggiungi Posto" in
+          /admin/posti) e' stato tolto invece di lasciarlo li' a non fare
+          nulla. */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">
+          Gestione Utenti
+        </h1>
+        <p className="text-muted-foreground">
+          Visualizza e gestisci tutti gli utenti della biblioteca
+        </p>
       </div>
 
       {/* Statistiche Veloci */}
@@ -199,60 +243,8 @@ export default async function AdminUtentiPage() {
         </Card>
       </div>
 
-      {/* Filtri */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtri di Ricerca</CardTitle>
-          <CardDescription>Cerca e filtra utenti per nome, email o ruolo</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-4 md:flex-row md:items-end">
-            <div className="flex-1">
-              <label className="text-sm font-medium mb-2 block">Cerca utente</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Nome, cognome o email..." className="pl-10" />
-              </div>
-            </div>
-
-            <div className="md:w-48">
-              <label className="text-sm font-medium mb-2 block">Ruolo</label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tutti i ruoli" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tutti</SelectItem>
-                  <SelectItem value="STUDENTE">Studenti</SelectItem>
-                  <SelectItem value="BIBLIOTECARIO">Bibliotecari</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="md:w-48">
-              <label className="text-sm font-medium mb-2 block">Stato</label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tutti gli stati" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tutti</SelectItem>
-                  <SelectItem value="attivo">Attivi</SelectItem>
-                  <SelectItem value="disattivato">Disattivati</SelectItem>
-                  <SelectItem value="verificato">Email verificata</SelectItem>
-                  <SelectItem value="non-verificato">Email non verificata</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button variant="outline" className="gap-2">
-              <Filter className="h-4 w-4" />
-              Applica Filtri
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Filtri: ora collegati davvero alla query (vedi utenti-filtri.tsx) */}
+      <UtentiFiltri />
 
       {/* Tabella Utenti */}
       <Card>
@@ -274,7 +266,14 @@ export default async function AdminUtentiPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {utenti.slice(0, 50).map((utente) => (
+              {utenti.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    Nessun utente trovato con questi filtri
+                  </TableCell>
+                </TableRow>
+              ) : (
+              utenti.map((utente) => (
                 <TableRow key={utente.id}>
                   <TableCell>
                     <div className="flex flex-col">
@@ -341,17 +340,10 @@ export default async function AdminUtentiPage() {
                     />
                   </TableCell>
                 </TableRow>
-              ))}
+              ))
+              )}
             </TableBody>
           </Table>
-
-          {utenti.length > 50 && (
-            <div className="mt-4 text-center">
-              <Button variant="outline">
-                Carica altri utenti ({utenti.length - 50})
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>

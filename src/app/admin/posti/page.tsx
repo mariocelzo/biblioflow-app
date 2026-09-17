@@ -1,16 +1,8 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -24,17 +16,34 @@ import {
   Check,
   X,
   Wrench,
-  Search,
-  Filter,
-  Plus,
   Zap,
   Sun,
   Accessibility,
 } from "lucide-react";
+import type { Prisma } from "@prisma/client";
+import { StatoPosto } from "@prisma/client";
 import db from "@/lib/prisma";
 import { PostoActionButton } from "@/components/admin/posti-actions";
+import PostiFiltri from "@/components/admin/posti-filtri";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
-export default async function AdminPostiPage() {
+export const metadata: Metadata = {
+  title: "Gestione posti",
+};
+
+type SearchParams = {
+  numero?: string;
+  sala?: string;
+  stato?: string;
+};
+
+export default async function AdminPostiPage({
+  searchParams,
+}: {
+  // Next.js 16: searchParams e' una Promise (stesso motivo del fix gia'
+  // applicato a /admin/prenotazioni e /admin/prestiti).
+  searchParams: Promise<SearchParams>;
+}) {
   const session = await auth();
 
   if (!session?.user) {
@@ -45,8 +54,37 @@ export default async function AdminPostiPage() {
     redirect("/");
   }
 
-  // Fetch posti con sala info
+  const params = await searchParams;
+
+  // Elenco sale reali per popolare il filtro: prima il <Select> aveva tre
+  // voci scritte a mano ("Sala Silenziosa", "Sala Gruppi", "Sala Studio")
+  // che non combaciavano con i nomi delle sale esistenti nel database.
+  const sale = await db.sala.findMany({
+    select: { id: true, nome: true },
+    orderBy: { nome: "asc" },
+  });
+
+  const where: Prisma.PostoWhereInput = {};
+  if (params.numero) {
+    where.numero = { contains: params.numero, mode: "insensitive" };
+  }
+  if (params.sala && params.sala !== "tutte") {
+    where.salaId = params.sala;
+  }
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const statoValido = valoreEnumAmmesso(StatoPosto, params.stato);
+  if (statoValido) {
+    where.stato = statoValido;
+  }
+
+  // Fetch posti con sala info. Prima non c'era filtro server-side (i filtri
+  // in UI non facevano nulla) e la tabella veniva tagliata a 20 righe con un
+  // bottone "Carica altri" che pero' non aveva nessun gestore: qui il limite
+  // e' allineato alle altre pagine admin (take: 100, vedi prenotazioni e
+  // prestiti) e il filtro riduce davvero i risultati mostrati.
   const posti = await db.posto.findMany({
+    where,
     include: {
       sala: {
         select: {
@@ -61,14 +99,24 @@ export default async function AdminPostiPage() {
       },
     },
     orderBy: [{ sala: { nome: "asc" } }, { numero: "asc" }],
+    take: 100,
   });
 
-  // Statistiche rapide
+  // Statistiche rapide: sempre calcolate su TUTTI i posti (non sul
+  // risultato filtrato), cosi' le card in alto restano stabili mentre si
+  // cerca/filtra la tabella sotto.
+  const [totalePosti, disponibiliPosti, occupatiPosti, manutenzionePosti] = await Promise.all([
+    db.posto.count(),
+    db.posto.count({ where: { stato: "DISPONIBILE" } }),
+    db.posto.count({ where: { stato: "OCCUPATO" } }),
+    db.posto.count({ where: { stato: "MANUTENZIONE" } }),
+  ]);
+
   const stats = {
-    totale: posti.length,
-    disponibili: posti.filter((p) => p.stato === "DISPONIBILE").length,
-    occupati: posti.filter((p) => p.stato === "OCCUPATO").length,
-    manutenzione: posti.filter((p) => p.stato === "MANUTENZIONE").length,
+    totale: totalePosti,
+    disponibili: disponibiliPosti,
+    occupati: occupatiPosti,
+    manutenzione: manutenzionePosti,
   };
 
   const getStatoBadge = (stato: string) => {
@@ -108,16 +156,15 @@ export default async function AdminPostiPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Gestione Posti</h1>
-          <p className="text-muted-foreground">Visualizza e gestisci tutti i posti studio</p>
-        </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          Aggiungi Posto
-        </Button>
+      {/* Header.
+          PRIMA c'era un bottone "Aggiungi Posto" senza alcun gestore: un
+          clic non faceva nulla. Non esiste (ancora) una API di creazione
+          posti, quindi - come gia' scelto per la voce "Impostazioni" nella
+          sidebar (vedi admin-sidebar.tsx) - meglio nessun bottone che uno
+          che promette una funzione inesistente. */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Gestione Posti</h1>
+        <p className="text-muted-foreground">Visualizza e gestisci tutti i posti studio</p>
       </div>
 
       {/* Statistiche Veloci */}
@@ -170,59 +217,8 @@ export default async function AdminPostiPage() {
         </Card>
       </div>
 
-      {/* Filtri */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Filtri di Ricerca</CardTitle>
-          <CardDescription>Filtra i posti per sala, stato o caratteristiche</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-4 md:flex-row md:items-end">
-            <div className="flex-1">
-              <label className="text-sm font-medium mb-2 block">Cerca per numero</label>
-              <div className="relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                <Input placeholder="Es: A-12, B-05..." className="pl-10" />
-              </div>
-            </div>
-
-            <div className="md:w-48">
-              <label className="text-sm font-medium mb-2 block">Sala</label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tutte le sale" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tutte le sale</SelectItem>
-                  <SelectItem value="silente">Sala Silenziosa</SelectItem>
-                  <SelectItem value="gruppi">Sala Gruppi</SelectItem>
-                  <SelectItem value="studio">Sala Studio</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="md:w-48">
-              <label className="text-sm font-medium mb-2 block">Stato</label>
-              <Select>
-                <SelectTrigger>
-                  <SelectValue placeholder="Tutti gli stati" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tutti</SelectItem>
-                  <SelectItem value="DISPONIBILE">Disponibile</SelectItem>
-                  <SelectItem value="OCCUPATO">Occupato</SelectItem>
-                  <SelectItem value="MANUTENZIONE">Manutenzione</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button variant="outline" className="gap-2">
-              <Filter className="h-4 w-4" />
-              Applica Filtri
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Filtri: ora collegati davvero alla query (vedi posti-filtri.tsx) */}
+      <PostiFiltri sale={sale} />
 
       {/* Tabella Posti */}
       <Card>
@@ -244,7 +240,14 @@ export default async function AdminPostiPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {posti.slice(0, 20).map((posto) => (
+              {posti.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                    Nessun posto trovato con questi filtri
+                  </TableCell>
+                </TableRow>
+              ) : (
+              posti.map((posto) => (
                 <TableRow key={posto.id}>
                   <TableCell className="font-medium">{posto.numero}</TableCell>
                   <TableCell>{posto.sala.nome}</TableCell>
@@ -286,15 +289,10 @@ export default async function AdminPostiPage() {
                     />
                   </TableCell>
                 </TableRow>
-              ))}
+              ))
+              )}
             </TableBody>
           </Table>
-
-          {posti.length > 20 && (
-            <div className="mt-4 text-center">
-              <Button variant="outline">Carica altri posti ({posti.length - 20})</Button>
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>

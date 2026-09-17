@@ -49,6 +49,7 @@ import {
   TrendingUp,
   Clock,
 } from "lucide-react";
+import { formattaOraDb } from "@/lib/admin-tempo";
 
 interface ProfiloData {
   user: {
@@ -510,15 +511,10 @@ export function UtenteActionButton({
                                 <span>{new Date(pren.data).toLocaleDateString("it-IT")}</span>
                                 <Clock className="h-3 w-3 ml-2" />
                                 <span>
-                                  {new Date(pren.oraInizio).toLocaleTimeString("it-IT", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}{" "}
-                                  -{" "}
-                                  {new Date(pren.oraFine).toLocaleTimeString("it-IT", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
+                                  {/* formattaOraDb forza il fuso UTC (vedi
+                                      src/lib/admin-tempo.ts): senza, l'ora
+                                      mostrata slitta del fuso del browser. */}
+                                  {formattaOraDb(pren.oraInizio)} - {formattaOraDb(pren.oraFine)}
                                 </span>
                               </div>
                             </div>

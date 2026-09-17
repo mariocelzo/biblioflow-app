@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -8,13 +9,14 @@ import PrestitiFiltri from "@/components/admin/prestiti-filtri";
 import PrestitiActions from "@/components/admin/prestiti-actions";
 import { SollecitaTuttiButton } from "@/components/admin/sollecita-tutti-button";
 import { BookOpen, Calendar, User } from "lucide-react";
-import type { StatoPrestito } from "@prisma/client";
+import { StatoPrestito } from "@prisma/client";
 import {
   contaScaduti,
   filtraDaSollecitare,
   filtroScadenzaScaduti,
   prestitoInCorso,
 } from "@/lib/prestiti-scaduti";
+import { valoreEnumAmmesso } from "@/lib/admin-filtri";
 
 type SearchParams = {
   stato?: string;
@@ -22,16 +24,25 @@ type SearchParams = {
   utente?: string;
 };
 
+export const metadata: Metadata = {
+  title: "Gestione prestiti",
+};
+
 export default async function PrestitiAdminPage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  // Next.js 16: searchParams e' una Promise da attendere (vedi lo stesso
+  // fix in admin/prenotazioni/page.tsx). Senza await il dev server segnalava
+  // un errore ad ogni richiesta.
+  searchParams: Promise<SearchParams>;
 }) {
   const session = await auth();
 
   if (!session?.user || (session.user.ruolo !== "ADMIN" && session.user.ruolo !== "BIBLIOTECARIO")) {
     redirect("/login");
   }
+
+  const params = await searchParams;
 
   // Build where clause
   type WhereInput = {
@@ -48,20 +59,23 @@ export default async function PrestitiAdminPage({
 
   const where: WhereInput = {};
 
-  if (searchParams.stato && searchParams.stato !== "tutti") {
-    where.stato = searchParams.stato as StatoPrestito;
+  // Un valore che non appartiene all'enum (es. URL digitata a mano) viene
+  // ignorato invece di far esplodere la query Prisma (vedi admin-filtri.ts).
+  const statoValido = valoreEnumAmmesso(StatoPrestito, params.stato);
+  if (statoValido) {
+    where.stato = statoValido;
   }
 
-  if (searchParams.scadenza === "scaduti") {
+  if (params.scadenza === "scaduti") {
     // Un rinnovato in ritardo e' scaduto quanto un attivo in ritardo.
     Object.assign(where, filtroScadenzaScaduti());
   }
 
-  if (searchParams.utente) {
+  if (params.utente) {
     where.OR = [
-      { user: { nome: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { cognome: { contains: searchParams.utente, mode: "insensitive" } } },
-      { user: { email: { contains: searchParams.utente, mode: "insensitive" } } },
+      { user: { nome: { contains: params.utente, mode: "insensitive" } } },
+      { user: { cognome: { contains: params.utente, mode: "insensitive" } } },
+      { user: { email: { contains: params.utente, mode: "insensitive" } } },
     ];
   }
 
@@ -262,7 +276,7 @@ export default async function PrestitiAdminPage({
                     <TableCell>
                       {prestito.giorniRitardo > 0 ? (
                         <Badge variant="destructive">
-                          {prestito.giorniRitardo} giorni
+                          {prestito.giorniRitardo} {prestito.giorniRitardo === 1 ? "giorno" : "giorni"}
                         </Badge>
                       ) : (
                         <span className="text-sm text-muted-foreground">-</span>

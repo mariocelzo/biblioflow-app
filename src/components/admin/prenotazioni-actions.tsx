@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MoreHorizontal, XCircle, CheckCircle, Edit, Calendar, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { formattaOraDb } from "@/lib/admin-tempo";
 
 type Prenotazione = {
   id: string;
@@ -96,10 +97,11 @@ export default function PrenotazioniActions({ prenotazione }: Props) {
     prenotazione.data.toISOString().split('T')[0]
   );
   
-  const getTimeString = (time: string | Date): string => {
-    if (typeof time === 'string') return time.slice(0, 5);
-    return new Date(`1970-01-01T${time}`).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-  };
+  // Prima faceva `new Date(`1970-01-01T${time}`)` assumendo sempre una
+  // stringa "HH:MM": con l'oggetto Date che arriva davvero dal Server
+  // Component (vedi src/lib/admin-tempo.ts) il campo si presentava come
+  // "Invalid Date" nel form di modifica.
+  const getTimeString = (time: string | Date): string => formattaOraDb(time);
   
   const [nuovaOraInizio, setNuovaOraInizio] = useState(
     getTimeString(prenotazione.oraInizio)

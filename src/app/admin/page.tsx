@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,13 +11,40 @@ import {
   TrendingUp,
   Clock,
   BookOpen,
-  ArrowUp,
-  ArrowDown,
 } from "lucide-react";
 import db from "@/lib/prisma";
 import { DashboardAnomalieCard } from "@/components/admin/dashboard-anomalie-card";
 import { DashboardActivityCard } from "@/components/admin/dashboard-activity-card";
 import { RichiesteCard } from "@/components/admin/richieste-card"; // Placeholder per nuova card
+import { formattaTempoRelativo } from "@/lib/admin-tempo";
+
+// Traduce ogni TipoEvento (schema Prisma) in icona/colori/etichetta per la
+// card "Attività Recente". Serve solo come RIPIEGO: la maggior parte dei
+// LogEvento ha gia' una `descrizione` scritta al momento della creazione
+// (es. "Prenotazione creata per posto A-12"), qui usata quando manca.
+const METADATA_EVENTO: Record<
+  string,
+  { iconName: string; color: string; bgColor: string; label: string }
+> = {
+  PRENOTAZIONE_CREATA: { iconName: "Calendar", color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-950", label: "ha creato una prenotazione" },
+  PRENOTAZIONE_CANCELLATA: { iconName: "XCircle", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-100 dark:bg-red-950", label: "ha annullato una prenotazione" },
+  CHECK_IN: { iconName: "CheckCircle2", color: "text-green-600 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-950", label: "ha effettuato il check-in" },
+  CHECK_OUT: { iconName: "LogOut", color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-950", label: "ha effettuato il check-out" },
+  NO_SHOW: { iconName: "AlertTriangle", color: "text-red-600 dark:text-red-400", bgColor: "bg-red-100 dark:bg-red-950", label: "non si è presentato alla prenotazione" },
+  NO_SHOW_AUTO: { iconName: "AlertTriangle", color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-100 dark:bg-orange-950", label: "posto rilasciato automaticamente per no-show" },
+  PRESTITO_CREATO: { iconName: "BookOpen", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-100 dark:bg-purple-950", label: "ha preso un libro in prestito" },
+  PRESTITO_RESTITUITO: { iconName: "CheckCircle2", color: "text-green-600 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-950", label: "ha restituito un libro" },
+  OVERRIDE_BIBLIOTECARIO: { iconName: "Shield", color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-100 dark:bg-orange-950", label: "intervento manuale del bibliotecario" },
+  AUTOMATION: { iconName: "Activity", color: "text-muted-foreground", bgColor: "bg-muted", label: "automazione di sistema" },
+  CODA_INGRESSO: { iconName: "Users", color: "text-sky-600 dark:text-sky-400", bgColor: "bg-sky-100 dark:bg-sky-950", label: "utente entrato in lista d'attesa" },
+  CODA_PROMOZIONE: { iconName: "Users", color: "text-sky-600 dark:text-sky-400", bgColor: "bg-sky-100 dark:bg-sky-950", label: "utente promosso dalla lista d'attesa" },
+  CODA_SCADENZA: { iconName: "Clock", color: "text-yellow-600 dark:text-yellow-400", bgColor: "bg-yellow-100 dark:bg-yellow-950", label: "promozione scaduta senza conferma" },
+  CODA_ANNULLATA: { iconName: "Users", color: "text-muted-foreground", bgColor: "bg-muted", label: "rimosso dalla lista d'attesa" },
+};
+
+export const metadata: Metadata = {
+  title: "Dashboard amministrazione",
+};
 
 export default async function AdminDashboardPage() {
   const session = await auth();
@@ -90,6 +118,16 @@ export default async function AdminDashboardPage() {
         stato: "PENDENTE",
       }
     }),
+    // Ultimi eventi per la card "Attività Recente": prima era un array
+    // scritto a mano (Mario Rossi, Laura Bianchi, ...), sempre uguale a ogni
+    // caricamento e scollegato dal database.
+    db.logEvento.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      include: {
+        user: { select: { nome: true, cognome: true } },
+      },
+    }),
   ]);
 
   const [
@@ -103,6 +141,7 @@ export default async function AdminDashboardPage() {
     postiManutenzione,
     prestitiInScadenza,
     richiestePendenti,
+    eventiRecenti,
   ] = results;
 
   // Filtra solo NO_SHOW non risolti
@@ -113,14 +152,17 @@ export default async function AdminDashboardPage() {
 
   const tassoOccupazione = ((totalePosti - postiDisponibili) / totalePosti) * 100;
 
+  // I trend ("+12%", "-3%", ...) erano percentuali fisse scritte a mano,
+  // identiche indipendentemente dai dati reali: non c'e' ancora uno storico
+  // con cui calcolare una variazione vera, quindi niente numero inventato
+  // (vedi le istruzioni del task su "dati scritti a mano che fingono di
+  // essere reali"). Restano solo titolo/valore/descrizione, tutti reali.
   const stats = [
     {
       title: "Prenotazioni Attive",
       value: prenotazioniCheckIn,
-      description: `${prenotazioniOggi} prenotazioni oggi`,
+      description: `${prenotazioniOggi} ${prenotazioniOggi === 1 ? "prenotazione" : "prenotazioni"} oggi`,
       icon: Calendar,
-      trend: "+12%",
-      trendUp: true,
       color: "text-blue-600 dark:text-blue-400",
       bgColor: "bg-blue-100 dark:bg-blue-950",
     },
@@ -129,8 +171,6 @@ export default async function AdminDashboardPage() {
       value: totaleUtenti,
       description: "Studenti registrati",
       icon: Users,
-      trend: "+5%",
-      trendUp: true,
       color: "text-green-600 dark:text-green-400",
       bgColor: "bg-green-100 dark:bg-green-950",
     },
@@ -139,8 +179,6 @@ export default async function AdminDashboardPage() {
       value: `${Math.round(tassoOccupazione)}%`,
       description: `${totalePosti - postiDisponibili}/${totalePosti} occupati`,
       icon: MapPin,
-      trend: "-3%",
-      trendUp: false,
       color: "text-orange-600 dark:text-orange-400",
       bgColor: "bg-orange-100 dark:bg-orange-950",
     },
@@ -149,47 +187,28 @@ export default async function AdminDashboardPage() {
       value: prestitiAttivi,
       description: "Libri in prestito",
       icon: BookOpen,
-      trend: "+8%",
-      trendUp: true,
       color: "text-purple-600 dark:text-purple-400",
       bgColor: "bg-purple-100 dark:bg-purple-950",
     },
   ];
 
-  const recentActivity = [
-    {
-      tipo: "PRENOTAZIONE",
-      utente: "Mario Rossi",
-      azione: "ha prenotato il Posto A-12",
-      tempo: "2 minuti fa",
-      iconName: "CheckCircle2",
-      color: "text-green-600",
-    },
-    {
-      tipo: "CHECK_IN",
-      utente: "Laura Bianchi",
-      azione: "ha fatto check-in al Posto B-05",
-      tempo: "15 minuti fa",
+  const recentActivity = eventiRecenti.map((evento) => {
+    const meta = METADATA_EVENTO[evento.tipo] ?? {
       iconName: "Activity",
-      color: "text-blue-600",
-    },
-    {
-      tipo: "NO_SHOW",
-      utente: "Giuseppe Verdi",
-      azione: "non si è presentato (Posto C-08)",
-      tempo: "1 ora fa",
-      iconName: "AlertTriangle",
-      color: "text-red-600",
-    },
-    {
-      tipo: "PRESTITO",
-      utente: "Anna Ferrari",
-      azione: "ha preso in prestito 'Clean Code'",
-      tempo: "2 ore fa",
-      iconName: "BookOpen",
-      color: "text-purple-600",
-    },
-  ];
+      color: "text-muted-foreground",
+      bgColor: "bg-muted",
+      label: "evento di sistema",
+    };
+    return {
+      tipo: evento.tipo,
+      utente: evento.user ? `${evento.user.nome} ${evento.user.cognome}` : "Sistema",
+      azione: evento.descrizione ?? meta.label,
+      tempo: formattaTempoRelativo(evento.createdAt),
+      iconName: meta.iconName,
+      color: meta.color,
+      bgColor: meta.bgColor,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -227,33 +246,21 @@ export default async function AdminDashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
-                  <div
-                    className={`flex items-center gap-1 text-xs font-medium ${stat.trendUp ? "text-green-600" : "text-red-600"
-                      }`}
-                  >
-                    {stat.trendUp ? (
-                      <ArrowUp className="h-3 w-3" />
-                    ) : (
-                      <ArrowDown className="h-3 w-3" />
-                    )}
-                    {stat.trend}
-                  </div>
-                </div>
+                <p className="text-xs text-muted-foreground mt-1">{stat.description}</p>
               </CardContent>
             </Card>
           );
         })}
       </div>
 
-      {/* Main Content Grid */}
+      {/* Main Content Grid.
+          Attività Recente (col-span-4) + Anomalie (col-span-3) riempiono
+          esattamente le 7 colonne su desktop; prima Richieste era in mezzo
+          con lo stesso col-span-4 di Attività Recente, mandava Anomalie a
+          capo da sola e lasciava 3 colonne vuote nella prima riga. */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         {/* Attività Recente */}
         <DashboardActivityCard activities={recentActivity} />
-
-        {/* Widget Richieste Click & Collect */}
-        <RichiesteCard richiestePendenti={richiestePendenti} />
 
         {/* Anomalie e Alert */}
         <DashboardAnomalieCard
@@ -261,6 +268,9 @@ export default async function AdminDashboardPage() {
           postiManutenzione={postiManutenzione}
           prestitiInScadenza={prestitiInScadenza}
         />
+
+        {/* Widget Richieste Click & Collect: banner a piena larghezza */}
+        <RichiesteCard richiestePendenti={richiestePendenti} />
       </div>
 
       {/* Quick Actions */}

@@ -1,6 +1,21 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
+
+// PERCHE': senza questo, tutte le pagine sotto /admin mostravano in scheda
+// solo l'URL ("localhost:3000/admin"), perche' nessuna esportava un
+// `<title>`. Il template applica automaticamente "· BiblioFlow" (stesso
+// stile di /accessibilita e della pagina 404) a ogni titolo impostato dalle
+// singole pagine figlie; `default` copre le pagine che non ne impostano uno
+// proprio (es. le sottopagine client-only che non possono esportare metadata).
+export const metadata: Metadata = {
+  title: {
+    template: "%s · BiblioFlow",
+    default: "Amministrazione · BiblioFlow",
+  },
+  description: "Pannello di amministrazione di BiblioFlow per bibliotecari e staff.",
+};
 
 export default async function AdminLayout({
   children,
