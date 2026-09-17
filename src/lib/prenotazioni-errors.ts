@@ -1,6 +1,7 @@
 export type PrenotazioneErrorCode =
   | "DATA_NON_VALIDA"
   | "DATA_NEL_PASSATO"
+  | "ORARIO_NEL_PASSATO"
   | "ORARIO_NON_VALIDO"
   | "INTERVALLO_NON_VALIDO"
   | "DURATA_TROPPO_BREVE"
