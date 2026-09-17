@@ -487,7 +487,7 @@ describe("BIB-57 · 04x — endpoint coda senza sessione → 401 (CA-01, BIB-51)
       new mocks.MockAuthError(
         401,
         "NON_AUTENTICATO",
-        "E' richiesta una sessione autenticata",
+        "È richiesta una sessione autenticata",
       ),
     );
   });

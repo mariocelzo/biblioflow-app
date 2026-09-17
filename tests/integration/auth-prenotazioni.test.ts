@@ -138,7 +138,7 @@ describe("autenticazione endpoint prenotazioni (CA-01)", () => {
       new mocks.MockAuthError(
         401,
         "NON_AUTENTICATO",
-        "E' richiesta una sessione autenticata",
+        "È richiesta una sessione autenticata",
       ),
     );
 

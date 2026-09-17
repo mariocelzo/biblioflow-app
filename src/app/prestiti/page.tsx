@@ -214,7 +214,9 @@ export default function PrestitiPage() {
     if (giorni <= 3) {
       return <Badge className="bg-amber-500">Scade tra {giorni}g</Badge>;
     }
-    return <Badge className="bg-green-500">Attivo</Badge>;
+    // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+    // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+    return <Badge variant="success">Attivo</Badge>;
   };
 
   // Card prestito

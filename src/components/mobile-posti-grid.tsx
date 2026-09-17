@@ -140,8 +140,13 @@ export function MobilePostiGrid({
                             key={posto.id}
                             onClick={() => handlePostoClick(posto)}
                             disabled={isDisabled}
-                            // Stessa identica stringa usata dalla mappa come tooltip/aria-label.
-                            aria-label={etichettaPosto(posto)}
+                            // Stessa identica stringa usata dalla mappa come tooltip/aria-label,
+                            // isSelected incluso: senza annuncia sempre lo stesso testo anche a
+                            // selezione avvenuta (difetto verificato dal vivo in produzione).
+                            aria-label={etichettaPosto(posto, isSelected)}
+                            // aria-pressed rispecchia lo stato "selezionato" per gli screen reader,
+                            // solo per i posti effettivamente selezionabili (non per MANUTENZIONE).
+                            aria-pressed={isDisabled ? undefined : isSelected}
                             className={`
                 relative p-3 rounded-lg border-2 transition-all
                 ${getStatusColor(posto.stato, isSelected)}

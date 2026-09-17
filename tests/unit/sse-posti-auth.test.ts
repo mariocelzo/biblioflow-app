@@ -62,7 +62,7 @@ describe("M-3 · GET /api/sse/posti richiede autenticazione", () => {
       new mocks.MockAuthError(
         401,
         "NON_AUTENTICATO",
-        "E' richiesta una sessione autenticata",
+        "È richiesta una sessione autenticata",
       ),
     );
 

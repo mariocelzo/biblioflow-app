@@ -64,11 +64,24 @@ export function creaPayloadCoda(postoId: string, intervallo: IntervalloCoda) {
  * sia come `aria-label` del bottone nella griglia mobile. Essendo l'unica fonte,
  * qualunque divergenza di copy fra le due viste è impossibile per costruzione.
  * (Preserva 1:1 le stringhe introdotte da BIB-52.)
+ *
+ * `isSelected` (default false, per non rompere le chiamate esistenti) copre il
+ * difetto trovato dal vivo: dopo aver selezionato un posto DISPONIBILE
+ * l'aria-label restava identica a quella di un posto non selezionato, quindi
+ * uno screen reader non annunciava mai l'avvenuta selezione. Solo un posto
+ * DISPONIBILE puo' essere "selezionato" (OCCUPATO/PRENOTATO aprono la coda,
+ * non hanno uno stato "selezionato"), quindi il parametro incide solo su quel
+ * ramo dello switch.
  */
-export function etichettaPosto(posto: { numero: string; stato: StatoPosto }): string {
+export function etichettaPosto(
+  posto: { numero: string; stato: StatoPosto },
+  isSelected = false,
+): string {
   switch (posto.stato) {
     case "DISPONIBILE":
-      return `Posto ${posto.numero} - Disponibile (clicca per selezionare)`;
+      return isSelected
+        ? `Posto ${posto.numero} - Selezionato`
+        : `Posto ${posto.numero} - Disponibile (clicca per selezionare)`;
     case "OCCUPATO":
       return `Posto ${posto.numero} - Occupato, coda disponibile (clicca per entrare)`;
     case "PRENOTATO":

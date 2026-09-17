@@ -241,7 +241,7 @@ export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
     if (oraInizioMinuti < minutiAttuali) {
       throw new ValidazioneError(
         "ORARIO_NEL_PASSATO",
-        "Questa fascia oraria e' gia' iniziata: scegli un orario futuro",
+        "Questa fascia oraria è già iniziata: scegli un orario futuro",
       );
     }
   }
@@ -264,7 +264,7 @@ export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
   if (durataMinuti > durataMassima) {
     throw new ValidazioneError(
       "DURATA_TROPPO_LUNGA",
-      `La prenotazione non puo' durare piu' di ${durataMassima / 60} ore`,
+      `La prenotazione non può durare più di ${durataMassima / 60} ore`,
     );
   }
 
@@ -281,21 +281,21 @@ export function validaPostoPrenotabile(
   if (!posto.attivo) {
     throw new ValidazioneError(
       "POSTO_NON_ATTIVO",
-      "Questo posto non e' disponibile per la prenotazione",
+      "Questo posto non è disponibile per la prenotazione",
     );
   }
 
   if (posto.stato === "MANUTENZIONE") {
     throw new ValidazioneError(
       "POSTO_IN_MANUTENZIONE",
-      "Questo posto e' temporaneamente in manutenzione",
+      "Questo posto è temporaneamente in manutenzione",
     );
   }
 
   if (!posto.sala.attiva) {
     throw new ValidazioneError(
       "SALA_NON_ATTIVA",
-      "Questa sala non e' disponibile per la prenotazione",
+      "Questa sala non è disponibile per la prenotazione",
     );
   }
 
@@ -331,7 +331,7 @@ export function validaOrarioSala(
   ) {
     throw new ValidazioneError(
       "FUORI_ORARIO_SALA",
-      `La sala e' aperta dalle ${sala.orarioApertura} alle ${sala.orarioChiusura}`,
+      `La sala è aperta dalle ${sala.orarioApertura} alle ${sala.orarioChiusura}`,
     );
   }
 }
@@ -535,7 +535,7 @@ export async function creaPrenotazioneAtomica(
   } catch (error) {
     if (isConflittoConcorrenza(error)) {
       throw new ConflittoDisponibilita(
-        "Il posto e' stato assegnato a un'altra richiesta; puoi entrare in lista d'attesa",
+        "Il posto è stato assegnato a un'altra richiesta; puoi entrare in lista d'attesa",
       );
     }
 

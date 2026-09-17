@@ -164,7 +164,7 @@ describe("ACL baseline - nessuna sessione (C-3/C-4/C-6)", () => {
       new mocks.MockAuthError(
         401,
         "NON_AUTENTICATO",
-        "E' richiesta una sessione autenticata",
+        "È richiesta una sessione autenticata",
       ),
     );
 
