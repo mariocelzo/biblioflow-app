@@ -40,6 +40,21 @@ function oraIso(ora: Date): string {
   return ora.toISOString().slice(11, 16);
 }
 
+// INTEGRITA' DATI: stati di una prenotazione da cui e' ancora possibile una
+// transizione (cancellazione, check-in, modifica). Da COMPLETATA, CANCELLATA,
+// NO_SHOW o SCADUTA non si torna indietro: sono gli stessi quattro stati che
+// automation-service.ts (riconoscimento "esito gia' avvenuto" nella scadenza
+// della lista d'attesa) e PATCH/DELETE /api/prenotazioni/[id] (cancella dello
+// studente) trattano come conclusi. Qui si applica lo STESSO vincolo alle
+// azioni dello staff: un'azione admin non deve poter fare cio' che l'azione
+// equivalente dello studente non potrebbe fare, ne' riscrivere uno storico
+// gia' chiuso (usato da statistiche e controlli no-show).
+const STATI_PRENOTAZIONE_MODIFICABILI: readonly string[] = ["CONFERMATA", "CHECK_IN"];
+
+function prenotazioneModificabile(stato: string): boolean {
+  return STATI_PRENOTAZIONE_MODIFICABILI.includes(stato);
+}
+
 // ===========================================================================
 // Hardening B-9 (audit sicurezza 2026-09-04) — SOLO per il case "MODIFICA".
 // Prima gli orari grezzi (`"09:00"`) e una `data` potenzialmente non valida
@@ -235,16 +250,30 @@ export async function POST(req: NextRequest) {
         });
 
         const promozioni: EsitoPromozioneAdmin[] = [];
+        // Righe gia' concluse (COMPLETATA/CANCELLATA/NO_SHOW/SCADUTA): non si
+        // fa fallire l'intera richiesta multipla per UNA riga non annullabile,
+        // si salta quella riga e si riporta quante sono state saltate (invece
+        // di riscrivere silenziosamente lo storico).
+        let saltate = 0;
 
         for (const pren of prenotazioni) {
+          if (!prenotazioneModificabile(pren.stato)) {
+            saltate++;
+            continue;
+          }
+
           // Update prenotazione
           await prisma.prenotazione.update({
             where: { id: pren.id },
             data: { stato: "CANCELLATA" }
           });
 
-          // Libera posto se occupato
-          if (pren.posto.stato === "OCCUPATO") {
+          // Libera il posto SOLO se e' QUESTA prenotazione ad occuparlo
+          // (stato CHECK_IN). Controllare `posto.stato === "OCCUPATO"`
+          // liberava anche un posto occupato da UN'ALTRA prenotazione (es. un
+          // check-in successivo sullo stesso posto in una fascia diversa),
+          // stessa logica gia' usata da PATCH /api/prenotazioni/[id].
+          if (pren.stato === "CHECK_IN") {
             await prisma.posto.update({
               where: { id: pren.postoId },
               data: { stato: "DISPONIBILE" }
@@ -284,9 +313,14 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        const cancellate = prenotazioni.length - saltate;
         return NextResponse.json({
           success: true,
-          message: `${prenotazioni.length} prenotazioni cancellate`,
+          message:
+            saltate > 0
+              ? `${cancellate} prenotazioni cancellate, ${saltate} già concluse e saltate`
+              : `${cancellate} prenotazioni cancellate`,
+          saltate,
           promozioni,
         });
       }
@@ -311,14 +345,34 @@ export async function POST(req: NextRequest) {
           );
         }
 
+        // INTEGRITA' DATI: una prenotazione gia' conclusa (COMPLETATA,
+        // CANCELLATA, NO_SHOW, SCADUTA) non puo' essere "ri-cancellata" — e'
+        // lo stesso vincolo gia' applicato al cancella dello studente
+        // (PATCH/DELETE /api/prenotazioni/[id], che ammette solo
+        // CONFERMATA/CHECK_IN). Senza questo controllo l'admin poteva
+        // riscrivere lo storico usato dalle statistiche e dai controlli
+        // no-show (una COMPLETATA o NO_SHOW che ridiventa CANCELLATA sparisce
+        // dalle une e altera gli altri).
+        if (!prenotazioneModificabile(prenotazione.stato)) {
+          return NextResponse.json(
+            { error: "Impossibile cancellare: la prenotazione è già conclusa" },
+            { status: 400 }
+          );
+        }
+
+        // Libera il posto SOLO se e' QUESTA prenotazione ad occuparlo (stato
+        // CHECK_IN). Va letto PRIMA dell'update qui sotto, che sovrascrive lo
+        // stato: controllare `posto.stato === "OCCUPATO"` liberava anche un
+        // posto occupato da UN'ALTRA prenotazione.
+        const occupavaIlPosto = prenotazione.stato === "CHECK_IN";
+
         // Update prenotazione
         await prisma.prenotazione.update({
           where: { id: prenotazioneId },
           data: { stato: "CANCELLATA" }
         });
 
-        // Libera posto se occupato
-        if (prenotazione.posto.stato === "OCCUPATO") {
+        if (occupavaIlPosto) {
           await prisma.posto.update({
             where: { id: prenotazione.postoId },
             data: { stato: "DISPONIBILE" }
@@ -381,9 +435,16 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        if (prenotazione.stato === "CHECK_IN" || prenotazione.stato === "COMPLETATA") {
+        // INTEGRITA' DATI: allineato al check-in dello studente (PATCH
+        // /api/prenotazioni/[id], azione "check-in": richiede stato
+        // CONFERMATA). Prima si rifiutava solo chi era gia' CHECK_IN o
+        // COMPLETATA, ammettendo pero' il check-in manuale di una
+        // prenotazione CANCELLATA, NO_SHOW o SCADUTA — una transizione da uno
+        // stato concluso che l'azione equivalente dello studente non
+        // potrebbe mai fare.
+        if (prenotazione.stato !== "CONFERMATA") {
           return NextResponse.json(
-            { error: "Check-in già effettuato" },
+            { error: "Impossibile effettuare il check-in: la prenotazione non è confermata" },
             { status: 400 }
           );
         }
@@ -450,6 +511,18 @@ export async function POST(req: NextRequest) {
           return NextResponse.json(
             { error: "Prenotazione non trovata" },
             { status: 404 }
+          );
+        }
+
+        // INTEGRITA' DATI: una prenotazione gia' conclusa non deve poter
+        // essere riscritta. Cambiare data/ora/posto DOPO che e' gia'
+        // COMPLETATA, CANCELLATA, NO_SHOW o SCADUTA falsificherebbe lo
+        // storico su cui si basano statistiche e controlli no-show,
+        // esattamente come per ANNULLA_SINGOLA/ANNULLA_MULTIPLE sopra.
+        if (!prenotazioneModificabile(prenotazione.stato)) {
+          return NextResponse.json(
+            { error: "Impossibile modificare: la prenotazione è già conclusa" },
+            { status: 400 }
           );
         }
 
