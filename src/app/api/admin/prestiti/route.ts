@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
+// STATI_PRESTITO_IN_CORSO/prestitoInCorso: unico punto di verita' su quali
+// stati di un prestito sono ancora "in corso" (ATTIVO o RINNOVATO), gia'
+// usato da src/app/api/prestiti/route.ts e dalla UI admin. Riusarlo qui
+// invece di riscrivere un controllo locale evita che i due punti si
+// disallineino di nuovo (vedi commento sul case "RINNOVA" piu' sotto).
+import { prestitoInCorso } from "@/lib/prestiti-scaduti";
 
 export async function POST(req: NextRequest) {
   try {
@@ -82,15 +88,55 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Update prestito
+        // INTEGRITA' DATI: la restituzione registrata dallo staff deve
+        // produrre LO STESSO effetto sul database della restituzione fatta
+        // dallo studente (src/app/api/prestiti/[id]/route.ts, azione
+        // "restituisci"): stato -> RESTITUITO E incremento di
+        // Libro.copieDisponibili, nella STESSA transazione. Prima questa
+        // route aggiornava solo il prestito: ogni restituzione registrata al
+        // banco "perdeva" una copia per sempre, finche' il libro risultava
+        // non disponibile pur essendo fisicamente sullo scaffale.
+        //
+        // GUARDIA ANTI DOPPIO-CLICK: `updateMany` condizionato su
+        // `stato: { not: "RESTITUITO" }` (stessa tecnica del decremento
+        // condizionato di `copieDisponibili` in POST /api/prestiti, PR #67):
+        // se due richieste quasi simultanee arrivano per lo stesso prestito
+        // (doppio click, retry di rete), solo la PRIMA aggiorna davvero una
+        // riga (`count === 1`) e solo quella incrementa le copie. Senza
+        // questa guardia un `update` incondizionato eseguito due volte
+        // incrementerebbe `copieDisponibili` due volte per un solo libro
+        // fisicamente restituito.
         const oggi = new Date();
-        await prisma.prestito.update({
-          where: { id: prestitoId },
-          data: { 
-            stato: "RESTITUITO",
-            dataRestituzione: oggi
+        let giaRestituitoConcorrente = false;
+
+        await prisma.$transaction(async (tx) => {
+          const aggiornato = await tx.prestito.updateMany({
+            where: { id: prestitoId, stato: { not: "RESTITUITO" } },
+            data: {
+              stato: "RESTITUITO",
+              dataRestituzione: oggi
+            }
+          });
+
+          if (aggiornato.count === 0) {
+            // Un'altra richiesta ha gia' restituito questo prestito tra il
+            // controllo sopra e questa transazione: non si tocca il libro.
+            giaRestituitoConcorrente = true;
+            return;
           }
+
+          await tx.libro.update({
+            where: { id: prestito.libroId },
+            data: { copieDisponibili: { increment: 1 } }
+          });
         });
+
+        if (giaRestituitoConcorrente) {
+          return NextResponse.json(
+            { error: "Prestito già restituito" },
+            { status: 400 }
+          );
+        }
 
         // Calcola giorni di ritardo per log/notifica
         const scadenza = new Date(prestito.dataScadenza);
@@ -149,23 +195,52 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        if (prestito.stato !== "ATTIVO" && prestito.stato !== "SCADUTO") {
+        // INTEGRITA' DATI: allineato allo STESSO controllo del rinnovo
+        // studente (STATI_PRESTITO_IN_CORSO / prestitoInCorso in
+        // src/lib/prestiti-scaduti.ts, usato da POST
+        // /api/prestiti/[id]/rinnova): un prestito RINNOVATO e' ancora "in
+        // corso" e deve poter essere rinnovato una seconda volta finche' non
+        // supera il tetto (controllo subito sotto) — prima veniva rifiutato
+        // SOLO perche' il suo stato era gia' "RINNOVATO", rendendo
+        // irraggiungibile il secondo rinnovo per maxRinnovi = 2 (stesso bug
+        // gia' corretto lato studente: vedi il commento in
+        // src/app/api/prestiti/[id]/rinnova/route.ts).
+        //
+        // SCADUTO resta escluso, esattamente come per lo studente (ne' PATCH
+        // /api/prestiti/[id] ne' POST /api/prestiti/[id]/rinnova ammettono il
+        // rinnovo di un prestito scaduto): un'azione dello staff non deve
+        // poter fare cio' che l'azione equivalente dello studente non
+        // potrebbe fare.
+        if (!prestitoInCorso(prestito.stato)) {
           return NextResponse.json(
             { error: "Il prestito non può essere rinnovato" },
             { status: 400 }
           );
         }
 
-        // Estendi di 14 giorni
+        // INTEGRITA' DATI: stesso tetto imposto allo studente
+        // (Prestito.maxRinnovi, default 2). Senza questo controllo l'admin
+        // poteva rinnovare un prestito un numero illimitato di volte.
+        if (prestito.rinnovi >= prestito.maxRinnovi) {
+          return NextResponse.json(
+            { error: `Il prestito ha già raggiunto il limite massimo di ${prestito.maxRinnovi} rinnovi` },
+            { status: 400 }
+          );
+        }
+
+        // Estendi di 14 giorni (stessa durata di POST /api/prestiti/[id]/rinnova, PR #67)
         const nuovaScadenza = new Date();
         nuovaScadenza.setDate(nuovaScadenza.getDate() + 14);
 
-        // Update prestito
+        // Update prestito: incrementa anche `rinnovi`, altrimenti il tetto
+        // controllato sopra non viene mai raggiunto (equivaleva a un rinnovo
+        // lato admin illimitato, esattamente il difetto gia' descritto sopra).
         await prisma.prestito.update({
           where: { id: prestitoId },
-          data: { 
+          data: {
             stato: "RINNOVATO",
-            dataScadenza: nuovaScadenza
+            dataScadenza: nuovaScadenza,
+            rinnovi: { increment: 1 }
           }
         });
 

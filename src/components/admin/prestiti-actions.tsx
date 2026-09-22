@@ -30,6 +30,8 @@ type Prestito = {
   dataPrestito: Date;
   dataScadenza: Date;
   dataRestituzione: Date | null;
+  rinnovi: number;
+  maxRinnovi: number;
   user: {
     id: string;
     nome: string;
@@ -149,7 +151,15 @@ export default function PrestitiActions({ prestito }: Props) {
   };
 
   const canRestituisci = prestito.stato !== "RESTITUITO";
-  const canRinnova = prestito.stato === "ATTIVO" || prestito.stato === "SCADUTO";
+  // INTEGRITA' DATI: allineato al controllo ora usato da POST
+  // /api/admin/prestiti (azione RINNOVA), che a sua volta rispecchia il
+  // rinnovo studente: un prestito RINNOVATO e' ancora "in corso" e va
+  // rinnovabile finche' non supera `maxRinnovi`, mentre SCADUTO non lo e' (ne'
+  // il rinnovo studente lo ammette). Prima il pulsante compariva per SCADUTO
+  // (azione poi rifiutata dal backend) e spariva per RINNOVATO (rendendo
+  // irraggiungibile il secondo rinnovo dal pannello admin).
+  const canRinnova =
+    prestitoInCorso(prestito.stato) && prestito.rinnovi < prestito.maxRinnovi;
   // INTEGRITA' DATI: un prestito RINNOVATO e' ancora un prestito in corso.
   // Prima il pulsante di sollecito era invisibile per chi rinnova e poi non
   // restituisce: un utente realmente in ritardo scompariva dai solleciti.
