@@ -99,7 +99,7 @@ export async function POST(
     }
     if (now < aperturaCheckIn) {
       return NextResponse.json(
-        { success: false, error: "E' troppo presto per effettuare il check-in" },
+        { success: false, error: "È troppo presto per effettuare il check-in" },
         { status: 400 },
       );
     }

@@ -288,7 +288,7 @@ export function MappaBiblioteca({
 
       elementi.push(
         <g key={`postazione-${i}`}>
-          <title>{getPostoTooltip(posto)}</title>
+          <title>{getPostoTooltip(posto, isSelected)}</title>
           <rect x={x} y={y} width={LARGHEZZA_POSTAZIONE} height={ALTEZZA_POSTAZIONE}
             className="fill-indigo-100 stroke-indigo-500 dark:fill-indigo-900 dark:stroke-indigo-400" strokeWidth="2" rx="4" />
           <rect x={x - 3} y={y + 10} width="3" height={ALTEZZA_POSTAZIONE - 20} className="fill-indigo-200 dark:fill-indigo-700" opacity="0.5" />
@@ -351,7 +351,20 @@ export function MappaBiblioteca({
       key={key}
       role={posto.stato === "DISPONIBILE" || isPostoAccodabile(posto) ? "button" : undefined}
       tabIndex={posto.stato === "DISPONIBILE" || isPostoAccodabile(posto) ? 0 : undefined}
-      aria-label={getPostoTooltip(posto)}
+      // aria-pressed annuncia la selezione agli screen reader: prima restava
+      // sempre assente, quindi selezionare un posto (es. A2) non veniva mai
+      // comunicato (difetto verificato dal vivo in produzione). Presente solo
+      // sugli elementi che hanno gia' role="button" (coerente col resto).
+      aria-pressed={posto.stato === "DISPONIBILE" || isPostoAccodabile(posto) ? isSelected : undefined}
+      aria-label={getPostoTooltip(posto, isSelected)}
+      // onClick spostato qui dall'hitbox interna: un solo elemento interattivo
+      // coerente per mouse, tocco e tastiera (role/tabIndex/onKeyDown erano gia'
+      // qui). Non cambia l'area cliccabile: l'hitbox sottostante resta l'unica
+      // forma che intercetta il puntatore (gli altri figli sono
+      // pointer-events-none), quindi il click continua a "bollire" fin qui
+      // esattamente come prima; la guardia su isDragging in handlePostoClick
+      // resta invariata.
+      onClick={() => handlePostoClick(posto)}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -359,7 +372,7 @@ export function MappaBiblioteca({
         }
       }}
     >
-      <title>{getPostoTooltip(posto)}</title>
+      <title>{getPostoTooltip(posto, isSelected)}</title>
 
       {/* 1. HITBOX INVISIBILE PER TOCCO FACILITATO (Raggio 24 = ~48px diametro su scala 1:1) */}
       <circle
@@ -368,7 +381,6 @@ export function MappaBiblioteca({
         r="24"
         fill="transparent"
         className={posto.stato === 'DISPONIBILE' || isPostoAccodabile(posto) ? 'cursor-pointer' : ''}
-        onClick={() => handlePostoClick(posto)}
       />
 
       {/* 2. Cerchio Visivo (leggermente ingrandito: 12->14, sel 14->16) */}

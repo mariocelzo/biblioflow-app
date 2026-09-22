@@ -32,9 +32,11 @@ import {
   DURATA_MINIMA_PRENOTAZIONE_MINUTI,
   dataCorrenteBiblioteca,
   formatDurataMinuti,
+  generaOpzioniDurata,
   minutiCorrentiBiblioteca,
   minutiInOrario,
   orarioInMinuti,
+  type TipoDurata,
 } from "@/lib/prenotazioni-regole";
 import {
   Plug,
@@ -111,8 +113,6 @@ interface Posto {
 const ORARIO_APERTURA_FALLBACK = "09:00";
 const ORARIO_CHIUSURA_FALLBACK = "18:00";
 
-type TipoDurata = "2h" | "mezza_mattina" | "mezza_pomeriggio" | "giornata";
-
 interface Slot2Ore {
   id: string;
   oraInizio: string;
@@ -154,59 +154,10 @@ function generaSlotFissi(apertura: string, chiusura: string): Slot2Ore[] {
   return slots;
 }
 
-interface OpzioneDurata {
-  id: TipoDurata;
-  label: string;
-  descrizione: string;
-  oraInizio: string;
-  oraFine: string;
-}
-
-// Confine mattina/pomeriggio delle "mezze giornate": e' una convenzione
-// istituzionale (la pausa pranzo), non l'orario di apertura/chiusura di una
-// sala specifica, quindi resta fisso mentre apertura/chiusura seguono
-// l'inviluppo delle sale (vedi `generaOpzioniDurata`).
-const CONFINE_MEZZA_GIORNATA_MINUTI = orarioInMinuti("13:00");
-
-/**
- * Genera le 4 opzioni di durata sull'inviluppo `apertura`-`chiusura` di
- * TUTTE le sale, invece che su un orario fisso 09:00-18:00: il wizard
- * chiede la durata (step 2) PRIMA della sala (step 3), quindi qui non si sa
- * ancora quale sala scegliera' l'utente. Le sale incompatibili con
- * l'intervallo scelto vengono poi disabilitate allo step 3/4 (vedi
- * `salaCoprente` piu' sotto nel componente).
- */
-function generaOpzioniDurata(apertura: string, chiusura: string): OpzioneDurata[] {
-  const aperturaMinuti = orarioInMinuti(apertura);
-  const chiusuraMinuti = orarioInMinuti(chiusura);
-  // Il confine resta dentro [apertura, chiusura]: cosi' le due mezze
-  // giornate non si invertono anche se un giorno l'inviluppo delle sale non
-  // dovesse piu' coprire le 13:00.
-  const confineMinuti = Math.min(
-    Math.max(CONFINE_MEZZA_GIORNATA_MINUTI, aperturaMinuti),
-    chiusuraMinuti,
-  );
-  const confine = minutiInOrario(confineMinuti);
-
-  return [
-    {
-      id: "2h",
-      label: "Fascia oraria",
-      // Difetto verificato dal vivo in produzione: qui c'era scritto a mano
-      // "Scegli uno slot di 2 ore", ma fra gli slot generati da
-      // `generaSlotFissi` c'e' anche quello da 1 ora (quando la chiusura
-      // dell'inviluppo non e' un multiplo di 2h dall'apertura). Il testo ora
-      // deriva dalla vera durata minima di dominio, non e' piu' scritto a
-      // mano: non puo' tornare a divergere.
-      descrizione: `Scegli uno slot da ${formatDurataMinuti(DURATA_MINIMA_PRENOTAZIONE_MINUTI)} o 2 ore`,
-      oraInizio: "",
-      oraFine: "",
-    },
-    { id: "mezza_mattina", label: "Mezza giornata (mattina)", descrizione: `${apertura} - ${confine}`, oraInizio: apertura, oraFine: confine },
-    { id: "mezza_pomeriggio", label: "Mezza giornata (pomeriggio)", descrizione: `${confine} - ${chiusura}`, oraInizio: confine, oraFine: chiusura },
-    { id: "giornata", label: "Giornata intera", descrizione: `${apertura} - ${chiusura}`, oraInizio: apertura, oraFine: chiusura },
-  ];
-}
+// `TipoDurata`/`OpzioneDurata`/`generaOpzioniDurata` sono in
+// src/lib/prenotazioni-regole.ts: BUG VISTO IN PRODUZIONE dopo la #73, questa
+// generazione andava tenuta pura e testabile per garantire che nessuna
+// opzione superi DURATA_MASSIMA_PRENOTAZIONE_MINUTI (vedi il commento li').
 
 /**
  * Una sala "copre" l'intervallo scelto se il suo orario di apertura/chiusura
@@ -510,13 +461,13 @@ export default function PrenotaPage() {
       const slot = slots2Ore.find((s) => s.id === slot2OreSelezionato);
       if (slot && isSlotOggiPassato(slot.oraInizio)) {
         setSlot2OreSelezionato("");
-        toast.error("La fascia oraria scelta e' nel frattempo iniziata: selezionane un'altra.");
+        toast.error("La fascia oraria scelta è nel frattempo iniziata: selezionane un'altra.");
       }
     } else if (tipoDurata && tipoDurata !== "2h") {
       const opzione = opzioniDurata.find((o) => o.id === tipoDurata);
       if (opzione && isSlotOggiPassato(opzione.oraInizio)) {
         setTipoDurata("");
-        toast.error("La durata scelta e' nel frattempo iniziata: selezionane un'altra.");
+        toast.error("La durata scelta è nel frattempo iniziata: selezionane un'altra.");
       }
     }
   }, [adesso, tipoDurata, slot2OreSelezionato, slots2Ore, opzioniDurata, isSlotOggiPassato]);
@@ -820,7 +771,7 @@ export default function PrenotaPage() {
                         <div>
                           <p className="font-semibold">{opzione.label}</p>
                           <p className="text-sm text-muted-foreground">{opzione.descrizione}</p>
-                          {passata && <p className="text-xs text-red-600 dark:text-red-400 mt-1">Gia&apos; iniziata per oggi: scegli un&apos;altra data o durata</p>}
+                          {passata && <p className="text-xs text-red-600 dark:text-red-400 mt-1">Già iniziata per oggi: scegli un&apos;altra data o durata</p>}
                         </div>
                       </div>
                     </button>
@@ -843,10 +794,10 @@ export default function PrenotaPage() {
                           type="button"
                           disabled={passato}
                           onClick={() => setSlot2OreSelezionato(slot.id)}
-                          title={passato ? "Questa fascia e' gia' iniziata" : undefined}
+                          title={passato ? "Questa fascia è già iniziata" : undefined}
                           className={`p-3 rounded-lg border text-center transition-all ${passato ? "opacity-50 cursor-not-allowed border-border text-muted-foreground line-through" : slot2OreSelezionato === slot.id ? "border-blue-500 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 font-semibold" : "border-border bg-card hover:border-blue-300"}`}>
                           {slot.label}
-                          {passato && <span className="block text-[11px] font-normal no-underline">Gia&apos; iniziata</span>}
+                          {passato && <span className="block text-[11px] font-normal no-underline">Già iniziata</span>}
                         </button>
                       );
                     })}
@@ -890,9 +841,13 @@ export default function PrenotaPage() {
                         <p className="text-muted-foreground text-sm mt-1">{sala.descrizione}</p>
                         {/* Prima: `{sala.capienza} posti`, campo inesistente nella risposta dell'API (che ha
                             `capienzaMax` e `stats.postiDisponibili`) — la card mostrava "posti" senza numero.
-                            Mostriamo i posti DISPONIBILI, l'informazione utile per scegliere dove studiare. */}
+                            Mostriamo i posti DISPONIBILI, l'informazione utile per scegliere dove studiare.
+                            Difetto verificato dal vivo: il totale mostrato era `capienzaMax` (un valore
+                            dichiarato, es. 50) invece di `stats.postiTotali` (il conteggio reale dei posti
+                            in mappa, es. 72), risultando in "71 posti disponibili (su 50)". NON tocchiamo i
+                            dati nel DB: usiamo il totale REALE gia' calcolato dall'API in `stats`. */}
                         <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                          <span>{sala.stats.postiDisponibili} posti disponibili (su {sala.capienzaMax})</span>
+                          <span>{sala.stats.postiDisponibili} posti disponibili (su {sala.stats.postiTotali})</span>
                           <span>•</span>
                           <span>{sala.orarioApertura} - {sala.orarioChiusura}</span>
                         </div>

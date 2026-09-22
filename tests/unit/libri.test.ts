@@ -136,7 +136,7 @@ describe("difesa in profondita' · il catalogo si autentica da solo", () => {
     // l'unica difesa: se il `matcher` a regex sbagliasse (e' gia' successo,
     // finding M-5), questo controllo continuerebbe a reggere.
     mocks.requireUser.mockRejectedValue(
-      new mocks.AuthError(401, "NON_AUTENTICATO", "E' richiesta una sessione autenticata"),
+      new mocks.AuthError(401, "NON_AUTENTICATO", "È richiesta una sessione autenticata"),
     );
 
     const response = await route.GET(get(""));

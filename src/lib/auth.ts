@@ -584,7 +584,7 @@ export async function requireUser(): Promise<AuthenticatedUser> {
     throw new AuthError(
       401,
       "NON_AUTENTICATO",
-      "E' richiesta una sessione autenticata",
+      "È richiesta una sessione autenticata",
     );
   }
 

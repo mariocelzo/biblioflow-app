@@ -131,7 +131,9 @@ export default async function PrestitiAdminPage({
       case "ATTIVO":
         return <Badge className="bg-blue-500">Attivo</Badge>;
       case "RESTITUITO":
-        return <Badge className="bg-green-500">Restituito</Badge>;
+        // variant "success" (non bg-green-500 scritto a mano): testo bianco su
+        // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
+        return <Badge variant="success">Restituito</Badge>;
       case "RINNOVATO":
         return <Badge className="bg-purple-500">Rinnovato</Badge>;
       case "SCADUTO":
