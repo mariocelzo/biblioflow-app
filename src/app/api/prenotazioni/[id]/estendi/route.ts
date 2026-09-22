@@ -47,7 +47,7 @@ function errorResponse(error: unknown, fallback: string) {
       {
         success: false,
         code: "POSTO_GIA_PRENOTATO",
-        error: "Lo slot richiesto non e' piu' disponibile",
+        error: "Lo slot richiesto non è più disponibile",
         suggerisciCoda: true,
       },
       { status: 409 },
@@ -227,7 +227,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               userId: user.id,
               tipo: "SISTEMA",
               titolo: "Prenotazione estesa",
-              messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} e' stata estesa fino alle ${nuovaOraFine}.`,
+              messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} è stata estesa fino alle ${nuovaOraFine}.`,
               actionUrl: "/prenotazioni",
               actionLabel: "Vedi prenotazioni",
             },

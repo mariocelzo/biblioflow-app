@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       throw new AuthError(
         403,
         "RUOLO_NON_AUTORIZZATO",
-        "Solo lo staff puo' creare notifiche",
+        "Solo lo staff può creare notifiche",
       );
     }
 

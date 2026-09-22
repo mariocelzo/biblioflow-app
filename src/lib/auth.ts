@@ -631,6 +631,6 @@ export function assertOwnership(
   throw new AuthError(
     403,
     "RISORSA_NON_AUTORIZZATA",
-    "L'utente non e' proprietario della risorsa",
+    "L'utente non è proprietario della risorsa",
   );
 }

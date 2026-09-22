@@ -53,7 +53,7 @@ vi.mock("@/lib/auth", () => ({
         : "RISORSA_NON_AUTORIZZATA",
       user.ruolo === "STUDENTE"
         ? "La risorsa richiesta non esiste"
-        : "L'utente non e' proprietario della risorsa",
+        : "L'utente non è proprietario della risorsa",
     );
   },
 }));
