@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { formattaOraDb, formattaDataDb } from "@/lib/tempo-db";
 import {
   Calendar,
   Clock,
@@ -45,7 +46,11 @@ import {
 // Tipi
 interface Prenotazione {
   id: string;
-  dataPrenotazione: string;
+  // Nome allineato al campo Prisma `data` (@db.Date, mezzanotte UTC): prima
+  // si chiamava `dataPrenotazione`, un campo mai restituito dall'API, e la
+  // UI usava `oraInizio` (un orario, non una data) al suo posto - vedi
+  // formatData piu' sotto.
+  data: string;
   oraInizio: string;
   oraFine: string;
   stato: "IN_ATTESA" | "CONFERMATA" | "CHECK_IN" | "COMPLETATA" | "CANCELLATA" | "NO_SHOW";
@@ -235,22 +240,17 @@ export default function PrenotazioniPage() {
     }
   };
 
-  // Formatta data
-  const formatData = (dataString: string) => {
-    return new Date(dataString).toLocaleDateString("it-IT", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-    });
-  };
+  // Formatta data (campo `data`, @db.Date a mezzanotte UTC: formattaDataDb
+  // forza il fuso UTC, cosi' la data mostrata non scivola al giorno prima
+  // per chi legge da un fuso negativo - vedi src/lib/tempo-db.ts).
+  const formatData = (dataString: string) =>
+    formattaDataDb(dataString, { weekday: "short", day: "numeric", month: "short" });
 
-  // Formatta ora
-  const formatOra = (dataString: string) => {
-    return new Date(dataString).toLocaleTimeString("it-IT", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  // Formatta ora (campi oraInizio/oraFine, @db.Time ancorati al 1970-01-01:
+  // formattaOraDb forza il fuso UTC, altrimenti un orario "10:00" salvato
+  // diventerebbe "11:00" a Roma - stesso difetto gia' risolto in area admin,
+  // vedi src/lib/tempo-db.ts).
+  const formatOra = (dataString: string) => formattaOraDb(dataString);
 
   // Card prenotazione
   const PrenotazioneCard = ({ prenotazione }: { prenotazione: Prenotazione }) => {
@@ -258,8 +258,8 @@ export default function PrenotazioniPage() {
     const isInCorso = prenotazione.stato === "CHECK_IN";
     const puoFareCheckIn = prenotazione.stato === "CONFERMATA";
     
-    const cardAriaLabel = `Prenotazione posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}, 
-      ${formatData(prenotazione.oraInizio)} dalle ${formatOra(prenotazione.oraInizio)} alle ${formatOra(prenotazione.oraFine)}, 
+    const cardAriaLabel = `Prenotazione posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome},
+      ${formatData(prenotazione.data)} dalle ${formatOra(prenotazione.oraInizio)} alle ${formatOra(prenotazione.oraFine)},
       stato: ${prenotazione.stato.replace('_', ' ').toLowerCase()}`;
     
     return (
@@ -286,7 +286,7 @@ export default function PrenotazioniPage() {
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <Calendar className="h-4 w-4" />
-                  {formatData(prenotazione.oraInizio)}
+                  {formatData(prenotazione.data)}
                 </div>
                 <div className="flex items-center gap-1">
                   <Clock className="h-4 w-4" />

@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
+import { formattaOraDb, formattaDataDb } from "@/lib/tempo-db";
 import {
   Clock,
   MapPin,
@@ -174,21 +175,16 @@ export default function EstendiPrenotazionePage({
     }
   };
 
-  // Formatta ora
-  const formatOra = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
-  };
+  // Formatta ora (oraInizio/oraFine, @db.Time ancorati al 1970-01-01):
+  // formattaOraDb forza il fuso UTC, altrimenti un orario "10:00" salvato
+  // diventerebbe "11:00" a Roma - vedi src/lib/tempo-db.ts.
+  const formatOra = (dateString: string) => formattaOraDb(dateString);
 
-  // Formatta data
-  const formatData = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("it-IT", { 
-      weekday: "long", 
-      day: "numeric", 
-      month: "long" 
-    });
-  };
+  // Formatta data (campo `data`, @db.Date a mezzanotte UTC): formattaDataDb
+  // forza anch'essa il fuso UTC, cosi' non scivola al giorno prima per chi
+  // legge da un fuso negativo.
+  const formatData = (dateString: string) =>
+    formattaDataDb(dateString, { weekday: "long", day: "numeric", month: "long" });
 
   // Loading state
   if (loading || status === "loading") {

@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
+import { formattaOraDb, formattaDataDb } from '@/lib/tempo-db';
 import {
   Prisma,
   StatoListaAttesa,
@@ -99,7 +100,11 @@ export async function sendCheckInReminders() {
         userId: prenotazione.userId,
         tipo: TipoNotifica.CHECK_IN_REMINDER,
         titolo: '⏰ Check-in tra 15 minuti',
-        messaggio: `Non dimenticare di fare check-in per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}. Hai tempo fino alle ${prenotazione.oraInizio.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}.`,
+        // formattaOraDb forza il fuso UTC: oraInizio è un @db.Time ancorato
+        // al 1970-01-01, `toLocaleTimeString` senza fuso esplicito lo
+        // convertirebbe nel fuso LOCALE del server. Su Vercel oggi funziona
+        // solo per coincidenza (il server gira in UTC) - vedi src/lib/tempo-db.ts.
+        messaggio: `Non dimenticare di fare check-in per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}. Hai tempo fino alle ${formattaOraDb(prenotazione.oraInizio)}.`,
         actionUrl: `/prenotazioni/${prenotazione.id}`,
         actionLabel: 'Fai check-in',
       },
@@ -1236,7 +1241,10 @@ export async function notifyAvailableSeat(prenotazione: {
         userId: user.id,
         tipo: TipoNotifica.INFO,
         titolo: '✨ Posto disponibile!',
-        messaggio: `Un posto simile a quelli che prenoti di solito è appena diventato disponibile: Posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome} per il ${prenotazione.data.toLocaleDateString('it-IT')} dalle ${prenotazione.oraInizio.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}.`,
+        // Stesso motivo della riga ~102: `data` (@db.Date, mezzanotte UTC) e
+        // oraInizio (@db.Time, 1970-01-01 UTC) vanno formattati forzando il
+        // fuso UTC, non quello locale del server - vedi src/lib/tempo-db.ts.
+        messaggio: `Un posto simile a quelli che prenoti di solito è appena diventato disponibile: Posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome} per il ${formattaDataDb(prenotazione.data)} dalle ${formattaOraDb(prenotazione.oraInizio)}.`,
         actionUrl: '/prenota',
       },
     });
