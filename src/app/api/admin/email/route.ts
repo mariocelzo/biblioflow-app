@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
       const error =
         esito.motivo === "non_configurato"
           ? "Servizio email non configurato sul server: contattare l'amministratore di sistema"
-          : "Invio dell'email fallito. Riprova piu' tardi";
+          : "Invio dell'email fallito. Riprova più tardi";
 
       return NextResponse.json({ error }, { status: 502 });
     }

@@ -160,7 +160,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
         if (adesso > inizio) {
           return NextResponse.json(
-            { success: false, error: "Il periodo di check-in e' scaduto" },
+            { success: false, error: "Il periodo di check-in è scaduto" },
             { status: 400 },
           );
         }
@@ -200,7 +200,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       case "cancella":
         if (!["CONFERMATA", "CHECK_IN"].includes(prenotazione.stato)) {
           return NextResponse.json(
-            { success: false, error: "Impossibile cancellare: prenotazione gia' conclusa" },
+            { success: false, error: "Impossibile cancellare: prenotazione già conclusa" },
             { status: 400 },
           );
         }
@@ -297,7 +297,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     // quindi una prenotazione CANCELLATA non blocca la riprenotazione dello slot.
     if (!["CONFERMATA", "CHECK_IN"].includes(prenotazione.stato)) {
       return NextResponse.json(
-        { success: false, error: "Impossibile cancellare: prenotazione gia' conclusa" },
+        { success: false, error: "Impossibile cancellare: prenotazione già conclusa" },
         { status: 400 },
       );
     }

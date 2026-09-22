@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     // (2) L'intervallo deve essere ordinato e non superare MAX_GIORNI.
     if (end.getTime() < start.getTime()) {
       return NextResponse.json(
-        { error: "endDate non puo' precedere startDate" },
+        { error: "endDate non può precedere startDate" },
         { status: 422 },
       );
     }

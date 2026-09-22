@@ -174,7 +174,7 @@ export async function POST(request: NextRequest) {
           userId: user.id,
           tipo: "PRENOTAZIONE",
           titolo: "Prenotazione confermata",
-          messaggio: `La prenotazione per il posto ${posto?.numero ?? creata.postoId} e' stata confermata.`,
+          messaggio: `La prenotazione per il posto ${posto?.numero ?? creata.postoId} è stata confermata.`,
           actionUrl: "/prenotazioni",
           actionLabel: "Vedi prenotazione",
         },

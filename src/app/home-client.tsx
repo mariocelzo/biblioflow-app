@@ -285,7 +285,10 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
     {
       id: 'prenotazioni',
       title: 'Prenotazioni',
-      description: `${stats.prenotazioniAttive} attiva${stats.prenotazioniAttive !== 1 ? 'e' : ''}`,
+      // "attiva"/"attive" cambia parola intera, non solo l'ultima lettera:
+      // `attiva${n !== 1 ? 'e' : ''}` produceva "attivae" (0 e 2 prenotazioni
+      // mostravano "0 attivae" / "2 attivae" invece di "0 attive" / "2 attive").
+      description: `${stats.prenotazioniAttive} ${stats.prenotazioniAttive === 1 ? 'attiva' : 'attive'}`,
       icon: CheckCircle,
       color: 'bg-gradient-to-br from-green-500 to-green-600',
       path: '/prenotazioni'

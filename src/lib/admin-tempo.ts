@@ -15,29 +15,14 @@
 // letterale lo trasforma nel suo `toString()` (es. "Tue Jan 01 1970 14:00:00
 // GMT+0100 ..."), con una stringa ISO duplica la data ("1970-01-01T1970-01-
 // 01T14:00:00.000Z"). In entrambi i casi il risultato e' "Invalid Date",
-// visibile a schermo nella tabella prenotazioni. Questa funzione gestisce
-// entrambe le forme e forza il fuso UTC, cosi' l'ora mostrata coincide con
-// quella salvata (senza lo slittamento dato dal fuso locale del browser/server).
-export function formattaOraDb(valore: Date | string | null | undefined): string {
-  if (!valore) return "--:--";
-
-  // Caso raro ma possibile (fallback difensivo in prenotazioni-actions.tsx):
-  // una stringa gia' nel formato "HH:MM" o "HH:MM:SS", senza data/fuso -
-  // non va fatta passare da `new Date(...)`, basta troncarla.
-  if (typeof valore === "string" && /^\d{2}:\d{2}(:\d{2})?$/.test(valore)) {
-    return valore.slice(0, 5);
-  }
-
-  const data = valore instanceof Date ? valore : new Date(valore);
-
-  if (Number.isNaN(data.getTime())) return "--:--";
-
-  return data.toLocaleTimeString("it-IT", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
-}
+// visibile a schermo nella tabella prenotazioni.
+//
+// La funzione che gestisce entrambe le forme e forza il fuso UTC vive ora in
+// `src/lib/tempo-db.ts` (condivisa con la pagina "Le Mie Prenotazioni", con
+// l'estensione prenotazione e con le notifiche generate lato server): qui
+// viene solo riesportata, per non dover riscrivere gli import gia' presenti
+// in tutta l'area admin.
+export { formattaOraDb } from "./tempo-db";
 
 // Formatta un istante come tempo relativo ("2 minuti fa", "3 ore fa", ...).
 // Usato dalla card "Attivita' Recente" della dashboard admin: prima quella

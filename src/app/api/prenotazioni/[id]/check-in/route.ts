@@ -93,7 +93,7 @@ export async function POST(
     const aperturaCheckIn = new Date(inizio.getTime() - 15 * 60 * 1000);
     if (now > inizio) {
       return NextResponse.json(
-        { success: false, error: "Il periodo di check-in e' scaduto" },
+        { success: false, error: "Il periodo di check-in è scaduto" },
         { status: 400 },
       );
     }
