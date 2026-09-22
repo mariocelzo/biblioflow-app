@@ -35,7 +35,23 @@ export async function GET(request: NextRequest) {
     };
     
     if (piano) {
-      where.piano = parseInt(piano);
+      // INTEGRITA' DATI: `parseInt("abc")` è `NaN`, e un `where.piano: NaN`
+      // arrivava intatto a Prisma, che rifiuta il valore con una
+      // `PrismaClientValidationError` tradotta nel 500 generico del catch
+      // sotto. Stesso difetto, stessa correzione, delle altre GET già
+      // corrette per i filtri da query string (vedi
+      // tests/post-modifica/api-enum-validazione-db.test.ts e il commento in
+      // cima a src/lib/admin-filtri.ts): qui è un'API JSON, quindi un valore
+      // sintatticamente presente ma semanticamente non valido è un 422
+      // esplicito, non un filtro ignorato in silenzio.
+      const pianoNum = Number.parseInt(piano, 10);
+      if (!Number.isFinite(pianoNum)) {
+        return NextResponse.json(
+          { success: false, error: "Parametro 'piano' non valido: atteso un numero intero" },
+          { status: 422 }
+        );
+      }
+      where.piano = pianoNum;
     }
     
     if (isSilenziosa !== null) {
