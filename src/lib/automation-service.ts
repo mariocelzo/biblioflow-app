@@ -326,8 +326,12 @@ function contenutoNotificaCoda(input: NotificaEventoCodaInput): {
       return {
         titolo: "📋 Sei in lista d'attesa",
         messaggio: `Ti abbiamo inserito in lista d'attesa per ${posto}. Appena si libera per la tua fascia oraria creeremo la prenotazione e ti avviseremo.`,
-        actionUrl: '/prenotazioni/coda',
-        actionLabel: "Vedi lista d'attesa",
+        // INTEGRITA' DATI: `/prenotazioni/coda` NON e' una pagina esistente
+        // (esiste solo l'API `src/app/api/prenotazioni/coda`, nessuna route
+        // lato pagine). Un click sul link portava a un 404. `/prenotazioni`
+        // e' la pagina reale delle prenotazioni dell'utente.
+        actionUrl: '/prenotazioni',
+        actionLabel: "Vedi le mie prenotazioni",
       };
     case 'CODA_PROMOZIONE':
       return {
@@ -343,8 +347,10 @@ function contenutoNotificaCoda(input: NotificaEventoCodaInput): {
       return {
         titolo: "⌛ Richiesta in lista d'attesa scaduta",
         messaggio: `La tua richiesta in lista d'attesa per ${posto} è decaduta senza esito. Se ti serve ancora puoi rimetterti in lista d'attesa.`,
-        actionUrl: '/prenotazioni/coda',
-        actionLabel: "Torna alla lista d'attesa",
+        // Stesso fix di CODA_INGRESSO qui sopra: `/prenotazioni/coda` non è
+        // una pagina esistente.
+        actionUrl: '/prenotazioni',
+        actionLabel: "Vedi le mie prenotazioni",
       };
   }
 }

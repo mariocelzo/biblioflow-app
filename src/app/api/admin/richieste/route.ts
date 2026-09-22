@@ -157,8 +157,58 @@ export async function PATCH(request: NextRequest) {
                 stato,
                 note, // Opzionale: appendere note o sovrascrivere? Qui sovrascrivo o aggiorno se passato
                 ...(evasaAt && { evasaAt })
-            }
+            },
+            // Serve il titolo del libro per il testo della notifica qui sotto.
+            include: { libro: { select: { titolo: true } } },
         });
+
+        // INTEGRITA' DATI: la pagina che genera la richiesta promette
+        // esplicitamente "Riceverai una notifica quando sarà pronto"
+        // (src/app/libri/[id]/page.tsx, handleRichiestaPreparazione). Prima
+        // questa PATCH cambiava solo `stato` senza mai scrivere una
+        // `Notifica`: lo studente non veniva avvisato in nessun caso, la
+        // promessa dell'interfaccia non era mantenuta. Si notifica sui tre
+        // esiti che riguardano davvero lo studente (pronta per il ritiro,
+        // rifiutata, annullata); IN_LAVORAZIONE e COMPLETATA restano
+        // transizioni "interne" allo staff, la seconda avviene tipicamente
+        // con lo studente fisicamente al banco.
+        const CONTENUTO_NOTIFICA_RICHIESTA: Partial<
+            Record<StatoRichiesta, { titolo: string; messaggio: (titoloLibro: string) => string }>
+        > = {
+            PRONTA_RITIRO: {
+                titolo: "Richiesta pronta per il ritiro",
+                messaggio: (titoloLibro) =>
+                    `La tua richiesta per "${titoloLibro}" è pronta: il libro ti aspetta al banco prestiti.`,
+            },
+            RIFIUTATA: {
+                titolo: "Richiesta rifiutata",
+                messaggio: (titoloLibro) =>
+                    `La tua richiesta per "${titoloLibro}" è stata rifiutata dalla biblioteca.`,
+            },
+            CANCELLATA: {
+                titolo: "Richiesta annullata",
+                messaggio: (titoloLibro) =>
+                    `La tua richiesta per "${titoloLibro}" è stata annullata.`,
+            },
+        };
+
+        const contenuto = CONTENUTO_NOTIFICA_RICHIESTA[stato as StatoRichiesta];
+        if (contenuto) {
+            await prisma.notifica.create({
+                data: {
+                    userId: richiesta.userId,
+                    tipo: "SISTEMA",
+                    titolo: contenuto.titolo,
+                    messaggio: contenuto.messaggio(richiesta.libro.titolo),
+                    // Rotta REALE (pagina del libro): in passato un'altra notifica di
+                    // questo progetto puntava a `/prenotazioni/coda`, rotta mai
+                    // esistita lato pagine (vedi fix in automation-service.ts). Qui si
+                    // rimanda alla scheda del libro, che esiste davvero.
+                    actionUrl: `/libri/${richiesta.libroId}`,
+                    actionLabel: "Vedi libro",
+                },
+            });
+        }
 
         return NextResponse.json({ success: true, data: richiesta });
     } catch (error) {
