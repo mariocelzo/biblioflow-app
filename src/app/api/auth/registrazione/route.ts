@@ -186,8 +186,14 @@ export async function POST(request: NextRequest) {
         tipo: "SISTEMA",
         titolo: "Benvenuto in BiblioFlow! 📚",
         messaggio: `Ciao ${user.nome}, il tuo account è stato creato con successo. Esplora le sale studio e prenota il tuo posto preferito!`,
-        actionUrl: "/dashboard",
-        actionLabel: "Vai alla dashboard",
+        // INTEGRITA' DATI: `/dashboard` non è mai esistita in questa app (le
+        // route disponibili sono elencate in src/app: home "/", "/prenota",
+        // "/prenotazioni", ecc. — nessuna "/dashboard"). Il link nella prima
+        // notifica che un nuovo utente riceve portava quindi a un 404. "/" è
+        // la home reale, che mostra già lo stato della biblioteca in tempo
+        // reale (vedi src/app/page.tsx).
+        actionUrl: "/",
+        actionLabel: "Vai alla home",
       },
     });
     

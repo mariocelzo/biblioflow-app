@@ -450,6 +450,12 @@ describe("processaCodaPerPosto — helper riusabile", () => {
  * Come sopra, `@/lib/prisma` è mockato: si verifica solo che l'helper crei la
  * `Notifica` e il `LogEvento` giusti (tipo / actionUrl / titolo / dettagli) e
  * che sia robusto (nessun throw se la scrittura fallisce).
+ *
+ * NOTA `actionUrl`: CODA_INGRESSO e CODA_SCADENZA puntavano a
+ * `/prenotazioni/coda`, che non è mai stata una pagina esistente (esiste solo
+ * l'API omonima, nessuna route lato pagine) — un click su quel link avrebbe
+ * dato 404. Corretto in `/prenotazioni` (src/lib/automation-service.ts,
+ * `contenutoNotificaCoda`); questi test sono stati aggiornati di conseguenza.
  */
 describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => {
   const posto = { numero: "A1", salaNome: "Sala Studio" };
@@ -470,7 +476,7 @@ describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => 
         tipo: "CODA_INGRESSO",
         titolo: expect.stringContaining("lista d'attesa"),
         messaggio: expect.stringContaining("A1"),
-        actionUrl: "/prenotazioni/coda",
+        actionUrl: "/prenotazioni",
         actionLabel: expect.any(String),
       }),
     });
@@ -552,7 +558,7 @@ describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => 
         userId: "utente-3",
         tipo: "CODA_SCADENZA",
         titolo: expect.stringContaining("scaduta"),
-        actionUrl: "/prenotazioni/coda",
+        actionUrl: "/prenotazioni",
       }),
     });
     expect(logEventoCreateMock).toHaveBeenCalledWith({
@@ -596,7 +602,7 @@ describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => 
       data: expect.objectContaining({
         userId: "utente-4",
         tipo: "CODA_SCADENZA",
-        actionUrl: "/prenotazioni/coda",
+        actionUrl: "/prenotazioni",
       }),
     });
     expect(logEventoCreateMock).toHaveBeenCalledWith({

@@ -33,8 +33,16 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const letta = searchParams.get("letta"); // "true" | "false" | null (tutte)
-    const limit = parseInt(searchParams.get("limit") || "50");
-    const offset = parseInt(searchParams.get("offset") || "0");
+    // Guardia anti-NaN (stesso difetto, stessa famiglia, di quello corretto in
+    // /api/sale per `piano`): `parseInt` su un valore non numerico dà `NaN`,
+    // che finiva diretto in `take`/`skip` di Prisma. A differenza di un filtro
+    // `where` su un valore enum, qui non è un filtro categorico ma un
+    // parametro di paginazione: coerentemente con `intNelRange` di
+    // src/app/api/libri/route.ts si torna al default invece di un 422.
+    const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
+    const offsetParam = Number.parseInt(searchParams.get("offset") ?? "", 10);
+    const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 100) : 50;
+    const offset = Number.isFinite(offsetParam) && offsetParam >= 0 ? offsetParam : 0;
 
     const where: Record<string, unknown> = { userId: user.id };
 
