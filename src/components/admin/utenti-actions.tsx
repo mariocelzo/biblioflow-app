@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -129,6 +130,21 @@ export function UtenteActionButton({
   ruolo,
   onSuccess,
 }: UtenteActionButtonProps) {
+  // Difetto ui-disattiva-account-visibile-a-bibliotecario: il server
+  // (PATCH /api/admin/utenti/[id]) nega con 403 "Solo gli amministratori
+  // possono modificare gli utenti" a chiunque non sia ADMIN, ma questo
+  // componente non conosceva il ruolo di CHI e' loggato (solo quello della
+  // RIGA, nella prop `ruolo` qui sopra): il BIBLIOTECARIO vedeva quindi la
+  // voce "Disattiva/Riattiva Account", cliccabile, che falliva sempre con un
+  // toast d'errore. `useSession()` (SessionProvider e' gia' montato in
+  // src/app/layout.tsx) da' accesso al ruolo dello STAFF loggato senza dover
+  // far passare una prop in piu' dal server component genitore
+  // (src/app/admin/utenti/page.tsx, fuori dal perimetro di questa
+  // correzione).
+  const { data: sessione } = useSession();
+  const ruoloStaff = sessione?.user?.ruolo;
+  const puoAttivareDisattivare = ruoloStaff === "ADMIN";
+
   const [isLoading, setIsLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogType, setDialogType] = useState<"notifica" | "stato" | "email" | null>(null);
@@ -355,24 +371,34 @@ export function UtenteActionButton({
             Invia Email
           </DropdownMenuItem>
           
-          <DropdownMenuSeparator />
-          
-          {attivo ? (
-            <DropdownMenuItem
-              className="gap-2 text-red-600"
-              onClick={() => openStatoDialog(false)}
-            >
-              <UserX className="h-4 w-4" />
-              Disattiva Account
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              className="gap-2 text-green-600"
-              onClick={() => openStatoDialog(true)}
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              Riattiva Account
-            </DropdownMenuItem>
+          {/* Difetto ui-disattiva-account-visibile-a-bibliotecario:
+              l'attivazione/disattivazione e' riservata all'ADMIN lato
+              server (src/app/api/admin/utenti/[id]/route.ts). Nascosta al
+              BIBLIOTECARIO invece di mostrare un'azione sempre respinta con
+              403: le altre voci del menu restano invariate, sono permesse
+              anche al BIBLIOTECARIO. */}
+          {puoAttivareDisattivare && (
+            <>
+              <DropdownMenuSeparator />
+
+              {attivo ? (
+                <DropdownMenuItem
+                  className="gap-2 text-red-600"
+                  onClick={() => openStatoDialog(false)}
+                >
+                  <UserX className="h-4 w-4" />
+                  Disattiva Account
+                </DropdownMenuItem>
+              ) : (
+                <DropdownMenuItem
+                  className="gap-2 text-green-600"
+                  onClick={() => openStatoDialog(true)}
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Riattiva Account
+                </DropdownMenuItem>
+              )}
+            </>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

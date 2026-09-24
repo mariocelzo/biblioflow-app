@@ -148,15 +148,59 @@ export async function PATCH(request: NextRequest) {
             }
         }
 
-        // Se stiamo completando/evadendo, setta data
-        const evasaAt = (stato === "PRONTA_RITIRO" || stato === "COMPLETATA") ? new Date() : undefined;
+        // INTEGRITA' DATI (difetto richieste-transizioni-non-validate): senza
+        // una mappa esplicita delle transizioni ammesse, questa PATCH
+        // accettava QUALUNQUE passaggio di stato, incluso da uno stato già
+        // concluso verso uno incompatibile (es. RIFIUTATA -> PRONTA_RITIRO).
+        // Ogni transizione genera una Notifica reale allo studente (vedi
+        // CONTENUTO_NOTIFICA_RICHIESTA qui sotto): una richiesta rifiutata
+        // che "torna" pronta per il ritiro pochi secondi dopo produce due
+        // notifiche contraddittorie per lo stesso libro. RIFIUTATA,
+        // CANCELLATA e COMPLETATA sono stati TERMINALI: da lì non si esce
+        // più.
+        const richiestaEsistente = await prisma.richiestaPreparazione.findUnique({
+            where: { id },
+            select: { stato: true },
+        });
+
+        if (!richiestaEsistente) {
+            return NextResponse.json({ error: "Richiesta non trovata" }, { status: 404 });
+        }
+
+        const TRANSIZIONI_AMMESSE: Readonly<Record<StatoRichiesta, readonly StatoRichiesta[]>> = {
+            PENDENTE: ["IN_LAVORAZIONE", "RIFIUTATA", "CANCELLATA"],
+            IN_LAVORAZIONE: ["PRONTA_RITIRO", "RIFIUTATA", "CANCELLATA"],
+            PRONTA_RITIRO: ["COMPLETATA", "CANCELLATA"],
+            COMPLETATA: [],
+            RIFIUTATA: [],
+            CANCELLATA: [],
+        };
+
+        const statoAttuale = richiestaEsistente.stato;
+        const nuovoStato = stato as StatoRichiesta;
+        if (!TRANSIZIONI_AMMESSE[statoAttuale].includes(nuovoStato)) {
+            return NextResponse.json(
+                {
+                    error: `Transizione non consentita: la richiesta è nello stato "${statoAttuale}" e non può passare a "${nuovoStato}"`,
+                },
+                { status: 409 },
+            );
+        }
+
+        // Se si entra in PRONTA_RITIRO/COMPLETATA si registra il momento
+        // dell'evasione; altrimenti va azzerato ESPLICITAMENTE con `null` (e
+        // non lasciato `undefined`): Prisma ignora un campo `undefined`
+        // nell'update, quindi `evasaAt` restava congelato al timestamp della
+        // transizione precedente anche uscendo da PRONTA_RITIRO/COMPLETATA,
+        // risultando incoerente con il nuovo stato.
+        const evasaAt = (nuovoStato === "PRONTA_RITIRO" || nuovoStato === "COMPLETATA") ? new Date() : null;
 
         const richiesta = await prisma.richiestaPreparazione.update({
             where: { id },
             data: {
                 stato,
                 note, // Opzionale: appendere note o sovrascrivere? Qui sovrascrivo o aggiorno se passato
-                ...(evasaAt && { evasaAt })
+                evasaAt,
             },
             // Serve il titolo del libro per il testo della notifica qui sotto.
             include: { libro: { select: { titolo: true } } },

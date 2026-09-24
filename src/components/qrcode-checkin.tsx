@@ -33,39 +33,67 @@ export function QRCodeCheckIn({
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkInSuccess, setCheckInSuccess] = useState(false);
 
-  // Genera QR code quando il dialog si apre
+  // Genera QR code quando il dialog si apre.
+  //
+  // PERCHÉ il payload viene chiesto al server invece di essere costruito qui
+  // (difetto qr-studente-formato-incompatibile): prima questo componente
+  // creava da solo un JSON `{type, prenotazioneId, timestamp}` SENZA firma.
+  // Lo scanner del bibliotecario (src/lib/qr-signature.ts) pretende invece
+  // un payload firmato con HMAC (issuer, userId, signature): quel QR veniva
+  // quindi SEMPRE rifiutato, rendendo il check-in via QR non funzionante.
+  // La firma usa QR_SECRET/NEXTAUTH_SECRET, che non può mai arrivare nel
+  // browser: il payload firmato va perciò generato lato server, da una rotta
+  // autenticata che verifica anche che la prenotazione sia dell'utente
+  // (src/app/api/prenotazioni/[id]/qr/route.ts). Qui ci si limita a
+  // chiederlo e a trasformarlo in immagine QR.
   useEffect(() => {
-    if (open) {
-      console.log("Generazione QR code per prenotazione:", prenotazioneId);
-      setLoading(true);
-      const qrData = JSON.stringify({
-        type: "CHECKIN_PRENOTAZIONE",
-        prenotazioneId,
-        timestamp: new Date().toISOString(),
-      });
+    if (!open) return;
 
-      QRCode.toDataURL(
-        qrData,
-        {
+    // Evita di aggiornare lo stato di un componente ormai smontato/chiuso se
+    // la risposta arriva dopo che il dialog è già stato richiuso.
+    let annullata = false;
+
+    setLoading(true);
+    setQrCodeUrl("");
+
+    (async () => {
+      try {
+        const risposta = await fetch(`/api/prenotazioni/${prenotazioneId}/qr`);
+        const dati = await risposta.json();
+
+        if (!risposta.ok || !dati?.success || typeof dati.qrData !== "string") {
+          throw new Error(
+            dati?.error ?? "Impossibile generare il QR di check-in",
+          );
+        }
+
+        const url = await QRCode.toDataURL(dati.qrData, {
           width: 280,
           margin: 2,
           color: {
             dark: "#000000",
             light: "#FFFFFF",
           },
-        }
-      )
-        .then((url) => {
-          console.log("QR code generato con successo");
-          setQrCodeUrl(url);
-          setLoading(false);
-        })
-        .catch((error) => {
-          console.error("Errore generazione QR:", error);
-          toast.error("Errore nella generazione del QR code");
-          setLoading(false);
         });
-    }
+
+        if (annullata) return;
+        setQrCodeUrl(url);
+      } catch (error) {
+        if (annullata) return;
+        console.error("Errore generazione QR:", error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Errore nella generazione del QR code",
+        );
+      } finally {
+        if (!annullata) setLoading(false);
+      }
+    })();
+
+    return () => {
+      annullata = true;
+    };
   }, [open, prenotazioneId]);
 
   // Simula check-in automatico (in produzione questo verrebbe fatto da un scanner fisico)

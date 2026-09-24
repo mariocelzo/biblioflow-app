@@ -86,7 +86,10 @@ const mocks = vi.hoisted(() => {
     logEvento: { create: vi.fn(), count: vi.fn(), findMany: vi.fn(), update: vi.fn() },
     notifica: { create: vi.fn() },
     // Modello usato solo dalle FALLE NOTE su `/api/admin/richieste`.
-    richiestaPreparazione: { findMany: vi.fn(), update: vi.fn() },
+    // `findUnique`: la PATCH legge lo stato ATTUALE prima di scrivere
+    // (difetto richieste-transizioni-non-validate), per validare la
+    // transizione richiesta.
+    richiestaPreparazione: { findMany: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
   };
 
   return { MockAuthError, auth, requireUser, prisma };
@@ -673,6 +676,12 @@ describe("BIB-57 · 05x — varchi CA-01 route admin chiusi in BIB-68", () => {
     // membro valido dell'enum e `note` è entro il limite → l'`update` viene
     // eseguito e il handler risponde 200 (mai 401/403).
     mocks.auth.mockResolvedValue(sessioneAdmin);
+    // COMPLETATA è raggiungibile solo da PRONTA_RITIRO (mappa di transizioni
+    // del difetto richieste-transizioni-non-validate): la richiesta deve
+    // trovarsi in quello stato perché l'update venga davvero tentato.
+    mocks.prisma.richiestaPreparazione.findUnique.mockResolvedValue({
+      stato: "PRONTA_RITIRO",
+    });
     mocks.prisma.richiestaPreparazione.update.mockResolvedValue({
       id: "req-1",
       stato: "COMPLETATA",
