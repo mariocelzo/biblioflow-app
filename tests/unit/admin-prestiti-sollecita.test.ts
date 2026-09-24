@@ -31,7 +31,7 @@ const mocks = vi.hoisted(() => ({
       findUnique: vi.fn(),
       update: vi.fn(),
     },
-    logEvento: { create: vi.fn() },
+    logEvento: { create: vi.fn(), findMany: vi.fn() },
     notifica: { create: vi.fn() },
   },
 }));
@@ -58,6 +58,10 @@ beforeEach(async () => {
   vi.resetAllMocks();
   route = await import("@/app/api/admin/prestiti/route");
   mocks.auth.mockResolvedValue({ user: bibliotecario });
+  // Nessun sollecito recente per default: i test dell'idempotenza (vedi
+  // tests/unit/admin-prestiti-sollecita-idempotenza.test.ts) sovrascrivono
+  // questo mock quando serve simulare un sollecito già inviato.
+  mocks.prisma.logEvento.findMany.mockResolvedValue([]);
 });
 
 describe("SOLLECITA_MULTIPLI (azione su cui si appoggia il nuovo bottone)", () => {

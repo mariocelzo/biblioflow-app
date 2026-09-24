@@ -346,13 +346,47 @@ export async function POST(req: NextRequest) {
         });
 
         const oggi = new Date();
+
+        // IDEMPOTENZA (difetto solleciti-multipli-non-idempotenti): PRIMA un
+        // secondo click/retry su "Sollecita Tutti" per lo stesso lotto creava
+        // una NUOVA Notifica identica ad ogni chiamata: due solleciti
+        // ravvicinati per lo stesso libro/studente. Stessa finestra
+        // anti-duplicato di 24h gia' usata concettualmente da
+        // AVVISA_SINGOLO_UTENTE in src/app/api/admin/anomalie/route.ts (che
+        // marca gli eventi "risolto" per non ripeterli): qui si interroga il
+        // LogEvento che questa stessa azione scrive qui sotto (dettagli
+        // .prestitoId + .azione), non la Notifica (che non porta un
+        // riferimento diretto al prestito). Una query sola PRIMA del ciclo
+        // (invece di N query dentro il ciclo) tiene il costo O(1) invece di
+        // O(prestiti).
+        const FINESTRA_ANTI_DUPLICATO_MS = 24 * 60 * 60 * 1000;
+        const eventiSollecitoRecenti = await prisma.logEvento.findMany({
+          where: {
+            tipo: "PRESTITO_RESTITUITO",
+            userId: { in: prestiti.map((p) => p.user.id) },
+            createdAt: { gte: new Date(oggi.getTime() - FINESTRA_ANTI_DUPLICATO_MS) },
+          },
+        });
+        const prestitiGiaSollecitatiDiRecente = new Set(
+          eventiSollecitoRecenti
+            .map((evento) => evento.dettagli as { prestitoId?: string; azione?: string } | null)
+            .filter((dettagli) => dettagli?.azione === "sollecito" || dettagli?.azione === "sollecito_batch")
+            .map((dettagli) => dettagli!.prestitoId),
+        );
+
         let count = 0;
+        let saltatiRecente = 0;
 
         for (const prestito of prestiti) {
           const scadenza = new Date(prestito.dataScadenza);
           const giorniRitardo = Math.floor((oggi.getTime() - scadenza.getTime()) / (1000 * 60 * 60 * 24));
 
           if (giorniRitardo > 0) {
+            if (prestitiGiaSollecitatiDiRecente.has(prestito.id)) {
+              saltatiRecente++;
+              continue;
+            }
+
             // Crea notifica di sollecito
             await prisma.notifica.create({
               data: {
@@ -384,7 +418,8 @@ export async function POST(req: NextRequest) {
 
         return NextResponse.json({
           success: true,
-          message: `${count} solleciti inviati`
+          message: `${count} solleciti inviati`,
+          saltatiRecente,
         });
       }
 
