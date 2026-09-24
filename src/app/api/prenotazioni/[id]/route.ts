@@ -7,6 +7,13 @@ import {
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { criticalApiRateLimiter } from "@/lib/rate-limit";
+import { valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+// La promozione dalla lista d'attesa NON viene reimplementata qui: si
+// riusano gli helper gia' pronti di automation-service.ts (che a loro volta
+// invocano `promuoviPrimoInCoda`, la funzione di dominio transazionale e
+// idempotente in src/lib/prenotazioni-service.ts — NON toccato da questa
+// correzione, e' perimetro di un'altra PR).
+import { notificaEventoCoda, processaCodaPerPosto } from "@/lib/automation-service";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -27,26 +34,45 @@ function errorResponse(error: unknown, fallback: string) {
   );
 }
 
-// Ricompone l'istante di inizio dello slot: `data` e' un @db.Date e `oraInizio`
-// un @db.Time, quindi vanno fusi lavorando sui componenti UTC.
-// NOTA: e' la stessa funzione di src/app/api/prenotazioni/[id]/check-in/route.ts.
-// La duplicazione e' voluta per non introdurre un modulo condiviso in questa
-// correzione mirata; le due implementazioni devono restare allineate.
-function istanteInizio(data: Date, oraInizio: Date): Date {
-  return new Date(
-    Date.UTC(
-      data.getUTCFullYear(),
-      data.getUTCMonth(),
-      data.getUTCDate(),
-      oraInizio.getUTCHours(),
-      oraInizio.getUTCMinutes(),
-    ),
-  );
-}
+/**
+ * Se il titolare cancella (soft-delete) la propria prenotazione, promuove il
+ * primo in lista d'attesa per lo stesso posto/fascia — esattamente come gia'
+ * fa il rilascio automatico da no-show (`releaseNoShowReservations` in
+ * src/lib/automation-service.ts). PRIMA questa promozione avveniva SOLO nel
+ * rilascio automatico: la cancellazione volontaria (DELETE e PATCH
+ * azione:"cancella") si limitava a liberare il posto senza mai interpellare
+ * la coda, che restava IN_ATTESA anche con posto/fascia appena libero — il
+ * posto diventava "primo arrivato primo servito" invece di rispettare
+ * l'ordine di chi era gia' in coda. Va chiamata DOPO che la prenotazione
+ * risulta gia' CANCELLATA nel DB (altrimenti `promuoviPrimoInCoda`
+ * troverebbe ancora questa stessa riga come occupante attivo dello slot).
+ */
+async function promuoviCodaDopoCancellazione(prenotazione: {
+  postoId: string;
+  data: Date;
+  oraInizio: Date;
+  oraFine: Date;
+  posto: { numero: string; sala: { nome: string } };
+}): Promise<void> {
+  const esitoCoda = await processaCodaPerPosto({
+    postoId: prenotazione.postoId,
+    data: prenotazione.data,
+    oraInizio: prenotazione.oraInizio,
+    oraFine: prenotazione.oraFine,
+  });
 
-// Finestra di check-in: apre 15 minuti prima dell'inizio dello slot e si chiude
-// all'inizio. Identica a quella dell'endpoint dedicato.
-const ANTICIPO_CHECK_IN_MS = 15 * 60 * 1000;
+  if (esitoCoda.promossa && esitoCoda.userId) {
+    await notificaEventoCoda({
+      userId: esitoCoda.userId,
+      tipo: "CODA_PROMOZIONE",
+      posto: {
+        numero: prenotazione.posto.numero,
+        salaNome: prenotazione.posto.sala.nome,
+      },
+      prenotazioneId: esitoCoda.prenotazioneId,
+    });
+  }
+}
 
 // Policy CA-01: agli studenti una risorsa altrui risulta inesistente (404).
 export async function GET(_request: NextRequest, { params }: RouteParams) {
@@ -120,7 +146,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const { azione } = await request.json();
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id },
-      include: { posto: true },
+      // `sala` serve al testo della notifica CODA_PROMOZIONE quando
+      // "cancella" promuove il primo in lista d'attesa (vedi
+      // `promuoviCodaDopoCancellazione` sopra).
+      include: { posto: { include: { sala: true } } },
     });
 
     if (!prenotazione) {
@@ -154,17 +183,24 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         // regole diverse, quindi la finestra viene applicata anche qui.
         // L'istante di riferimento e' SEMPRE l'orologio del server: un eventuale
         // `timestamp` nel body del client viene ignorato (hardening M-2).
+        //
+        // BUG STORICO CORRETTO QUI: la vecchia `istanteInizio()` ricomponeva
+        // l'istante con `Date.UTC(..., oraInizio.getUTCHours(), ...)`,
+        // trattando le cifre di Roma salvate in `oraInizio` come se fossero
+        // gia' UTC, senza applicare l'offset Europe/Rome — la finestra
+        // risultava sempre "troppo presto". `valutaFinestraCheckIn` (condivisa
+        // anche con l'endpoint dedicato e con lo scanner bibliotecario)
+        // confronta invece sempre nel fuso della biblioteca.
         const adesso = new Date();
-        const inizio = istanteInizio(prenotazione.data, prenotazione.oraInizio);
-        const aperturaCheckIn = new Date(inizio.getTime() - ANTICIPO_CHECK_IN_MS);
+        const esito = valutaFinestraCheckIn(prenotazione.data, prenotazione.oraInizio, adesso);
 
-        if (adesso > inizio) {
+        if (!esito.consentito && esito.motivo === "scaduto") {
           return NextResponse.json(
             { success: false, error: "Il periodo di check-in è scaduto" },
             { status: 400 },
           );
         }
-        if (adesso < aperturaCheckIn) {
+        if (!esito.consentito && esito.motivo === "troppo_presto") {
           return NextResponse.json(
             { success: false, error: "È troppo presto per effettuare il check-in" },
             { status: 400 },
@@ -246,6 +282,13 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       },
     });
 
+    // La prenotazione e' ORA CANCELLATA a DB (l'update sopra e' gia' andato a
+    // buon fine): se qualcuno e' primo in lista d'attesa per lo stesso
+    // posto/fascia, va promosso subito (vedi `promuoviCodaDopoCancellazione`).
+    if (azione === "cancella") {
+      await promuoviCodaDopoCancellazione(prenotazione);
+    }
+
     return NextResponse.json({
       success: true,
       data: prenotazioneAggiornata,
@@ -269,7 +312,9 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     const { id } = await params;
     const prenotazione = await prisma.prenotazione.findUnique({
       where: { id },
-      include: { posto: true },
+      // `sala` serve al testo della notifica CODA_PROMOZIONE quando la
+      // cancellazione promuove il primo in lista d'attesa (vedi sotto).
+      include: { posto: { include: { sala: true } } },
     });
 
     if (!prenotazione) {
@@ -324,6 +369,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         descrizione: `Prenotazione cancellata per posto ${prenotazione.posto.numero}`,
       },
     });
+
+    // La prenotazione e' ORA CANCELLATA a DB (l'update sopra e' gia' andato a
+    // buon fine): stessa promozione di coda del case "cancella" della PATCH
+    // qui sopra (vedi `promuoviCodaDopoCancellazione`).
+    await promuoviCodaDopoCancellazione(prenotazione);
 
     return NextResponse.json({ success: true, message: "Prenotazione cancellata" });
   } catch (error) {

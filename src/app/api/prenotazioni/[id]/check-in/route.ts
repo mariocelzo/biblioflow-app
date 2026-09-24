@@ -6,6 +6,7 @@ import {
   requireUser,
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
 
 function errorResponse(error: unknown) {
   if (error instanceof AuthError) {
@@ -19,18 +20,6 @@ function errorResponse(error: unknown) {
   return NextResponse.json(
     { success: false, error: "Errore interno del server" },
     { status: 500 },
-  );
-}
-
-function istanteInizio(data: Date, oraInizio: Date): Date {
-  return new Date(
-    Date.UTC(
-      data.getUTCFullYear(),
-      data.getUTCMonth(),
-      data.getUTCDate(),
-      oraInizio.getUTCHours(),
-      oraInizio.getUTCMinutes(),
-    ),
   );
 }
 
@@ -89,15 +78,20 @@ export async function POST(
     // check-in sia per il valore persistito in `checkInAt`.
     const now = new Date();
 
-    const inizio = istanteInizio(prenotazione.data, prenotazione.oraInizio);
-    const aperturaCheckIn = new Date(inizio.getTime() - 15 * 60 * 1000);
-    if (now > inizio) {
+    // BUG STORICO CORRETTO QUI (verificato dal vivo, sempre 400 "troppo
+    // presto"): la vecchia `istanteInizio()` ricomponeva l'istante con
+    // `Date.UTC(..., oraInizio.getUTCHours(), ...)`, trattando le cifre di
+    // Roma salvate in `oraInizio` come se fossero gia' UTC, senza applicare
+    // l'offset Europe/Rome. `valutaFinestraCheckIn` confronta invece sempre
+    // nel fuso della biblioteca (vedi src/lib/prenotazioni-regole.ts).
+    const esito = valutaFinestraCheckIn(prenotazione.data, prenotazione.oraInizio, now);
+    if (!esito.consentito && esito.motivo === "scaduto") {
       return NextResponse.json(
         { success: false, error: "Il periodo di check-in è scaduto" },
         { status: 400 },
       );
     }
-    if (now < aperturaCheckIn) {
+    if (!esito.consentito && esito.motivo === "troppo_presto") {
       return NextResponse.json(
         { success: false, error: "È troppo presto per effettuare il check-in" },
         { status: 400 },

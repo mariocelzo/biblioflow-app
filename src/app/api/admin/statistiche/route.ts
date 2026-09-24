@@ -46,9 +46,18 @@ export async function GET(req: NextRequest) {
           occupazionePerOra[ora] = 0;
         }
 
+        // BUG STORICO CORRETTO QUI (verificato dal vivo: tutte le fasce a 0):
+        // `p.oraInizio` e' un oggetto Date (colonna @db.Time letta cosi' da
+        // Prisma), non una stringa "HH:mm". Il vecchio
+        // `` `1970-01-01T${p.oraInizio}` `` interpolava `Date.prototype
+        // .toString()`, non parsabile da `new Date(...)` → Invalid Date →
+        // `.getHours()` = NaN → `oraKey` diventava sempre "NaN:00", che non
+        // combacia mai con nessuna delle chiavi precostruite sopra. Le cifre
+        // UTC dell'oggetto Date SONO gia' l'ora di Roma (vedi
+        // src/lib/tempo-db.ts): basta leggerle direttamente, senza
+        // ricostruire nulla.
         prenotazioni.forEach(p => {
-          const ora = new Date(`1970-01-01T${p.oraInizio}`);
-          const oraKey = `${ora.getHours().toString().padStart(2, '0')}:00`;
+          const oraKey = `${p.oraInizio.getUTCHours().toString().padStart(2, '0')}:00`;
           if (occupazionePerOra[oraKey] !== undefined) {
             occupazionePerOra[oraKey]++;
           }

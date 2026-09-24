@@ -40,6 +40,14 @@ const mocks = vi.hoisted(() => {
       posto: { update: vi.fn() },
       logEvento: { create: vi.fn(), deleteMany: vi.fn() },
     },
+    // Promozione della lista d'attesa (difetto "cancellazione-titolare-non-
+    // promuove-coda"): questo file NON e' sul comportamento della coda (ha il
+    // suo file dedicato, tests/unit/prenotazioni-cancellazione-promuove-coda.test.ts),
+    // quindi si mocka a "nessuna promozione" cosi' la DELETE/PATCH resta
+    // isolata dal vero `promuoviPrimoInCoda` (che aprirebbe una transazione
+    // Prisma reale, qui non mockata).
+    processaCodaPerPosto: vi.fn(),
+    notificaEventoCoda: vi.fn(),
   };
 });
 
@@ -54,6 +62,10 @@ vi.mock("@/lib/prisma", () => ({ default: mocks.prisma, prisma: mocks.prisma }))
 // nei test qui sotto (stesso pattern di prestiti-stato-rinnovato.test.ts).
 vi.mock("@/lib/rate-limit", () => ({
   criticalApiRateLimiter: vi.fn(async () => null),
+}));
+vi.mock("@/lib/automation-service", () => ({
+  processaCodaPerPosto: mocks.processaCodaPerPosto,
+  notificaEventoCoda: mocks.notificaEventoCoda,
 }));
 
 type Route = typeof import("@/app/api/prenotazioni/[id]/route");
@@ -70,7 +82,7 @@ function prenotazioneConStato(stato: string) {
     oraInizio: new Date("1970-01-01T09:00:00.000Z"),
     oraFine: new Date("1970-01-01T11:00:00.000Z"),
     stato,
-    posto: { id: "posto-1", numero: "A1" },
+    posto: { id: "posto-1", numero: "A1", sala: { nome: "Sala Studio" } },
   };
 }
 
@@ -97,6 +109,10 @@ beforeEach(() => {
   mocks.prisma.posto.update.mockResolvedValue({ id: "posto-1", stato: "DISPONIBILE" });
   mocks.prisma.logEvento.create.mockResolvedValue({ id: "log-1" });
   mocks.prisma.logEvento.deleteMany.mockResolvedValue({ count: 0 });
+  // Default neutro: nessuno in lista d'attesa da promuovere (vedi commento
+  // sopra sul mock di @/lib/automation-service).
+  mocks.processaCodaPerPosto.mockResolvedValue({ promossa: false });
+  mocks.notificaEventoCoda.mockResolvedValue({ notificaCreata: false });
 });
 
 describe("Integrita' dati - la cancellazione utente non distrugge l'audit trail", () => {

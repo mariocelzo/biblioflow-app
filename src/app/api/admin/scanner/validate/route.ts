@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
 import { validateScannedQR } from "@/lib/qr-signature";
+import {
+  TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+  valutaFinestraCheckIn,
+} from "@/lib/prenotazioni-regole";
 
 export async function POST(request: NextRequest) {
   try {
@@ -64,6 +68,10 @@ export async function POST(request: NextRequest) {
           select: {
             id: true,
             numero: true,
+            // `stato` serve al controllo MANUTENZIONE piu' sotto: senza,
+            // il check-in scriveva incondizionatamente OCCUPATO, cancellando
+            // silenziosamente il flag di manutenzione impostato dallo staff.
+            stato: true,
             sala: {
               select: {
                 nome: true,
@@ -139,26 +147,42 @@ export async function POST(request: NextRequest) {
     }
 
     // Verifica orario (può fare check-in da 15 min prima fino a 15 min dopo l'inizio)
+    //
+    // BUG STORICO CORRETTO QUI (verificato dal vivo: check-in SEMPRE riuscito,
+    // a qualunque ora): `prenotazione.oraInizio` e' un oggetto Date (colonna
+    // @db.Time letta cosi' da Prisma), non una stringa "HH:mm". Il vecchio
+    // `` `1970-01-01T${prenotazione.oraInizio}` `` interpolava quindi
+    // `Date.prototype.toString()` (es. "Thu Jan 01 1970 09:22:00 GMT+0000
+    // (...)"), non parsabile da `new Date(...)` → Invalid Date → NaN ovunque
+    // a valle → sia `diffMinuti < -15` sia `diffMinuti > 15` valutavano
+    // sempre `false`: la finestra non veniva MAI applicata. `valutaFinestraCheckIn`
+    // (condivisa anche con gli endpoint di check-in lato studente, vedi
+    // src/lib/prenotazioni-regole.ts) legge direttamente le cifre UTC
+    // dell'oggetto Date e confronta sempre nel fuso della biblioteca.
     const now = new Date();
-    const oraInizio = new Date(`1970-01-01T${prenotazione.oraInizio}`);
-    const oraInizioOggi = new Date(oggi);
-    oraInizioOggi.setHours(oraInizio.getHours(), oraInizio.getMinutes());
-    
-    const diffMinuti = (now.getTime() - oraInizioOggi.getTime()) / 1000 / 60;
-    
-    if (diffMinuti < -15) {
-      const minutiMancanti = Math.abs(Math.floor(diffMinuti + 15));
+    const esito = valutaFinestraCheckIn(
+      prenotazione.data,
+      prenotazione.oraInizio,
+      now,
+      TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+    );
+
+    if (!esito.consentito && esito.motivo === "troppo_presto") {
+      const messaggioMinuti =
+        esito.minutiMancanti !== undefined
+          ? `. Riprova tra ${esito.minutiMancanti} minuti`
+          : "";
       return NextResponse.json(
-        { 
-          success: false, 
-          error: `Troppo presto per il check-in. Riprova tra ${minutiMancanti} minuti`, 
-          type: "too_early" 
+        {
+          success: false,
+          error: `Troppo presto per il check-in${messaggioMinuti}`,
+          type: "too_early"
         },
         { status: 400 }
       );
     }
 
-    if (diffMinuti > 15) {
+    if (!esito.consentito && esito.motivo === "scaduto") {
       // Il messaggio dichiara un annullamento: prima non veniva eseguito
       // nessun update e la prenotazione restava CONFERMATA con il posto mai
       // liberato (rilievo #4 dell'audit). Qui si annulla per davvero, con lo
@@ -206,6 +230,22 @@ export async function POST(request: NextRequest) {
           type: "too_late"
         },
         { status: 400 }
+      );
+    }
+
+    // INTEGRITA' DATI: un posto in MANUTENZIONE non e' fisicamente
+    // utilizzabile. PRIMA questo controllo non esisteva: l'update finale
+    // sotto scriveva OCCUPATO incondizionatamente, cancellando in silenzio
+    // il flag impostato dallo staff (verificato dal vivo: check-in riuscito
+    // su un posto appena messo in MANUTENZIONE, stato tornato OCCUPATO).
+    if (prenotazione.posto.stato === "MANUTENZIONE") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Il posto è in manutenzione: check-in non possibile",
+          type: "posto_non_disponibile",
+        },
+        { status: 409 }
       );
     }
 
