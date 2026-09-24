@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { formattaOraDb, formattaDataDb } from '@/lib/tempo-db';
 import {
+  actionUrlPrenotazione,
   dataCorrenteBiblioteca,
   minutiCorrentiBiblioteca,
   oraDbDaMinuti,
@@ -119,7 +120,7 @@ export async function sendCheckInReminders() {
   // generico sull'intero utente.
   const inizioOggi = new Date(now);
   inizioOggi.setHours(0, 0, 0, 0);
-  const actionUrlCandidati = candidati.map((p) => actionUrlReminderCheckIn(p.id));
+  const actionUrlCandidati = candidati.map((p) => actionUrlPrenotazione(p.id));
   const giaNotificati = await prisma.notifica.findMany({
     where: {
       tipo: TipoNotifica.CHECK_IN_REMINDER,
@@ -130,7 +131,7 @@ export async function sendCheckInReminders() {
   });
   const actionUrlGiaNotificati = new Set(giaNotificati.map((n) => n.actionUrl));
   const prenotazioni = candidati.filter(
-    (p) => !actionUrlGiaNotificati.has(actionUrlReminderCheckIn(p.id)),
+    (p) => !actionUrlGiaNotificati.has(actionUrlPrenotazione(p.id)),
   );
 
   let count = 0;
@@ -146,7 +147,7 @@ export async function sendCheckInReminders() {
         // convertirebbe nel fuso LOCALE del server. Su Vercel oggi funziona
         // solo per coincidenza (il server gira in UTC) - vedi src/lib/tempo-db.ts.
         messaggio: `Non dimenticare di fare check-in per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}. Hai tempo fino alle ${formattaOraDb(prenotazione.oraInizio)}.`,
-        actionUrl: actionUrlReminderCheckIn(prenotazione.id),
+        actionUrl: actionUrlPrenotazione(prenotazione.id),
         actionLabel: 'Fai check-in',
       },
     });
@@ -167,28 +168,6 @@ export async function sendCheckInReminders() {
   }
 
   return { sent: count, message: `${count} reminder check-in inviati` };
-}
-
-/**
- * `actionUrl` della notifica CHECK_IN_REMINDER di una prenotazione.
- *
- * BUG STORICO CORRETTO QUI (link 404, verificato dal vivo): puntava a
- * `/prenotazioni/${id}`, ma sotto src/app/prenotazioni/ non esiste alcuna
- * route `[id]/page.tsx` che serva quel percorso (esiste solo la lista
- * `page.tsx` e `[id]/estendi/page.tsx`) — un click sul pulsante "Fai
- * check-in" del promemoria dava 404. La pagina LISTA (`/prenotazioni`) e'
- * gia' dove lo studente fa davvero check-in (vedi src/app/prenotazioni/page.tsx),
- * quindi si punta li'. Il query param NON e' letto da quella pagina (nessuna
- * modifica qui, e' fuori dal perimetro di questa correzione) — serve solo a
- * rendere l'URL UNIVOCO per prenotazione: `Notifica` non ha una colonna
- * `prenotazioneId` (solo `actionUrl`), quindi la deduplicazione "un
- * promemoria per PRENOTAZIONE, non per utente" qui sopra dipende da questo
- * URL essendo diverso da una prenotazione all'altra — un `actionUrl` uguale
- * per tutte (es. il solo `/prenotazioni`) riproporrebbe lo stesso bug di
- * deduplicazione per utente che si sta correggendo.
- */
-function actionUrlReminderCheckIn(prenotazioneId: string): string {
-  return `/prenotazioni?checkIn=${prenotazioneId}`;
 }
 
 /**
@@ -401,8 +380,13 @@ function contenutoNotificaCoda(input: NotificaEventoCodaInput): {
         titolo: "🎉 Posto assegnato dalla lista d'attesa",
         messaggio: `Buone notizie: ${posto} si è liberato e la prenotazione è ora tua. Ricordati di fare il check-in nei tempi previsti per non perderla.`,
         // Se per qualunque motivo manca l'id si rimanda all'elenco prenotazioni.
+        // Stesso formato di link (`actionUrlPrenotazione`, vedi
+        // src/lib/prenotazioni-regole.ts) usato da TUTTI i produttori di link
+        // verso una prenotazione: prima questo puntava a `/prenotazioni/${id}`,
+        // una route inesistente (404), diversa dal formato gia' corretto usato
+        // dal promemoria check-in qui sopra.
         actionUrl: input.prenotazioneId
-          ? `/prenotazioni/${input.prenotazioneId}`
+          ? actionUrlPrenotazione(input.prenotazioneId)
           : '/prenotazioni',
         actionLabel: 'Vedi prenotazione',
       };

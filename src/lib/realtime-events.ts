@@ -30,6 +30,7 @@
 
 import { sseEmitter } from './sse-emitter';
 import { prisma } from './prisma';
+import { actionUrlPrenotazione } from './prenotazioni-regole';
 
 /**
  * Emette evento di aggiornamento posto
@@ -258,7 +259,10 @@ export function emitCodaPromozione(payload: CodaPromozionePayload): void {
     tipo: 'CODA_PROMOZIONE',
     titolo: "Sei stato promosso dalla lista d'attesa",
     messaggio: `Il posto ${payload.numero} è ora prenotato a tuo nome per il ${payload.data}, dalle ${payload.oraInizio} alle ${payload.oraFine}.`,
-    actionUrl: `/prenotazioni/${payload.prenotazioneId}`,
+    // Formato unico di link verso una prenotazione (vedi `actionUrlPrenotazione`
+    // in src/lib/prenotazioni-regole.ts): prima qui c'era `/prenotazioni/${id}`,
+    // una route inesistente sotto src/app/prenotazioni/ (404 al click).
+    actionUrl: actionUrlPrenotazione(payload.prenotazioneId),
   });
 }
 

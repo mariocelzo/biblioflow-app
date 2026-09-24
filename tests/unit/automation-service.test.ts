@@ -197,8 +197,12 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
     });
 
     // Log NO_SHOW_AUTO invariato + nuovo log AUTOMATION di innesco con esito "promossa".
+    // `prenotazioneId` deve essere valorizzato come colonna RELAZIONALE del
+    // LogEvento (non solo dentro `dettagli`): e' quella colonna che
+    // GET /api/prenotazioni/[id] legge per popolare la cronologia mostrata
+    // allo studente (difetto logevento-prenotazione-non-collegato).
     expect(logEventoCreateMock).toHaveBeenCalledWith({
-      data: expect.objectContaining({ tipo: "NO_SHOW_AUTO" }),
+      data: expect.objectContaining({ tipo: "NO_SHOW_AUTO", prenotazioneId: "pren-1" }),
     });
     expect(logEventoCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -229,7 +233,7 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
       data: expect.objectContaining({
         userId: "utente-2",
         tipo: "CODA_PROMOZIONE",
-        actionUrl: "/prenotazioni/pren-coda-1",
+        actionUrl: "/prenotazioni?evidenzia=pren-coda-1",
       }),
     });
     expect(logEventoCreateMock).toHaveBeenCalledWith({
@@ -523,7 +527,7 @@ describe("notificaEventoCoda — notifiche eventi coda (BIB-42 / CA-05)", () => 
         userId: "utente-2",
         tipo: "CODA_PROMOZIONE",
         titolo: expect.stringContaining("Posto assegnato"),
-        actionUrl: "/prenotazioni/pren-99",
+        actionUrl: "/prenotazioni?evidenzia=pren-99",
         actionLabel: "Vedi prenotazione",
       }),
     });
@@ -1134,7 +1138,7 @@ describe("sendCheckInReminders — finestra oraria, deduplicazione, link (BUG st
     // `actionUrl: { contains: 'prenotazioni' }`) nessuna delle due sarebbe
     // stata inviata.
     notificaFindManyMock.mockResolvedValue([
-      { actionUrl: "/prenotazioni?checkIn=pren-a" },
+      { actionUrl: "/prenotazioni?evidenzia=pren-a" },
     ] as never);
 
     const risultato = await sendCheckInReminders();
@@ -1143,7 +1147,7 @@ describe("sendCheckInReminders — finestra oraria, deduplicazione, link (BUG st
     expect(notificaCreateMock).toHaveBeenCalledTimes(1);
     expect(notificaCreateMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ userId: "utente-1", actionUrl: "/prenotazioni?checkIn=pren-b" }),
+        data: expect.objectContaining({ userId: "utente-1", actionUrl: "/prenotazioni?evidenzia=pren-b" }),
       }),
     );
   });
@@ -1158,9 +1162,9 @@ describe("sendCheckInReminders — finestra oraria, deduplicazione, link (BUG st
 
     const arg = notificaCreateMock.mock.calls[0][0] as { data: { actionUrl: string } };
     // src/app/prenotazioni/ NON ha una route [id]/page.tsx: solo la pagina
-    // lista (page.tsx) esiste davvero — vedi il commento su
-    // `actionUrlReminderCheckIn` in automation-service.ts.
-    expect(arg.data.actionUrl).toBe("/prenotazioni?checkIn=pren-link");
+    // lista (page.tsx) esiste davvero — vedi `actionUrlPrenotazione` in
+    // src/lib/prenotazioni-regole.ts, unico produttore di questo link.
+    expect(arg.data.actionUrl).toBe("/prenotazioni?evidenzia=pren-link");
     expect(arg.data.actionUrl.startsWith("/prenotazioni/")).toBe(false);
   });
 

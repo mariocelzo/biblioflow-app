@@ -138,7 +138,7 @@ describe("emitCodaPromozione — nuovo evento coda (BIB-45)", () => {
       expect.objectContaining({
         id: `coda-promozione-${payload.prenotazioneId}`,
         tipo: "CODA_PROMOZIONE",
-        actionUrl: `/prenotazioni/${payload.prenotazioneId}`,
+        actionUrl: `/prenotazioni?evidenzia=${payload.prenotazioneId}`,
         titolo: expect.any(String),
         messaggio: expect.any(String),
         timestamp: "2030-01-15T09:00:00.000Z",

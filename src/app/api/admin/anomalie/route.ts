@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { releaseNoShowReservations } from "@/lib/automation-service";
 
 // POST - Azioni batch sulle anomalie
 export async function POST(request: NextRequest) {
@@ -243,75 +244,33 @@ export async function POST(request: NextRequest) {
       }
 
       case "ANNULLA_PRENOTAZIONI_SENZA_CHECKIN": {
-        // Annulla prenotazioni confermate di oggi senza check-in
-        const oraCorrente = new Date();
-        const prenotazioniDaAnnullare = await db.prenotazione.findMany({
-          where: {
-            stato: "CONFERMATA",
-            data: oggi,
-            oraInizio: {
-              lt: new Date(oraCorrente.getTime() - 15 * 60 * 1000), // Oltre 15 min fa
-            },
-          },
-          include: {
-            user: true,
-            posto: { include: { sala: true } },
-          },
-        });
-
-        const aggiornate = [];
-        for (const prenotazione of prenotazioniDaAnnullare) {
-          await db.prenotazione.update({
-            where: { id: prenotazione.id },
-            data: { stato: "NO_SHOW" },
-          });
-
-          // Libera il posto
-          await db.posto.update({
-            where: { id: prenotazione.postoId },
-            data: { stato: "DISPONIBILE" },
-          });
-
-          // Log no-show
-          //
-          // INTEGRITA' DATI (difetto logevento-prenotazione-non-collegato):
-          // `prenotazioneId` va scritto anche come colonna relazionale
-          // (LogEvento.prenotazioneId), non solo dentro `dettagli`. E'
-          // quella colonna che GET /api/prenotazioni/[id] legge per
-          // popolare la cronologia mostrata allo studente (`eventi`): prima
-          // restava sempre NULL, quindi un annullamento per mancato
-          // check-in — pur avvenuto e notificato — risultava invisibile
-          // nello storico della prenotazione.
-          await db.logEvento.create({
-            data: {
-              tipo: "NO_SHOW",
-              userId: prenotazione.userId,
-              prenotazioneId: prenotazione.id,
-              dettagli: {
-                prenotazioneId: prenotazione.id,
-                posto: `${prenotazione.posto.sala.nome} - ${prenotazione.posto.numero}`,
-                automatico: true,
-              },
-            },
-          });
-
-          // Notifica utente
-          await db.notifica.create({
-            data: {
-              userId: prenotazione.userId,
-              tipo: "SISTEMA",
-              titolo: "Prenotazione annullata",
-              messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} è stata annullata per mancato check-in.`,
-            },
-          });
-
-          aggiornate.push(prenotazione);
-        }
+        // BUG STORICO CORRETTO QUI (stesso difetto di fuso/tipo gia' risolto
+        // in `releaseNoShowReservations`, verificato dal vivo): questa azione
+        // ricalcolava per conto proprio la soglia "oltre 15 minuti fa" con
+        // `oraInizio: { lt: new Date(oraCorrente.getTime() - 15*60*1000) }` —
+        // un confronto fra una colonna `@db.Time` (solo orario, nessuna data)
+        // e un `Date` ASSOLUTO: Postgres tronca il secondo operando alla sola
+        // parte oraria, quindi a inizio giornata la soglia valeva "23:50" del
+        // giorno precedente e la condizione risultava vera per quasi ogni
+        // prenotazione. La `data: oggi` di contorno usava inoltre la
+        // mezzanotte nel fuso del SERVER (UTC), non quello della biblioteca
+        // (Europe/Rome) — stesso difetto corretto per lo scanner qui sopra in
+        // `src/app/api/admin/scanner/validate/route.ts`.
+        //
+        // La correzione non riscrive la query: DELEGA alla STESSA funzione di
+        // dominio gia' corretta e gia' testata che il cron invoca ogni 5
+        // minuti (`releaseNoShowReservations`, src/lib/automation-service.ts)
+        // — "idealmente la stessa funzione", non una sua copia. In piu' porta
+        // gratis due cose che la vecchia query qui non faceva: rispetta la
+        // finestra di conferma di una promozione in corso (non annulla per
+        // errore chi e' appena stato promosso dalla lista d'attesa) e innesca
+        // la promozione del primo in coda sul posto appena liberato.
+        const esito = await releaseNoShowReservations();
 
         risultato = {
           success: true,
-          message: `Annullate ${aggiornate.length} prenotazioni senza check-in`,
-          count: aggiornate.length,
+          message: `Annullate ${esito.released} prenotazioni senza check-in`,
+          count: esito.released,
         };
         break;
       }

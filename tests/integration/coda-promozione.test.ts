@@ -429,7 +429,7 @@ describe(
         where: { userId: USER_B, tipo: "CODA_PROMOZIONE" },
       });
       expect(notifB.length).toBeGreaterThanOrEqual(1);
-      expect(notifB[0].actionUrl).toBe(`/prenotazioni/${nuovaPrenId}`);
+      expect(notifB[0].actionUrl).toBe(`/prenotazioni?evidenzia=${nuovaPrenId}`);
 
       // 4e) LogEvento CODA_PROMOZIONE (targetUserId = B, prenotazioneId = nuova)…
       const logPromozione = await prisma.logEvento.findMany({
