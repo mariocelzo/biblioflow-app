@@ -38,6 +38,17 @@ import {
   orarioInMinuti,
   type TipoDurata,
 } from "@/lib/prenotazioni-regole";
+// Domenica/festività/orizzonte 30gg: STESSO modulo usato lato server
+// (validaIntervallo in src/lib/prenotazioni-service.ts). DIFETTO VISTO IN
+// COLLAUDO (no-limite-server-domenica-festivi-30gg): prima queste regole
+// erano scritte SOLO qui (FESTIVITA_2026/isGiornoChiuso/getDataMassima
+// locali), mai verificate dal server — chiamando l'API direttamente si
+// aggiravano. Importandole da qui invece di riscriverle, wizard e server
+// non possono piu' divergere.
+import {
+  ORIZZONTE_MASSIMO_GIORNI,
+  isGiornoChiusoBiblioteca,
+} from "@/lib/calendario-biblioteca";
 import {
   Plug,
   Accessibility,
@@ -173,13 +184,6 @@ function salaCoprente(sala: Sala, oraInizio: string, oraFine: string): boolean {
   );
 }
 
-// Festività italiane 2026
-const FESTIVITA_2026 = [
-  "2026-01-01", "2026-01-06", "2026-04-05", "2026-04-06", "2026-04-25",
-  "2026-05-01", "2026-06-02", "2026-08-15", "2026-11-01", "2026-12-08",
-  "2026-12-25", "2026-12-26",
-];
-
 // Cache disponibilità per data
 interface DisponibilitaGiorno {
   data: string;
@@ -187,12 +191,18 @@ interface DisponibilitaGiorno {
   postiTotali: number;
 }
 
+/**
+ * Wrapper client su `isGiornoChiusoBiblioteca` (calendario-biblioteca.ts):
+ * quella funzione lavora su un `Date` di calendario (mezzanotte UTC), qui
+ * riceviamo invece la stringa "YYYY-MM-DD" dell'<input type="date">. La
+ * costruiamo esplicitamente come UTC (`T00:00:00Z`) invece di lasciare che
+ * `new Date(data)` la interpreti nel fuso del browser: per un utente con
+ * fuso negativo (es. le Americhe) `new Date("2026-09-27")` seguito da
+ * `.getDay()` (locale, non UTC) poteva far scivolare la data al giorno
+ * prima — qui il giorno della settimana non dipende dal fuso di chi guarda.
+ */
 function isGiornoChiuso(data: string): { chiuso: boolean; motivo: string } {
-  const date = new Date(data);
-  const dayOfWeek = date.getDay();
-  if (dayOfWeek === 0) return { chiuso: true, motivo: "La biblioteca è chiusa la domenica" };
-  if (FESTIVITA_2026.includes(data)) return { chiuso: true, motivo: "La biblioteca è chiusa per festività" };
-  return { chiuso: false, motivo: "" };
+  return isGiornoChiusoBiblioteca(new Date(`${data}T00:00:00Z`));
 }
 
 /**
@@ -251,7 +261,9 @@ function getDataMinima(): string {
 
 function getDataMassima(): string {
   const max = new Date();
-  max.setDate(max.getDate() + 30);
+  // ORIZZONTE_MASSIMO_GIORNI (calendario-biblioteca.ts): stessa costante
+  // usata lato server in validaIntervallo, non piu' un "30" scritto a mano.
+  max.setDate(max.getDate() + ORIZZONTE_MASSIMO_GIORNI);
   return max.toISOString().split("T")[0];
 }
 

@@ -110,6 +110,16 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
           oraFine: orario(fine),
           prenotazioniEsistenti,
           prenotazioneIdDaEscludere: prenotazione.id,
+          // DIFETTO VISTO IN COLLAUDO (estendi-blocca-prenotazioni-gia-
+          // iniziate): senza questo flag, ORARIO_NEL_PASSATO scattava per
+          // qualunque prenotazione di oggi il cui orario di inizio fosse
+          // gia' passato — cioe' PROPRIO il caso normale di questo endpoint
+          // (si estende mentre si e' gia' in sala, magari con check-in
+          // fatto). Si opera su uno slot GIA' ESISTENTE, non su una
+          // richiesta nuova dell'utente: stesso motivo per cui
+          // promuoviPrimoInCoda/posizioneInCoda lo impostano gia' (vedi
+          // prenotazioni-service.ts).
+          permettiOrarioPassato: true,
         });
       } catch (error) {
         if (error instanceof PrenotazioneError) disponibile = false;
@@ -196,6 +206,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           oraFine: nuovaOraFine,
           prenotazioniEsistenti,
           prenotazioneIdDaEscludere: prenotazione.id,
+          // Stesso motivo della GET sopra: si estende uno slot GIA'
+          // ESISTENTE (tipicamente gia' iniziato, es. sessione in corso con
+          // check-in fatto), non una richiesta nuova.
+          permettiOrarioPassato: true,
         });
         const nuovaFine = new Date(
           Date.UTC(
