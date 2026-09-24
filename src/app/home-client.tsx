@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { QRCodeCheckIn } from "@/components/qrcode-checkin";
+import { TOLLERANZA_CHECK_IN_MINUTI } from "@/lib/prenotazioni-regole";
 import {
   Calendar,
   BookOpen,
@@ -163,8 +164,12 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
               dataInizio: dataInizio.toISOString(),
               dataFine: dataFine.toISOString(),
               stato: prenotazioneOggi.stato === 'CHECK_IN' ? 'CHECKIN' : 'CONFERMATA',
+              // Stessa tolleranza DOPO l'inizio applicata dal server (vedi
+              // TOLLERANZA_CHECK_IN_MINUTI in src/lib/prenotazioni-regole.ts):
+              // "15" non e' piu' scritto a mano qui, non puo' piu' divergere
+              // dalla finestra reale.
               checkInEntro: prenotazioneOggi.stato === 'CONFERMATA'
-                ? new Date(dataInizio.getTime() + 15 * 60 * 1000).toISOString()
+                ? new Date(dataInizio.getTime() + TOLLERANZA_CHECK_IN_MINUTI * 60 * 1000).toISOString()
                 : undefined
             });
           } else {
