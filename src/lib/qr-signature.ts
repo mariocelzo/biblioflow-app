@@ -75,9 +75,23 @@ export function verifyQRCode(payload: QRPayload, signature: string): boolean {
 }
 
 /**
+ * Durata di validità (in minuti) di un QR di check-in dopo la generazione.
+ *
+ * Esportata (invece di restare un default anonimo dentro `isQRValid`) così
+ * che chi genera il QR (la route `/api/prenotazioni/[id]/qr`, che deve dire
+ * al client QUANDO il QR scadrà per mostrare un countdown) possa riusare lo
+ * STESSO numero con cui lo scanner lo validerà qui sotto, invece di
+ * duplicare "15" in due punti che potrebbero disallinearsi in futuro.
+ */
+export const QR_VALIDITA_MINUTI = 15;
+
+/**
  * Verifica se il QR code è ancora valido (non scaduto)
  */
-export function isQRValid(timestamp: number, validityMinutes: number = 15): boolean {
+export function isQRValid(
+  timestamp: number,
+  validityMinutes: number = QR_VALIDITA_MINUTI,
+): boolean {
   const now = Date.now();
   const elapsed = (now - timestamp) / 1000 / 60; // minuti
   return elapsed <= validityMinutes;
