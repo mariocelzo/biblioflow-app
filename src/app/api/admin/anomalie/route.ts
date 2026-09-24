@@ -273,10 +273,20 @@ export async function POST(request: NextRequest) {
           });
 
           // Log no-show
+          //
+          // INTEGRITA' DATI (difetto logevento-prenotazione-non-collegato):
+          // `prenotazioneId` va scritto anche come colonna relazionale
+          // (LogEvento.prenotazioneId), non solo dentro `dettagli`. E'
+          // quella colonna che GET /api/prenotazioni/[id] legge per
+          // popolare la cronologia mostrata allo studente (`eventi`): prima
+          // restava sempre NULL, quindi un annullamento per mancato
+          // check-in — pur avvenuto e notificato — risultava invisibile
+          // nello storico della prenotazione.
           await db.logEvento.create({
             data: {
               tipo: "NO_SHOW",
               userId: prenotazione.userId,
+              prenotazioneId: prenotazione.id,
               dettagli: {
                 prenotazioneId: prenotazione.id,
                 posto: `${prenotazione.posto.sala.nome} - ${prenotazione.posto.numero}`,

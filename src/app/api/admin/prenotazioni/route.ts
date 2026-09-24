@@ -281,10 +281,19 @@ export async function POST(req: NextRequest) {
           }
 
           // Log evento
+          //
+          // INTEGRITA' DATI (difetto logevento-prenotazione-non-collegato):
+          // `prenotazioneId` va scritto anche come colonna relazionale
+          // (LogEvento.prenotazioneId), non solo dentro `dettagli`. E'
+          // quella colonna che GET /api/prenotazioni/[id] usa per popolare
+          // la cronologia mostrata allo studente (`eventi`): prima restava
+          // sempre NULL e la cancellazione admin era invisibile nello
+          // storico della prenotazione, pur essendo avvenuta e notificata.
           await prisma.logEvento.create({
             data: {
               tipo: "PRENOTAZIONE_CANCELLATA",
               userId: pren.user.id,
+              prenotazioneId: pren.id,
               dettagli: {
                 prenotazioneId: pren.id,
                 postoId: pren.postoId,
@@ -379,11 +388,13 @@ export async function POST(req: NextRequest) {
           });
         }
 
-        // Log evento
+        // Log evento (vedi nota su prenotazioneId nel case ANNULLA_MULTIPLE
+        // qui sopra: stesso difetto, stessa correzione).
         await prisma.logEvento.create({
           data: {
             tipo: "PRENOTAZIONE_CANCELLATA",
             userId: prenotazione.user.id,
+            prenotazioneId: prenotazione.id,
             dettagli: {
               prenotazioneId: prenotazione.id,
               postoId: prenotazione.postoId,
@@ -464,11 +475,13 @@ export async function POST(req: NextRequest) {
           data: { stato: "OCCUPATO" }
         });
 
-        // Log evento
+        // Log evento (vedi nota su prenotazioneId nel case ANNULLA_MULTIPLE
+        // piu' sopra: stesso difetto, stessa correzione).
         await prisma.logEvento.create({
           data: {
             tipo: "CHECK_IN",
             userId: prenotazione.user.id,
+            prenotazioneId: prenotazione.id,
             dettagli: {
               prenotazioneId: prenotazione.id,
               postoId: prenotazione.postoId,
@@ -594,18 +607,73 @@ export async function POST(req: NextRequest) {
           updateData.postoId = nuoviDati.postoId;
         }
 
-        // Update prenotazione
-        await prisma.prenotazione.update({
-          where: { id: prenotazioneId },
-          data: updateData
-        });
+        // INTEGRITA' DATI (difetto modifica-posto-non-aggiorna-stato-posti):
+        // se la prenotazione e' gia' in CHECK_IN, il posto FISICO occupato
+        // deve cambiare insieme al posto assegnato. PRIMA veniva aggiornato
+        // solo `Prenotazione.postoId`: il vecchio posto restava OCCUPATO per
+        // sempre (nessuna prenotazione lo deteneva piu', bloccato finche'
+        // qualcuno non se ne accorgeva a mano) e il nuovo restava
+        // DISPONIBILE nonostante uno studente vi fosse "seduto" secondo il
+        // sistema. Stessa logica gia' applicata da ANNULLA_SINGOLA/MULTIPLE
+        // (PR #76) per liberare il posto in uscita da CHECK_IN; qui in piu'
+        // si occupa anche il nuovo. Le tre scritture (prenotazione + due
+        // posti) vanno in un'unica transazione: a meta' non deve poter
+        // restare uno stato inconsistente (es. nuovo posto occupato ma
+        // vecchio mai liberato).
+        const cambioPostoConCheckIn =
+          typeof updateData.postoId === "string" &&
+          updateData.postoId !== prenotazione.postoId &&
+          prenotazione.stato === "CHECK_IN";
+
+        if (cambioPostoConCheckIn) {
+          await prisma.$transaction([
+            prisma.prenotazione.update({
+              where: { id: prenotazioneId },
+              data: updateData,
+            }),
+            prisma.posto.update({
+              where: { id: prenotazione.postoId },
+              data: { stato: "DISPONIBILE" },
+            }),
+            prisma.posto.update({
+              where: { id: updateData.postoId },
+              data: { stato: "OCCUPATO" },
+            }),
+          ]);
+        } else {
+          // Update prenotazione
+          await prisma.prenotazione.update({
+            where: { id: prenotazioneId },
+            data: updateData
+          });
+        }
 
         // Log evento
+        //
+        // INTEGRITA' DATI (difetto logevento-prenotazione-non-collegato):
+        // - `prenotazioneId` va scritto anche come colonna relazionale
+        //   (LogEvento.prenotazioneId), non solo dentro `dettagli`: e'
+        //   quella colonna che GET /api/prenotazioni/[id] legge per
+        //   popolare la cronologia mostrata allo studente. Prima restava
+        //   sempre NULL.
+        // - `tipo` non puo' restare PRENOTAZIONE_CANCELLATA: questa e' una
+        //   MODIFICA, non una cancellazione, e registrarla cosi' falsifica
+        //   lo storico. Non esiste (ancora) un valore dedicato tipo
+        //   PRENOTAZIONE_MODIFICATA nell'enum TipoEvento: aggiungerlo
+        //   richiederebbe una migrazione su prisma/schema.prisma, file
+        //   fuori dal perimetro di questa correzione (vedi report). Si usa
+        //   OVERRIDE_BIBLIOTECARIO, gia' presente nell'enum e gia' usato
+        //   altrove in questo stesso file per un'azione dello staff su una
+        //   prenotazione: non descrive la modifica con precisione, ma non e'
+        //   fuorviante come "cancellata" per un'azione che non cancella
+        //   nulla.
         await prisma.logEvento.create({
           data: {
-            tipo: "PRENOTAZIONE_CANCELLATA",
+            tipo: "OVERRIDE_BIBLIOTECARIO",
             userId: prenotazione.user.id,
+            prenotazioneId: prenotazione.id,
             dettagli: {
+              azione: "MODIFICA_PRENOTAZIONE",
               prenotazioneId: prenotazione.id,
               cambiamenti: nuoviDati,
               modificatoDa: session.user.email
