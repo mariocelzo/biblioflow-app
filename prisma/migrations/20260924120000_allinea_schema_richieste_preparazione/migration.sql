@@ -75,3 +75,13 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
+
+-- Row Level Security, come su tutte le altre tabelle `public`.
+-- PERCHE' QUI: la migrazione 20260902113000_enable_rls_public_tables abilita la
+-- RLS iterando sulle tabelle ESISTENTI in quel momento. Su un database creato da
+-- zero questa tabella nasce DOPO, quindi restava l'unica senza RLS (verificato:
+-- `relrowsecurity = false`). Su Supabase, senza RLS, PostgREST esporrebbe la
+-- tabella a chiunque abbia la chiave anon. ENABLE e' idempotente: in produzione,
+-- dove la tabella esiste gia' con la RLS attiva, non cambia nulla. Niente FORCE:
+-- Prisma accede come proprietario e deve continuare a bypassarla.
+ALTER TABLE "RichiestaPreparazione" ENABLE ROW LEVEL SECURITY;
