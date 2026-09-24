@@ -94,21 +94,19 @@ jobs:
     # job supera comunque questo limite qualcosa si è bloccato a un livello
     # più esterno (rete, runner) e va fatto fallire in fretta.
     timeout-minutes: 2
+    # Il secret passa da una variabile d'ambiente del job e viene controllato
+    # nello shell: GitHub NON permette di usare il contesto `secrets` dentro una
+    # condizione `if:` (il file verrebbe rifiutato e lo scheduler non partirebbe
+    # mai, senza alcun errore visibile nelle esecuzioni).
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
     steps:
-      - name: Verifica che CRON_SECRET sia configurato
-        # Fail-fast ESPLICITO invece di lasciare che curl riceva un 401 "muto":
-        # un secret mancante è un errore di CONFIGURAZIONE del repository
-        # (nessuno lo ha ancora impostato), non un problema del chiamante —
-        # merita un messaggio che lo dica chiaramente nei log di Actions.
-        if: ${{ secrets.CRON_SECRET == '' }}
-        run: |
-          echo "::error::CRON_SECRET non configurato nei secret del repository. Impostalo con: gh secret set CRON_SECRET (stesso valore della variabile d'ambiente CRON_SECRET su Vercel Production)."
-          exit 1
-
       - name: Chiama l'endpoint delle automazioni
-        env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET non configurato nei secret del repository. Impostalo con: gh secret set CRON_SECRET (stesso valore della variabile d'ambiente CRON_SECRET su Vercel Production)."
+            exit 1
+          fi
           curl --request GET \
             --silent --show-error \
             --fail-with-body \
