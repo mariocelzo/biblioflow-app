@@ -5,6 +5,12 @@ import {
   assertTestDatabaseUrl,
   DEFAULT_TEST_DATABASE_URL,
 } from "../fixtures/database";
+import { giornoApertura } from "../fixtures/calendario";
+
+// Data valida per le regole di calendario del server (niente domeniche,
+// festivi o date oltre i 30 giorni): una data fissa lontana come la
+// precedente "2031-03-10" viene ora rifiutata con DATA_TROPPO_LONTANA.
+const GIORNO = giornoApertura(2);
 
 const mocks = vi.hoisted(() => {
   class MockAuthError extends Error {
@@ -54,7 +60,7 @@ function request() {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       postoId,
-      data: "2031-03-10",
+      data: GIORNO.iso,
       oraInizio: "09:00",
       oraFine: "11:00",
     }),
@@ -81,7 +87,7 @@ async function eseguiRound(numeroRichieste: number) {
   const confermate = await prisma.prenotazione.findMany({
     where: {
       postoId,
-      data: new Date("2031-03-10T00:00:00.000Z"),
+      data: GIORNO.data,
       stato: "CONFERMATA",
     },
   });
