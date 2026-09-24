@@ -108,6 +108,135 @@ export function minutiCorrentiBiblioteca(adesso: Date): number {
 }
 
 /**
+ * Minuti che la finestra di check-in resta aperta PRIMA dell'orario di
+ * inizio dichiarato. Costante unica condivisa dai tre percorsi che possono
+ * eseguire un check-in (POST /api/prenotazioni/[id]/check-in, PATCH
+ * /api/prenotazioni/[id] azione "check-in", e lo scanner bibliotecario in
+ * /api/admin/scanner/validate): prima ciascuno ricalcolava la finestra per
+ * conto proprio, con "15" scritto a mano in tre punti diversi e, in due casi
+ * su tre, con un bug di fuso orario che la rendeva inapplicabile (vedi
+ * `valutaFinestraCheckIn` piu' sotto).
+ */
+export const ANTICIPO_CHECK_IN_MINUTI = 15;
+
+/**
+ * Minuti di tolleranza DOPO l'inizio concessi dallo SCANNER del
+ * bibliotecario prima di considerare il check-in "scaduto" e annullare la
+ * prenotazione come NO_SHOW. Testo promesso in
+ * src/app/admin/scanner/page.tsx: "Il check-in può essere effettuato da 15
+ * min prima fino a 15 min dopo l'inizio". Il check-in AUTONOMO dello
+ * studente (POST/PATCH) non concede questa tolleranza: si chiude esattamente
+ * all'orario di inizio (tolleranza 0, il valore di default di
+ * `valutaFinestraCheckIn`) — lo studente resta CONFERMATA fino al passaggio
+ * del cron di rilascio no-show, che applica la propria soglia sul database
+ * (vedi releaseNoShowReservations in src/lib/automation-service.ts).
+ */
+export const TOLLERANZA_CHECK_IN_SCANNER_MINUTI = 15;
+
+/** Esito di `valutaFinestraCheckIn`. */
+export type EsitoFinestraCheckIn =
+  | { consentito: true }
+  | { consentito: false; motivo: "troppo_presto"; minutiMancanti?: number }
+  | { consentito: false; motivo: "scaduto"; minutiRitardo?: number };
+
+/**
+ * Stabilisce se il check-in e' consentito ORA per una prenotazione di un
+ * certo giorno/ora, confrontando SEMPRE nel fuso della biblioteca
+ * (Europe/Rome) — mai sui millisecondi assoluti.
+ *
+ * PERCHE' QUESTA FUNZIONE ESISTE (due difetti verificati dal vivo, sempre
+ * sulla stessa idea sbagliata: trattare le cifre Roma di `oraInizio` come se
+ * fossero gia' UTC):
+ *  - ricostruire un istante assoluto con `Date.UTC(anno, mese, giorno,
+ *    oraInizio.getUTCHours(), oraInizio.getUTCMinutes())` e confrontarlo con
+ *    `new Date()` non applica MAI l'offset Europe/Rome (+1h/+2h secondo
+ *    l'ora legale): la finestra risultava sempre "troppo presto" (check-in
+ *    studente, mai apribile nel momento reale giusto);
+ *  - ricostruirlo interpolando l'oggetto Date in una stringa
+ *    (`` `1970-01-01T${oraInizio}` ``) e riparsandolo con `new Date(...)`
+ *    produce Invalid Date (il template literal invoca `Date.prototype
+ *    .toString()`, non serializza l'orario): NaN confrontato con qualunque
+ *    soglia vale sempre `false`, quindi la finestra non veniva MAI applicata
+ *    (scanner bibliotecario: check-in riuscito a qualunque ora).
+ *
+ * La correzione riusa `dataCorrenteBiblioteca`/`minutiCorrentiBiblioteca`
+ * (gia' corretti e gia' usati da `validaIntervallo` per la creazione): si
+ * confronta il GIORNO CIVILE di Roma di `dataPrenotazione` con quello di
+ * "adesso" e - solo se coincidono - i MINUTI dalla mezzanotte di Roma. Mai
+ * un istante assoluto ricostruito a mano: e' esattamente li' che si
+ * nascondeva il bug.
+ *
+ * @param dataPrenotazione colonna `data` (@db.Date, mezzanotte UTC = giorno
+ *        civile della biblioteca in cui e' la prenotazione).
+ * @param oraInizio colonna `oraInizio` (@db.Time): le cifre UTC lette da
+ *        Prisma SONO le cifre dell'orario di Roma (vedi src/lib/tempo-db.ts).
+ * @param adesso istante reale corrente — SEMPRE l'orologio del server, mai
+ *        un valore fornito dal client (hardening M-2, audit 2026-09-04).
+ * @param tolleranzaDopoMinuti minuti di grazia DOPO l'inizio prima che la
+ *        finestra sia "scaduta". Default 0 (check-in autonomo: chiude
+ *        esattamente all'inizio). Lo scanner passa
+ *        `TOLLERANZA_CHECK_IN_SCANNER_MINUTI`.
+ */
+export function valutaFinestraCheckIn(
+  dataPrenotazione: Date,
+  oraInizio: Date,
+  adesso: Date,
+  tolleranzaDopoMinuti = 0,
+): EsitoFinestraCheckIn {
+  const oggiBiblioteca = dataCorrenteBiblioteca(adesso);
+  const minutiAttuali = minutiCorrentiBiblioteca(adesso);
+  const oraInizioMinuti =
+    oraInizio.getUTCHours() * 60 + oraInizio.getUTCMinutes();
+
+  // Giorno diverso da oggi (fuso Roma): il verdetto e' deducibile dal solo
+  // ordine dei giorni civili, senza bisogno di un conteggio esatto dei
+  // minuti (che, a distanza di piu' giorni, non sarebbe comunque un dato
+  // utile da mostrare all'utente).
+  if (dataPrenotazione.getTime() > oggiBiblioteca.getTime()) {
+    return { consentito: false, motivo: "troppo_presto" };
+  }
+  if (dataPrenotazione.getTime() < oggiBiblioteca.getTime()) {
+    return { consentito: false, motivo: "scaduto" };
+  }
+
+  const aperturaMinuti = oraInizioMinuti - ANTICIPO_CHECK_IN_MINUTI;
+  const chiusuraMinuti = oraInizioMinuti + tolleranzaDopoMinuti;
+
+  if (minutiAttuali < aperturaMinuti) {
+    return {
+      consentito: false,
+      motivo: "troppo_presto",
+      minutiMancanti: aperturaMinuti - minutiAttuali,
+    };
+  }
+  if (minutiAttuali > chiusuraMinuti) {
+    return {
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: minutiAttuali - oraInizioMinuti,
+    };
+  }
+  return { consentito: true };
+}
+
+/**
+ * Inverso "parziale" di `minutiCorrentiBiblioteca`: minuti dalla mezzanotte
+ * -> Date sulla data fittizia 1970-01-01 UTC, lo stesso formato con cui
+ * Prisma legge/scrive le colonne `@db.Time` (vedi src/lib/tempo-db.ts).
+ * Normalizza modulo 1440 (un giorno) cosi' un valore fuori range (es.
+ * "minuti correnti di Roma + 20" oltre mezzanotte) non genera un'ora > 23,
+ * che romperebbe la colonna @db.Time. Serve a costruire soglie orarie (es.
+ * "adesso + 15 minuti, in orario di Roma") da confrontare con
+ * `oraInizio`/`oraFine` in una query Prisma.
+ */
+export function oraDbDaMinuti(minuti: number): Date {
+  const minutiNormalizzati = ((minuti % 1440) + 1440) % 1440;
+  return new Date(
+    Date.UTC(1970, 0, 1, Math.floor(minutiNormalizzati / 60), minutiNormalizzati % 60),
+  );
+}
+
+/**
  * Le 4 durate proponibili nel wizard di `/prenota` (step 2). Spostate qui da
  * `src/app/prenota/page.tsx` (BUG VISTO IN PRODUZIONE dopo la #73): quella
  * funzione generava opzioni sull'inviluppo apertura/chiusura di TUTTE le sale

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Test unitari BIB-40 / CA-04 — innesco della promozione dalla lista d'attesa
@@ -40,6 +40,7 @@ vi.mock("@/lib/prisma", () => {
     },
     notifica: {
       create: vi.fn(),
+      findMany: vi.fn(),
     },
     logEvento: {
       create: vi.fn(),
@@ -62,6 +63,11 @@ vi.mock("@/lib/prenotazioni-service", () => ({
 import { prisma } from "@/lib/prisma";
 import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
 import {
+  dataCorrenteBiblioteca,
+  minutiCorrentiBiblioteca,
+  oraDbDaMinuti,
+} from "@/lib/prenotazioni-regole";
+import {
   FINESTRA_CONFERMA_PROMOZIONE_MINUTI,
   notificaEventoCoda,
   notificaScadenzaCoda,
@@ -69,6 +75,7 @@ import {
   releaseNoShowReservations,
   runAllAutomations,
   scadiPromozioniNonConfermate,
+  sendCheckInReminders,
 } from "@/lib/automation-service";
 
 // Spie tipizzate per configurare i valori di ritorno e leggere le chiamate.
@@ -83,6 +90,7 @@ const listaAttesaFindManyMock = vi.mocked(prisma.listaAttesa.findMany);
 const listaAttesaUpdateManyMock = vi.mocked(prisma.listaAttesa.updateMany);
 const postoUpdateMock = vi.mocked(prisma.posto.update);
 const notificaCreateMock = vi.mocked(prisma.notifica.create);
+const notificaFindManyMock = vi.mocked(prisma.notifica.findMany);
 const logEventoCreateMock = vi.mocked(prisma.logEvento.create);
 const logEventoFindFirstMock = vi.mocked(prisma.logEvento.findFirst);
 const logEventoFindManyMock = vi.mocked(prisma.logEvento.findMany);
@@ -153,6 +161,7 @@ beforeEach(() => {
   prenotazioneUpdateMock.mockResolvedValue({} as never);
   postoUpdateMock.mockResolvedValue({} as never);
   notificaCreateMock.mockResolvedValue({} as never);
+  notificaFindManyMock.mockResolvedValue([] as never);
   logEventoCreateMock.mockResolvedValue({} as never);
   // BIB-47: di default nessuna prenotazione è protetta da un CODA_PROMOZIONE recente.
   logEventoFindManyMock.mockResolvedValue([] as never);
@@ -1040,5 +1049,130 @@ describe("scadiPromozioniNonConfermate — finestra di conferma (BIB-44 / CA-04)
       scadute: 0,
       promozioniInnescate: 0,
     });
+  });
+});
+
+/**
+ * Test unitari — `sendCheckInReminders` (difetti "reminder-fuso-orario-
+ * messaggio-falso", "reminder-deduplicazione-per-utente-non-per-
+ * prenotazione", "link-404-promemoria-checkin").
+ *
+ * Regola del progetto per i test sul tempo: gira con `process.env.TZ = "UTC"`
+ * (come il server su Vercel) e con un "adesso" iniettato tramite i fake
+ * timers di vitest — mai l'ora legale della macchina che esegue il test.
+ */
+describe("sendCheckInReminders — finestra oraria, deduplicazione, link (BUG storici corretti)", () => {
+  const TZ_ORIGINALE = process.env.TZ;
+
+  beforeEach(() => {
+    process.env.TZ = "UTC";
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    process.env.TZ = TZ_ORIGINALE;
+  });
+
+  /** Prenotazione CONFERMATA candidata al reminder, con la forma restituita da findMany (include user+posto+sala). */
+  function prenotazioneReminder(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "pren-reminder-1",
+      userId: "utente-1",
+      data: dataDb,
+      oraInizio: oraInizioDb,
+      oraFine: oraFineDb,
+      user: { id: "utente-1" },
+      posto: {
+        id: "posto-1",
+        numero: "A1",
+        sala: { id: "sala-1", nome: "Sala Studio" },
+      },
+      ...overrides,
+    };
+  }
+
+  it("[TC-REM-001] BUG STORICO CORRETTO: la finestra 15-20 minuti e' calcolata nel fuso di Roma (CEST, +2h), non sull'istante UTC reale", async () => {
+    // "Adesso" = 08:00 UTC del 15 giugno 2030 (CEST) = 10:00 di Roma.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const now = new Date("2030-06-15T08:00:00.000Z");
+    vi.setSystemTime(now);
+
+    findManyMock.mockResolvedValue([] as never);
+
+    await sendCheckInReminders();
+
+    // La query deve cercare oraInizio fra "adesso+15" e "adesso+20" IN ORARIO
+    // DI ROMA (10:15-10:20), non fra le cifre dell'istante UTC reale
+    // (08:15-08:20, che sarebbe il difetto storico: la finestra selezionata
+    // sarebbe stata quella di 2 ore prima in termini di orologio di Roma).
+    const minutiRoma = minutiCorrentiBiblioteca(now);
+    expect(findManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          data: dataCorrenteBiblioteca(now),
+          oraInizio: {
+            gte: oraDbDaMinuti(minutiRoma + 15),
+            lte: oraDbDaMinuti(minutiRoma + 20),
+          },
+        }),
+      }),
+    );
+    // Sanity: con "adesso" a giugno (CEST) la finestra attesa e' 10:15-10:20.
+    expect(oraDbDaMinuti(minutiRoma + 15)).toEqual(new Date(Date.UTC(1970, 0, 1, 10, 15)));
+    expect(oraDbDaMinuti(minutiRoma + 20)).toEqual(new Date(Date.UTC(1970, 0, 1, 10, 20)));
+  });
+
+  it("[TC-REM-002] BUG STORICO CORRETTO: deduplica per PRENOTAZIONE, non per utente — un reminder gia' inviato oggi per un'altra prenotazione dello stesso studente non blocca questa", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2030-06-15T08:00:00.000Z"));
+
+    const prenA = prenotazioneReminder({ id: "pren-a", userId: "utente-1" });
+    const prenB = prenotazioneReminder({ id: "pren-b", userId: "utente-1" });
+    findManyMock.mockResolvedValue([prenA, prenB] as never);
+    // Lo studente ha GIA' ricevuto oggi il reminder per pren-a (actionUrl
+    // esatto), ma NON per pren-b: con il difetto storico (dedup per utente,
+    // `actionUrl: { contains: 'prenotazioni' }`) nessuna delle due sarebbe
+    // stata inviata.
+    notificaFindManyMock.mockResolvedValue([
+      { actionUrl: "/prenotazioni?checkIn=pren-a" },
+    ] as never);
+
+    const risultato = await sendCheckInReminders();
+
+    expect(risultato.sent).toBe(1);
+    expect(notificaCreateMock).toHaveBeenCalledTimes(1);
+    expect(notificaCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ userId: "utente-1", actionUrl: "/prenotazioni?checkIn=pren-b" }),
+      }),
+    );
+  });
+
+  it("[TC-REM-003] BUG STORICO CORRETTO: il link del promemoria punta a una pagina esistente (non piu' 404 su /prenotazioni/:id)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2030-06-15T08:00:00.000Z"));
+
+    findManyMock.mockResolvedValue([prenotazioneReminder({ id: "pren-link" })] as never);
+
+    await sendCheckInReminders();
+
+    const arg = notificaCreateMock.mock.calls[0][0] as { data: { actionUrl: string } };
+    // src/app/prenotazioni/ NON ha una route [id]/page.tsx: solo la pagina
+    // lista (page.tsx) esiste davvero — vedi il commento su
+    // `actionUrlReminderCheckIn` in automation-service.ts.
+    expect(arg.data.actionUrl).toBe("/prenotazioni?checkIn=pren-link");
+    expect(arg.data.actionUrl.startsWith("/prenotazioni/")).toBe(false);
+  });
+
+  it("[TC-REM-004] nessuna prenotazione candidata: nessuna query di deduplicazione, nessun invio", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2030-06-15T08:00:00.000Z"));
+    findManyMock.mockResolvedValue([] as never);
+
+    const risultato = await sendCheckInReminders();
+
+    expect(risultato).toEqual({ sent: 0, message: "0 reminder check-in inviati" });
+    expect(notificaFindManyMock).not.toHaveBeenCalled();
+    expect(notificaCreateMock).not.toHaveBeenCalled();
   });
 });

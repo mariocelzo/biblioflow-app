@@ -17,6 +17,11 @@ import { randomUUID } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import { formattaOraDb, formattaDataDb } from '@/lib/tempo-db';
 import {
+  dataCorrenteBiblioteca,
+  minutiCorrentiBiblioteca,
+  oraDbDaMinuti,
+} from '@/lib/prenotazioni-regole';
+import {
   Prisma,
   StatoListaAttesa,
   StatoPrenotazione,
@@ -52,34 +57,38 @@ function attoreAutomazione() {
  */
 export async function sendCheckInReminders() {
   const now = new Date();
-  const in15Minutes = new Date(now.getTime() + 15 * 60 * 1000);
-  const in20Minutes = new Date(now.getTime() + 20 * 60 * 1000);
 
-  // Trova prenotazioni confermate che iniziano tra 15-20 minuti
-  const prenotazioni = await prisma.prenotazione.findMany({
+  // BUG STORICO CORRETTO QUI (verificato dal vivo: promemoria inviato per una
+  // prenotazione gia' iniziata da quasi 2 ore, testo "tra 15 minuti" falso).
+  // `oraInizio` (colonna @db.Time) salva le CIFRE dell'orario di Roma (vedi
+  // src/lib/tempo-db.ts), ma `in15Minutes`/`in20Minutes` erano Date costruiti
+  // sull'istante UTC REALE (`now.getTime() + ...`): per una colonna TIME,
+  // Prisma li serializza come sola porzione oraria in UTC, quindi la finestra
+  // selezionata corrispondeva alle cifre Roma comprese fra (ora_UTC_reale+15)
+  // e (ora_UTC_reale+20) — senza applicare l'offset Europe/Rome, le stesse
+  // cifre che in orario REALE di Roma sono gia' passate da ~2 ore. Si calcola
+  // invece "adesso + 15/+20 minuti" nel fuso della biblioteca (stesso
+  // approccio di `valutaFinestraCheckIn`) e si converte in cifre orarie DB
+  // con `oraDbDaMinuti`.
+  const minutiAttualiRoma = minutiCorrentiBiblioteca(now);
+  const oraMinimaInizio = oraDbDaMinuti(minutiAttualiRoma + 15);
+  const oraMassimaInizio = oraDbDaMinuti(minutiAttualiRoma + 20);
+  // "Oggi" nel fuso della biblioteca, non nel fuso (potenzialmente diverso)
+  // del processo Node: coerente con `oraMinimaInizio`/`oraMassimaInizio` qui
+  // sopra, entrambi calcolati in Europe/Rome.
+  const oggiBiblioteca = dataCorrenteBiblioteca(now);
+
+  // Trova prenotazioni confermate che iniziano tra 15-20 minuti (fuso Roma).
+  // NOTA: la deduplicazione "una notifica al giorno" NON si fa piu' qui nel
+  // `where` (vedi sotto il motivo), quindi questa query seleziona i
+  // CANDIDATI, non ancora il risultato finale.
+  const candidati = await prisma.prenotazione.findMany({
     where: {
       stato: StatoPrenotazione.CONFERMATA,
-      data: {
-        gte: new Date(now.setHours(0, 0, 0, 0)),
-        lte: new Date(now.setHours(23, 59, 59, 999)),
-      },
+      data: oggiBiblioteca,
       oraInizio: {
-        gte: in15Minutes,
-        lte: in20Minutes,
-      },
-      // Solo se non ha già una notifica di reminder oggi
-      user: {
-        notifiche: {
-          none: {
-            tipo: TipoNotifica.CHECK_IN_REMINDER,
-            createdAt: {
-              gte: new Date(now.setHours(0, 0, 0, 0)),
-            },
-            actionUrl: {
-              contains: 'prenotazioni',
-            },
-          },
-        },
+        gte: oraMinimaInizio,
+        lte: oraMassimaInizio,
       },
     },
     include: {
@@ -91,6 +100,38 @@ export async function sendCheckInReminders() {
       },
     },
   });
+
+  if (candidati.length === 0) {
+    return { sent: 0, message: '0 reminder check-in inviati' };
+  }
+
+  // BUG STORICO CORRETTO QUI (deduplicazione per UTENTE invece che per
+  // PRENOTAZIONE, verificato dal vivo): il vecchio filtro Prisma
+  // `user.notifiche.none({ actionUrl: { contains: 'prenotazioni' } })` non
+  // puo' riferirsi alla RIGA che si sta filtrando (Prisma non supporta un
+  // confronto fra colonne della stessa query in un `where` annidato), quindi
+  // controllava se l'utente avesse GIA' ricevuto un reminder oggi per
+  // QUALUNQUE prenotazione: con una sola notifica preesistente, nessuna
+  // nuova prenotazione dello stesso studente riceveva piu' il promemoria
+  // quel giorno. Si risolve con una query separata sulle notifiche GIA'
+  // inviate oggi per i soli `actionUrl` dei candidati di questo giro, e si
+  // filtra in JS — un confronto ESATTO per prenotazione, non un `contains`
+  // generico sull'intero utente.
+  const inizioOggi = new Date(now);
+  inizioOggi.setHours(0, 0, 0, 0);
+  const actionUrlCandidati = candidati.map((p) => actionUrlReminderCheckIn(p.id));
+  const giaNotificati = await prisma.notifica.findMany({
+    where: {
+      tipo: TipoNotifica.CHECK_IN_REMINDER,
+      createdAt: { gte: inizioOggi },
+      actionUrl: { in: actionUrlCandidati },
+    },
+    select: { actionUrl: true },
+  });
+  const actionUrlGiaNotificati = new Set(giaNotificati.map((n) => n.actionUrl));
+  const prenotazioni = candidati.filter(
+    (p) => !actionUrlGiaNotificati.has(actionUrlReminderCheckIn(p.id)),
+  );
 
   let count = 0;
 
@@ -105,7 +146,7 @@ export async function sendCheckInReminders() {
         // convertirebbe nel fuso LOCALE del server. Su Vercel oggi funziona
         // solo per coincidenza (il server gira in UTC) - vedi src/lib/tempo-db.ts.
         messaggio: `Non dimenticare di fare check-in per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}. Hai tempo fino alle ${formattaOraDb(prenotazione.oraInizio)}.`,
-        actionUrl: `/prenotazioni/${prenotazione.id}`,
+        actionUrl: actionUrlReminderCheckIn(prenotazione.id),
         actionLabel: 'Fai check-in',
       },
     });
@@ -126,6 +167,28 @@ export async function sendCheckInReminders() {
   }
 
   return { sent: count, message: `${count} reminder check-in inviati` };
+}
+
+/**
+ * `actionUrl` della notifica CHECK_IN_REMINDER di una prenotazione.
+ *
+ * BUG STORICO CORRETTO QUI (link 404, verificato dal vivo): puntava a
+ * `/prenotazioni/${id}`, ma sotto src/app/prenotazioni/ non esiste alcuna
+ * route `[id]/page.tsx` che serva quel percorso (esiste solo la lista
+ * `page.tsx` e `[id]/estendi/page.tsx`) — un click sul pulsante "Fai
+ * check-in" del promemoria dava 404. La pagina LISTA (`/prenotazioni`) e'
+ * gia' dove lo studente fa davvero check-in (vedi src/app/prenotazioni/page.tsx),
+ * quindi si punta li'. Il query param NON e' letto da quella pagina (nessuna
+ * modifica qui, e' fuori dal perimetro di questa correzione) — serve solo a
+ * rendere l'URL UNIVOCO per prenotazione: `Notifica` non ha una colonna
+ * `prenotazioneId` (solo `actionUrl`), quindi la deduplicazione "un
+ * promemoria per PRENOTAZIONE, non per utente" qui sopra dipende da questo
+ * URL essendo diverso da una prenotazione all'altra — un `actionUrl` uguale
+ * per tutte (es. il solo `/prenotazioni`) riproporrebbe lo stesso bug di
+ * deduplicazione per utente che si sta correggendo.
+ */
+function actionUrlReminderCheckIn(prenotazioneId: string): string {
+  return `/prenotazioni?checkIn=${prenotazioneId}`;
 }
 
 /**
@@ -582,7 +645,6 @@ export async function processaCodaPerPosto(
  */
 export async function releaseNoShowReservations() {
   const now = new Date();
-  const minus15Minutes = new Date(now.getTime() - 15 * 60 * 1000);
 
   // 🐞→✅ BUG NOTTURNO (CR-BF-01): `oraInizio` è `@db.Time()`, cioè in Postgres
   // contiene SOLO l'orario del giorno (nessuna componente di data). Filtrare
@@ -605,17 +667,36 @@ export async function releaseNoShowReservations() {
   //   - qui invece il filtro resta a livello di riga in Postgres — selettivo
   //     quanto la query originale — e la logica di combinazione data+ora vive
   //     in UN SOLO posto (il DB), non duplicata tra query e refine JS.
-  // `"data" + "oraInizio"` in Postgres (date + time) produce un
-  // `timestamp without time zone`: lo si confronta con la soglia convertita
-  // esplicitamente `AT TIME ZONE 'UTC'` (stesso schema con cui il resto del
-  // codice scrive `data`/`oraInizio`, sempre in componenti UTC — vedi
-  // `prenotazioni-service.ts`), così il confronto non dipende dal timezone di
-  // sessione configurato sul server Postgres.
+  //
+  // 🐞→✅ BUG FUSO ORARIO CORRETTO QUI (verificato dal vivo: rilascio ritardato
+  // di ~2 ore rispetto ai 15 minuti promessi). La versione precedente
+  // confrontava `"data" + "oraInizio"` (cifre di Roma salvate COSÌ COME SONO,
+  // senza fuso — vedi src/lib/tempo-db.ts) con
+  // `(${minus15Minutes}::timestamptz AT TIME ZONE 'UTC')`: quest'ultima
+  // espressione converte un istante assoluto nella sua rappresentazione
+  // "come se fosse UTC", quindi il confronto restava fra due valori NAIVE
+  // nello stesso fuso sbagliato (nessuno dei due applicava mai l'offset
+  // Europe/Rome). La condizione risultava vera solo quando l'orologio UTC
+  // REALE raggiungeva le stesse cifre di (oraInizio_Roma - 15min) — cioè con
+  // un ritardo di circa offset_UTC(+1h/+2h)+15min sulla soglia reale.
+  //
+  // La correzione fa il percorso opposto: `"data" + "oraInizio"` produce un
+  // `timestamp without time zone` che rappresenta le cifre di Roma; applicare
+  // `AT TIME ZONE 'Europe/Rome'` a un timestamp NAIVE lo INTERPRETA come
+  // orario locale di quel fuso e lo CONVERTE nell'istante assoluto
+  // (`timestamptz`) corrispondente — a quel punto si confronta direttamente
+  // con `now() - interval '15 minutes'`, un istante assoluto vero. La
+  // conversione usa il database tzdata di Postgres (stesso IANA time zone
+  // database di Intl in Node), quindi il cambio dell'ora legale (ultima
+  // domenica di ottobre) è gestito correttamente senza alcun offset fisso
+  // scritto a mano — esattamente come `valutaFinestraCheckIn` in
+  // src/lib/prenotazioni-regole.ts fa lato applicazione con
+  // `Intl.DateTimeFormat`.
   const righeNoShow = await prisma.$queryRaw<{ id: string }[]>`
     SELECT id
     FROM "Prenotazione"
     WHERE stato = 'CONFERMATA'
-      AND ("data" + "oraInizio") <= (${minus15Minutes}::timestamptz AT TIME ZONE 'UTC')
+      AND (("data" + "oraInizio") AT TIME ZONE 'Europe/Rome') <= (${now}::timestamptz - interval '15 minutes')
   `;
 
   // Trova prenotazioni confermate con ora inizio passata da più di 15 minuti

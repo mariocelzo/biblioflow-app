@@ -10,6 +10,15 @@
  * forzare un check-in fuori orario e di falsare l'istante registrato.
  *
  * L'orologio del server è congelato con i fake timers di vitest.
+ *
+ * NOTA SUGLI ORARI: `oraInizio` (fixture qui sotto) salva le CIFRE di Roma
+ * ("09:00"), non un istante UTC (vedi src/lib/prenotazioni-regole.ts,
+ * `valutaFinestraCheckIn`). Il 15 giugno 2030 è in ora legale (CEST, Roma =
+ * UTC+2): la finestra "reale" [08:45, 09:00] di Roma corrisponde quindi a
+ * [06:45, 07:00] UTC — gli orari di sistema usati sotto sono calcolati con
+ * questo offset, MAI con un offset fisso scritto a mano (il test gira con
+ * `process.env.TZ` invariato: l'ambiente qui non ha bisogno di forzare UTC
+ * perché confronta solo istanti assoluti, non formattazioni locali).
  */
 import { NextRequest } from "next/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,9 +101,10 @@ afterEach(() => {
 
 describe("M-2 · il check-in usa il tempo del server, non del client", () => {
   it("[TC-M2-001] timestamp client nel passato (fuori finestra) viene ignorato: check-in OK con checkInAt = ora server", async () => {
-    // Ora server: 08:50Z del 2030-06-15 → dentro la finestra [08:45, 09:00].
+    // Ora server: 06:50Z del 2030-06-15 = 08:50 di Roma (CEST, +2h) → dentro
+    // la finestra reale di Roma [08:45, 09:00].
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2030-06-15T08:50:00.000Z"));
+    vi.setSystemTime(new Date("2030-06-15T06:50:00.000Z"));
 
     // timestamp client palesemente falso: se fosse usato ⇒ "troppo presto" (400).
     const response = await route.POST(
@@ -109,12 +119,12 @@ describe("M-2 · il check-in usa il tempo del server, non del client", () => {
     };
     expect(arg.data.stato).toBe("CHECK_IN");
     expect(arg.data.checkInAt).toBeInstanceOf(Date);
-    expect(arg.data.checkInAt.toISOString()).toBe("2030-06-15T08:50:00.000Z");
+    expect(arg.data.checkInAt.toISOString()).toBe("2030-06-15T06:50:00.000Z");
   });
 
   it("[TC-M2-002] timestamp client nel futuro (slot scaduto) viene ignorato: check-in comunque OK", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2030-06-15T08:50:00.000Z"));
+    vi.setSystemTime(new Date("2030-06-15T06:50:00.000Z"));
 
     // Se usato, "2030-06-15T09:30Z" ⇒ periodo scaduto (400).
     const response = await route.POST(
@@ -126,17 +136,18 @@ describe("M-2 · il check-in usa il tempo del server, non del client", () => {
     const arg = mocks.prisma.prenotazione.update.mock.calls[0][0] as {
       data: { checkInAt: Date };
     };
-    expect(arg.data.checkInAt.toISOString()).toBe("2030-06-15T08:50:00.000Z");
+    expect(arg.data.checkInAt.toISOString()).toBe("2030-06-15T06:50:00.000Z");
   });
 
   it("[TC-M2-003] la finestra resta applicata sull'ora del server: ora server troppo presto ⇒ 400 anche con timestamp client 'valido'", async () => {
-    // Ora server: 08:30Z → PRIMA dell'apertura (08:45). Il client prova a
-    // barare con un timestamp dentro la finestra: deve comunque fallire.
+    // Ora server: 06:30Z (= 08:30 di Roma) → PRIMA dell'apertura reale
+    // (08:45 di Roma = 06:45Z). Il client prova a barare con un timestamp
+    // dentro la finestra: deve comunque fallire.
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2030-06-15T08:30:00.000Z"));
+    vi.setSystemTime(new Date("2030-06-15T06:30:00.000Z"));
 
     const response = await route.POST(
-      request({ timestamp: "2030-06-15T08:50:00.000Z" }),
+      request({ timestamp: "2030-06-15T06:50:00.000Z" }),
       params,
     );
 

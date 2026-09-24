@@ -14,6 +14,12 @@
  * diverse; questo test blinda il percorso permissivo.
  *
  * L'orologio del server e' congelato con i fake timers di vitest.
+ *
+ * NOTA SUGLI ORARI: `oraInizio` (fixture qui sotto) salva le CIFRE di Roma
+ * ("09:00"), non un istante UTC (vedi src/lib/prenotazioni-regole.ts,
+ * `valutaFinestraCheckIn`). Il 14 giugno 2030 e' in ora legale (CEST, Roma =
+ * UTC+2): la finestra "reale" [08:45, 09:00] di Roma corrisponde quindi a
+ * [06:45, 07:00] UTC.
  */
 import { NextRequest } from "next/server";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -118,7 +124,8 @@ describe("Integrita' dati - finestra di check-in sulla PATCH prenotazione", () =
   });
 
   it("[TC-INT-CHECKIN-002] check-in dopo l'inizio dello slot respinto (periodo scaduto)", async () => {
-    // 09:30 > inizio 09:00: la finestra e' chiusa, come nell'endpoint dedicato.
+    // 09:30Z e' comunque ben oltre la chiusura reale (07:00Z = 09:00 Roma):
+    // la finestra e' chiusa, come nell'endpoint dedicato.
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2030-06-14T09:30:00.000Z"));
 
@@ -130,9 +137,10 @@ describe("Integrita' dati - finestra di check-in sulla PATCH prenotazione", () =
   });
 
   it("[TC-INT-CHECKIN-003] check-in dentro la finestra dei 15 minuti: consentito", async () => {
-    // 08:50 e' dentro [08:45, 09:00]: il flusso legittimo non deve regredire.
+    // 06:50Z = 08:50 di Roma (CEST, +2h), dentro la finestra reale
+    // [08:45, 09:00] di Roma: il flusso legittimo non deve regredire.
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2030-06-14T08:50:00.000Z"));
+    vi.setSystemTime(new Date("2030-06-14T06:50:00.000Z"));
 
     const response = await route.PATCH(request({ azione: "check-in" }), params);
 
