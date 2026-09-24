@@ -24,7 +24,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   prisma: {
-    richiestaPreparazione: { update: vi.fn() },
+    richiestaPreparazione: { findUnique: vi.fn(), update: vi.fn() },
     notifica: { create: vi.fn() },
   },
 }));
@@ -64,10 +64,21 @@ beforeEach(async () => {
   vi.resetAllMocks();
   route = await import("@/app/api/admin/richieste/route");
   mocks.auth.mockResolvedValue({ user: bibliotecario });
+  // Stato di partenza di default: PENDENTE. La rotta ora legge lo stato
+  // ATTUALE prima di scrivere (difetto richieste-transizioni-non-validate):
+  // senza questo mock ogni test fallirebbe con 409 "transizione non
+  // consentita". I singoli test che partono da uno stato diverso lo
+  // sovrascrivono.
+  mocks.prisma.richiestaPreparazione.findUnique.mockResolvedValue({
+    stato: "PENDENTE",
+  });
 });
 
 describe("PATCH /api/admin/richieste · notifica sugli esiti rilevanti per lo studente", () => {
   it("[TC-RICH-NOTIF-001] PRONTA_RITIRO crea una Notifica con actionUrl verso la pagina del libro", async () => {
+    mocks.prisma.richiestaPreparazione.findUnique.mockResolvedValue({
+      stato: "IN_LAVORAZIONE",
+    });
     mocks.prisma.richiestaPreparazione.update.mockResolvedValue({
       ...RICHIESTA_BASE,
       stato: "PRONTA_RITIRO",
