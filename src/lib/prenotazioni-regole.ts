@@ -318,11 +318,13 @@ export const QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA = "evidenzia";
 
 /**
  * Unico costruttore del link verso una prenotazione specifica, usato da
- * TUTTI i produttori di notifiche/eventi che devono puntare a UNA
- * prenotazione (src/lib/automation-service.ts per il promemoria check-in e
- * per la notifica CODA_PROMOZIONE, src/lib/realtime-events.ts per l'evento
- * realtime di promozione, src/app/api/admin/prenotazioni/route.ts per la
- * promozione innescata dal personale).
+ * TUTTI i produttori di notifiche che devono puntare a UNA prenotazione
+ * (src/lib/automation-service.ts per il promemoria check-in e per la
+ * notifica CODA_PROMOZIONE, src/app/api/admin/prenotazioni/route.ts per la
+ * promozione innescata dal personale). Un terzo produttore, l'evento
+ * realtime di promozione su `src/lib/realtime-events.ts`, e' stato rimosso:
+ * quel modulo non era mai raggiunto da alcun consumatore (vedi il commento
+ * in testa a src/lib/automation-service.ts).
  *
  * PRIMA questi produttori usavano formati DIVERSI e inconsistenti: alcuni
  * `/prenotazioni/${id}` (una route che non esiste: sotto src/app/prenotazioni/

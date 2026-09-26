@@ -24,16 +24,12 @@ const mocks = vi.hoisted(() => ({
     },
   },
   promuoviPrimoInCoda: vi.fn(),
-  emitCodaPromozione: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma }));
 vi.mock("@/lib/prenotazioni-service", () => ({
   promuoviPrimoInCoda: mocks.promuoviPrimoInCoda,
-}));
-vi.mock("@/lib/realtime-events", () => ({
-  emitCodaPromozione: mocks.emitCodaPromozione,
 }));
 // Il rate limiting non è oggetto di questo file: viene mockato per non far
 // scattare 429 con le ripetute chiamate a route.POST nei test qui sotto.
@@ -175,15 +171,6 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
         }),
       }),
     });
-    expect(mocks.emitCodaPromozione).toHaveBeenCalledWith({
-      userId: promozione.prenotazione.userId,
-      postoId: prenotazione.postoId,
-      numero: prenotazione.posto.numero,
-      prenotazioneId: promozione.prenotazione.id,
-      data: "2030-01-15",
-      oraInizio: "09:00",
-      oraFine: "11:00",
-    });
   });
 
   it("[TC-BIB49-002] tenta la promozione per ogni slot cancellato in massa", async () => {
@@ -244,7 +231,6 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
     expect(mocks.prisma.notifica.create).not.toHaveBeenCalledWith({
       data: expect.objectContaining({ tipo: "CODA_PROMOZIONE" }),
     });
-    expect(mocks.emitCodaPromozione).not.toHaveBeenCalled();
   });
 
   it("[TC-BIB49-004] se il dominio rifiuta lo slot (es. data passata) la cancellazione resta valida", async () => {
@@ -271,6 +257,5 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
       where: { id: prenotazione.id },
       data: { stato: "CANCELLATA" },
     });
-    expect(mocks.emitCodaPromozione).not.toHaveBeenCalled();
   });
 });

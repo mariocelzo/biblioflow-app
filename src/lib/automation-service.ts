@@ -11,6 +11,40 @@
  * - Tracciabilità completa degli eventi di coda su LogEvento (BIB-46 / CA-05)
  * - Finestra di conferma della promozione: chi non conferma entro il tempo
  *   limite decade e il posto passa al successivo in coda (BIB-44 / CA-04)
+ *
+ * AGGIORNAMENTI IN TEMPO REALE — PERCHE' NON CI SONO (decisione, non omissione):
+ * fino a questa PR esisteva un canale SSE (`@/lib/realtime-events`,
+ * `@/lib/sse-emitter`, l'endpoint `GET /api/sse/posti`) che avrebbe dovuto
+ * spingere ai client connessi gli eventi generati qui (posto liberato,
+ * promozione dalla coda...). E' stato rimosso perche' non poteva funzionare
+ * in modo affidabile in produzione su Vercel, per DUE limiti strutturali
+ * dell'infrastruttura serverless, non per un bug risolvibile:
+ *  1. OGNI richiesta HTTP puo' finire su un'istanza serverless diversa (o su
+ *     un nuovo cold start). L'emettitore SSE (`sse-emitter.ts`) teneva i
+ *     client connessi in una `Map` nella memoria di UN SOLO processo: un
+ *     evento emesso dall'istanza che gestisce, es., una PATCH di cancellazione
+ *     non raggiunge MAI le connessioni SSE aperte su un'altra istanza. Con
+ *     piu' istanze attive (il caso normale sotto traffico) l'evento arriva
+ *     solo a una frazione imprevedibile dei client, spesso zero.
+ *  2. Le funzioni serverless hanno una durata massima di esecuzione: una
+ *     connessione SSE (pensata per restare aperta minuti/ore) verrebbe
+ *     comunque chiusa dalla piattaforma, obbligando il client a riconnettersi
+ *     di continuo — nessun vantaggio pratico rispetto a un polling.
+ * Verificato con grep su tutto `src/`: a parte `emitCodaPromozione` (rimosso
+ * in questa stessa PR), NESSUN produttore di eventi era mai chiamato da una
+ * route, e l'hook client `useSSE`/`usePostiRealtime` non era usato da NESSUNA
+ * pagina — la catena era scollegata a ENTRAMBI i capi, quindi la limitazione
+ * sopra non era nemmeno osservabile finora.
+ * ALTERNATIVE PER AGGIORNAMENTI IN TEMPO REALE (non implementate qui, restano
+ * per una PR futura se il bisogno si presentasse davvero):
+ *  - polling lato client (es. refetch periodico di `/api/prenotazioni` o
+ *    `/api/posti`), semplice ma con latenza e traffico proporzionali alla
+ *    frequenza di refresh;
+ *  - Supabase Realtime (o un servizio equivalente esterno al processo
+ *    Next.js, es. Pusher/Ably), che risolve strutturalmente il problema (1)
+ *    perche' lo stato delle connessioni vive fuori dal processo serverless.
+ * Le notifiche persistite (`prisma.notifica.create`, lette dal campanello
+ * via polling) NON dipendevano dal realtime e restano invariate.
  */
 
 import { randomUUID } from 'node:crypto';
