@@ -121,13 +121,23 @@ export async function POST(request: NextRequest) {
     // Rate limiting DOPO l'autenticazione, stesso schema delle altre route
     // critiche (vedi PATCH/DELETE /api/prenotazioni/[id], POST
     // /api/prenotazioni/coda): autorizzare prima evita che un anonimo consumi
-    // la quota di qualcun altro (la chiave del limite e' l'IP, non l'utente);
-    // il limite stesso protegge l'account autenticato da chi tenta di creare
+    // la quota di qualcun altro. La chiave e' pero' l'UTENTE (`user.id`), non
+    // l'IP (findings revisione PR #81): con la chiave per IP un'intera rete
+    // universitaria dietro il NAT di ateneo avrebbe condiviso un'unica quota
+    // di 10 creazioni/30min, e pochi studenti sulla stessa rete l'avrebbero
+    // esaurita per tutti gli altri (stesso rischio gia' documentato sopra
+    // `registrationRateLimiter`, ora rilevante anche qui perche' la creazione
+    // di una prenotazione e' un'azione ad altissima concorrenza per-rete). Il
+    // limite protegge cosi' l'account autenticato da chi tenta di creare
     // prenotazioni a raffica (es. per intasare i posti disponibili). Dieci
     // ogni 30 minuti (vedi bookingRateLimiter, src/lib/rate-limit.ts) resta
     // ampio per l'uso legittimo, compreso chi sbaglia e ricrea subito una
     // prenotazione: un utente reale ne crea al piu' un paio a sessione.
-    const rateLimitResult = await bookingRateLimiter(request);
+    const rateLimitResult = await bookingRateLimiter(
+      request,
+      "verifica-e-conta",
+      user.id,
+    );
     if (rateLimitResult) return rateLimitResult;
 
     const body = await request.json();

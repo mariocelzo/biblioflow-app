@@ -133,18 +133,40 @@ function getClientIp(request: NextRequest): string {
 
 /**
  * Crea un rate limiter configurabile
- * 
+ *
+ * PERCHE' UN TERZO PARAMETRO `chiaveUtente` (findings revisione PR #81): la
+ * chiave storica del contatore e' `${ip}:${percorso}`. Per una route che
+ * limita DOPO aver autenticato il chiamante (`requireUser()` gia' chiamato),
+ * usare ancora l'IP condivide la quota fra TUTTI gli utenti dietro lo stesso
+ * indirizzo — tipicamente il NAT di un'intera rete universitaria (lo stesso
+ * rischio gia' documentato sopra `registrationRateLimiter`). Con un limitatore
+ * come `bookingRateLimiter` (10 creazioni/30min), collegato per la prima volta
+ * a un endpoint ad altissima concorrenza per-rete come la creazione di una
+ * prenotazione, questo significa che pochi studenti sulla stessa rete possono
+ * esaurire la quota comune e far scattare 429 su richieste legittime di
+ * studenti diversi che non hanno mai chiamato l'API.
+ *
+ * Passando l'id utente autenticato come `chiaveUtente`, il contatore diventa
+ * per-PERSONA invece che per-RETE: la chiave usata e' `chiaveUtente` invece
+ * dell'IP. Il parametro e' opzionale e va valorizzato SOLO dopo
+ * un'autenticazione riuscita: i limitatori che proteggono le route
+ * PRE-autenticazione (login, registrazione, reset password), dove l'utente
+ * non esiste ancora, continuano a ricadere sull'IP — l'unico identificativo
+ * disponibile in quel momento.
+ *
  * @example
  * ```ts
  * const limiter = createRateLimiter({
  *   max: 10,
  *   windowMs: 60 * 1000, // 10 richieste al minuto
  * });
- * 
+ *
  * export async function POST(request: NextRequest) {
- *   const rateLimitResult = await limiter(request);
+ *   const user = await requireUser();
+ *   // Chiave per utente, non per IP: vedi commento sopra.
+ *   const rateLimitResult = await limiter(request, "verifica-e-conta", user.id);
  *   if (rateLimitResult) return rateLimitResult;
- *   
+ *
  *   // ... resto della logica API
  * }
  * ```
@@ -176,12 +198,18 @@ export function createRateLimiter(config: RateLimitConfig) {
   return async (
     request: NextRequest,
     modo: ModoRateLimit = "verifica-e-conta",
+    // Id dell'utente autenticato: quando presente sostituisce l'IP come
+    // identificativo del chiamante (vedi commento su `createRateLimiter`).
+    // Da passare SOLO dopo `requireUser()`: prima dell'autenticazione l'unico
+    // identificativo disponibile e' l'IP.
+    chiaveUtente?: string,
   ): Promise<NextResponse | null> => {
-    const ip = getClientIp(request);
+    const identificativo = chiaveUtente ?? getClientIp(request);
     const now = Date.now();
 
-    // Crea una chiave univoca per la route e l'IP
-    const key = `${ip}:${request.nextUrl.pathname}`;
+    // Crea una chiave univoca per la route e il chiamante (utente se
+    // autenticato, altrimenti IP: vedi `chiaveUtente` sopra).
+    const key = `${identificativo}:${request.nextUrl.pathname}`;
 
     let log = rateLimitStore.get(key);
 
@@ -346,6 +374,18 @@ export const readApiRateLimiter = createRateLimiter({
  * ripetizione. Per il personale che lavora "a raffica" sul pannello admin
  * (es. venti check-in di fila) questa soglia sarebbe invece troppo bassa: per
  * quel caso c'è `staffCriticalApiRateLimiter` qui sotto, non questo.
+ *
+ * CHIAVE: PATCH/DELETE `/api/prenotazioni/[id]` e POST/DELETE
+ * `/api/prenotazioni/coda` lo invocano ancora con la chiave storica per IP
+ * (`limiter(request)`, nessun terzo argomento). Il check-in autonomo (POST
+ * `/api/prenotazioni/[id]/check-in`, findings revisione PR #81) lo invoca
+ * invece con `user.id` come chiave (vedi `chiaveUtente` su
+ * `createRateLimiter`): stesso motivo di `bookingRateLimiter` sopra, un NAT di
+ * ateneo condivide un solo IP fra molti studenti. Portare la chiave per utente
+ * anche sugli altri call-site di questo limitatore e' un follow-up naturale e
+ * a basso rischio (stessa funzione, stessa firma), ma e' fuori dal perimetro
+ * della PR che ha introdotto il check-in autonomo: quelle route esistevano
+ * gia' prima e non sono quelle in cui e' stato rilevato il problema.
  */
 export const criticalApiRateLimiter = createRateLimiter({
   max: 10,
@@ -392,6 +432,16 @@ export const staffCriticalApiRateLimiter = createRateLimiter({
  * a differenza di check-in/check-out/cancellazione (`criticalApiRateLimiter`)
  * e della lista d'attesa (`criticalApiRateLimiter` anche li').
  *
+ * CHIAVE PER UTENTE, NON PER IP (findings revisione PR #81): la route lo
+ * invoca passando `user.id` come terzo argomento (vedi `chiaveUtente` su
+ * `createRateLimiter` sopra), perche' `requireUser()` e' gia' stato chiamato
+ * prima. Con una chiave per IP, un'intera rete universitaria dietro un NAT di
+ * ateneo condividerebbe la stessa quota di 10 creazioni/30min: pochi studenti
+ * sulla stessa rete l'avrebbero esaurita per tutti gli altri, esattamente la
+ * dinamica gia' documentata sopra `registrationRateLimiter`. Per IP restano
+ * invece i limitatori PRE-autenticazione (login, registrazione, reset
+ * password), dove l'utente non esiste ancora.
+ *
  * PERCHÉ 10 OGNI 30 MINUTI E NON DI MENO: un uso legittimo crea al più
  * qualche prenotazione per sessione — anche contando chi sbaglia orario/sala e
  * ricrea subito la richiesta dopo un errore di validazione (422) o un
@@ -400,7 +450,9 @@ export const staffCriticalApiRateLimiter = createRateLimiter({
  * "verifica" da "conta": un ripensamento legittimo consuma un tentativo, ma
  * dieci ne restano ampiamente sufficienti anche per diversi errori di fila).
  * Il valore resta invece stretto contro uno script che tenti di intasare i
- * posti disponibili creando prenotazioni a raffica.
+ * posti disponibili creando prenotazioni a raffica. Ora che la chiave e' per
+ * utente (non piu' per rete), la soglia protegge davvero il singolo account e
+ * non deve piu' essere alzata per compensare la condivisione di rete.
  */
 export const bookingRateLimiter = createRateLimiter({
   max: 10,

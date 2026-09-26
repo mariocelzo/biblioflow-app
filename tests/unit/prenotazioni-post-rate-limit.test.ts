@@ -103,4 +103,21 @@ describe("POST /api/prenotazioni · rate limiting", () => {
     expect(response.status).toBe(201);
     expect(mocks.creaPrenotazioneAtomica).toHaveBeenCalledTimes(1);
   });
+
+  it("[TC-RL-BOOK-003] la chiave del limitatore e' l'utente autenticato, non l'IP (findings revisione PR #81)", async () => {
+    // PERCHE': con la chiave storica per IP, un'intera rete universitaria
+    // dietro un NAT di ateneo condividerebbe la stessa quota di 10
+    // creazioni/30min fra TUTTI gli studenti dietro quell'IP, non da un
+    // singolo studente. Passando `user.id` come terzo argomento (vedi
+    // `chiaveUtente` in src/lib/rate-limit.ts) il contatore torna per-persona.
+    const { POST } = await import("@/app/api/prenotazioni/route");
+
+    await POST(request(corpoValido));
+
+    expect(mocks.bookingRateLimiter).toHaveBeenCalledWith(
+      expect.anything(),
+      "verifica-e-conta",
+      user.id,
+    );
+  });
 });

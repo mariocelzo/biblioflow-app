@@ -152,6 +152,40 @@ describe("chiave del rate limiter: ordine di fiducia degli header", () => {
     ).toBe(429);
   });
 
+  it("[TC-SEC-IP-007] con `chiaveUtente` (terzo argomento) la chiave e' l'utente, non l'IP (findings revisione PR #81)", async () => {
+    // SCENARIO: due studenti reali sulla stessa rete universitaria (stesso IP
+    // dietro il NAT di ateneo) chiamano una route protetta DOPO
+    // l'autenticazione. Con la sola chiave IP condividerebbero un unico
+    // contatore: il secondo studente si vedrebbe rifiutare una richiesta
+    // legittima solo perche' un altro studente sulla stessa rete ha gia'
+    // consumato la quota. Passando l'id utente come terzo argomento, ognuno
+    // ha il proprio contatore anche se l'IP e' identico.
+    const limiter = createRateLimiter({ max: 1, windowMs: 60_000 });
+    const percorso = "/api/test-ip-007";
+    const stessoIp = { "x-real-ip": "203.0.113.50" };
+
+    const primoStudente = await limiter(
+      richiesta(percorso, stessoIp),
+      "verifica-e-conta",
+      "utente-A",
+    );
+    const secondoStudente = await limiter(
+      richiesta(percorso, stessoIp),
+      "verifica-e-conta",
+      "utente-B",
+    );
+    // Il primo studente, se ritenta, trova invece la propria quota esaurita.
+    const primoStudenteRitenta = await limiter(
+      richiesta(percorso, stessoIp),
+      "verifica-e-conta",
+      "utente-A",
+    );
+
+    expect(primoStudente).toBeNull();
+    expect(secondoStudente).toBeNull();
+    expect(primoStudenteRitenta?.status).toBe(429);
+  });
+
   it("[TC-SEC-IP-006] un header di piattaforma vuoto non crea una chiave vuota", async () => {
     // Un header presente ma vuoto (o con soli spazi) non deve essere accettato
     // come identificativo: si passerebbe a una chiave "" condivisa da tutti,

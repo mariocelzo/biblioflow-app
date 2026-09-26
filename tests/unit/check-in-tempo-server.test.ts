@@ -245,4 +245,22 @@ describe("Rate limiting · POST /api/prenotazioni/[id]/check-in usa criticalApiR
     expect(response.status).toBe(200);
     expect(mocks.criticalApiRateLimiter).toHaveBeenCalledTimes(1);
   });
+
+  it("[TC-RL-CHECKIN-003] la chiave del limitatore e' l'utente autenticato, non l'IP (findings revisione PR #81)", async () => {
+    // PERCHE': con la chiave storica per IP, un'intera rete universitaria
+    // dietro un NAT di ateneo condividerebbe lo stesso contatore fra tutti gli
+    // studenti che fanno check-in da li'. Passando `user.id` come terzo
+    // argomento (vedi `chiaveUtente` in src/lib/rate-limit.ts) il contatore
+    // torna per-persona.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-15T06:50:00.000Z"));
+
+    await route.POST(request({}), params);
+
+    expect(mocks.criticalApiRateLimiter).toHaveBeenCalledWith(
+      expect.anything(),
+      "verifica-e-conta",
+      user.id,
+    );
+  });
 });

@@ -37,7 +37,18 @@ export async function POST(
     // devono condividere il limitatore invece di lasciare questo secondo
     // percorso scoperto (prima lo era: nessun limite qui, mentre la PATCH ne
     // aveva gia' uno).
-    const rateLimitResult = await criticalApiRateLimiter(request);
+    //
+    // Chiave per UTENTE (`user.id`), non per IP (findings revisione PR #81):
+    // con la chiave storica per IP, una rete universitaria dietro un NAT di
+    // ateneo avrebbe condiviso lo stesso contatore fra tutti gli studenti che
+    // fanno check-in da li', anche se ognuno agisce sulla propria singola
+    // prenotazione. Vedi il commento su `chiaveUtente` in
+    // src/lib/rate-limit.ts per il dettaglio.
+    const rateLimitResult = await criticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      user.id,
+    );
     if (rateLimitResult) return rateLimitResult;
 
     const { id: prenotazioneId } = await context.params;
