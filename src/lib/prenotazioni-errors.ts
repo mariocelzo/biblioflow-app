@@ -1,6 +1,11 @@
 export type PrenotazioneErrorCode =
   | "DATA_NON_VALIDA"
   | "DATA_NEL_PASSATO"
+  // GIORNO_CHIUSO/DATA_TROPPO_LONTANA: difetto "no-limite-server-domenica-
+  // festivi-30gg" — domenica/festività/orizzonte 30gg esistevano solo nel
+  // wizard client, mai lato server (vedi src/lib/calendario-biblioteca.ts).
+  | "GIORNO_CHIUSO"
+  | "DATA_TROPPO_LONTANA"
   | "ORARIO_NEL_PASSATO"
   | "ORARIO_NON_VALIDO"
   | "INTERVALLO_NON_VALIDO"
@@ -54,7 +59,11 @@ export class ValidazioneError extends PrenotazioneError {
 }
 
 export class ConflittoDisponibilita extends PrenotazioneError {
-  constructor(message = "Il posto e' gia' prenotato nell'orario scelto") {
+  // DIFETTO VISTO IN COLLAUDO (apostrofi-ascii-invece-di-accenti): questo
+  // messaggio usava l'apostrofo ASCII (') al posto della lettera accentata
+  // (è/già), a differenza del resto della codebase (automation-service.ts,
+  // i vari route.ts) che usa correttamente gli accenti UTF-8. Corretto qui.
+  constructor(message = "Il posto è già prenotato nell'orario scelto") {
     super("POSTO_GIA_PRENOTATO", message, 409, true);
     this.name = "ConflittoDisponibilita";
   }
@@ -62,7 +71,7 @@ export class ConflittoDisponibilita extends PrenotazioneError {
 
 export class ConflittoPrenotazioneUtente extends PrenotazioneError {
   constructor(
-    message = "Hai gia' una prenotazione attiva nell'orario scelto",
+    message = "Hai già una prenotazione attiva nell'orario scelto",
   ) {
     super("UTENTE_GIA_PRENOTATO", message, 409);
     this.name = "ConflittoPrenotazioneUtente";
@@ -80,7 +89,7 @@ export class NonTrovato extends PrenotazioneError {
 }
 
 export class RichiestaCodaDuplicata extends PrenotazioneError {
-  constructor(message = "Sei gia' in lista d'attesa per questo intervallo") {
+  constructor(message = "Sei già in lista d'attesa per questo intervallo") {
     super("RICHIESTA_CODA_DUPLICATA", message, 409);
     this.name = "RichiestaCodaDuplicata";
   }
@@ -94,7 +103,7 @@ export class RichiestaCodaNonTrovata extends PrenotazioneError {
 }
 
 export class RichiestaCodaNonAnnullabile extends PrenotazioneError {
-  constructor(message = "La richiesta non e' piu' annullabile") {
+  constructor(message = "La richiesta non è più annullabile") {
     super("RICHIESTA_CODA_NON_ANNULLABILE", message, 409);
     this.name = "RichiestaCodaNonAnnullabile";
   }

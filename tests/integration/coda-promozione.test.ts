@@ -68,6 +68,7 @@ import {
   assertTestDatabaseUrl,
   DEFAULT_TEST_DATABASE_URL,
 } from "../fixtures/database";
+import { giornoApertura } from "../fixtures/calendario";
 
 // ─── Mock di `@/lib/auth` (sessioni simulate) ──────────────────────────────
 // `vi.hoisted` porta la definizione sopra gli import: le `vi.fn()` esistono già
@@ -122,18 +123,10 @@ const PREN_A_ID = "bib58-pren-a";
 // 09:00–11:00 (120 min) sta dentro l'orario di default della sala (08:00–22:00)
 // e rispetta durata minima/massima. Niente fake timers: si usano date reali.
 
-function slotFuturo(giorni: number): { iso: string; data: Date } {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + giorni);
-  const anno = d.getUTCFullYear();
-  const mese = d.getUTCMonth() + 1;
-  const giorno = d.getUTCDate();
-  const iso = `${anno}-${String(mese).padStart(2, "0")}-${String(giorno).padStart(2, "0")}`;
-  // Prisma rappresenta `@db.Date` come mezzanotte UTC.
-  return { iso, data: new Date(Date.UTC(anno, mese - 1, giorno)) };
-}
-
-const SLOT = slotFuturo(3);
+// Il giorno viene scelto con la stessa logica di calendario del server
+// (tests/fixtures/calendario.ts): "oggi + 3" poteva cadere di domenica e
+// far fallire il test a seconda del giorno in cui girava la CI.
+const SLOT = giornoApertura(3);
 // Prisma rappresenta `@db.Time` con la data fittizia 1970-01-01 UTC.
 const ORA_INIZIO = new Date("1970-01-01T09:00:00.000Z");
 const ORA_FINE = new Date("1970-01-01T11:00:00.000Z");

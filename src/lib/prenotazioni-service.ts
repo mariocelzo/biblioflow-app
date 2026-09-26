@@ -41,6 +41,18 @@ import {
   orarioInMinuti,
 } from "@/lib/prenotazioni-regole";
 
+// Domenica/festività/orizzonte 30gg: regole di CALENDARIO, in un modulo
+// separato da prenotazioni-regole.ts (che copre solo orari/durate) ma con lo
+// stesso principio — SENZA dipendenza da Prisma — perché il wizard client
+// (src/app/prenota/page.tsx) le importa da qui allo stesso modo. Vedi il
+// commento in cima a calendario-biblioteca.ts per il difetto che ha reso
+// necessario spostarle qui.
+import {
+  ORIZZONTE_MASSIMO_GIORNI,
+  isGiornoChiusoBiblioteca,
+  superaOrizzonteMassimo,
+} from "@/lib/calendario-biblioteca";
+
 export {
   DURATA_MASSIMA_PRENOTAZIONE_MINUTI,
   DURATA_MINIMA_PRENOTAZIONE_MINUTI,
@@ -217,6 +229,24 @@ export function validaIntervallo(input: IntervalloInput): IntervalloValidato {
     throw new ValidazioneError(
       "DATA_NEL_PASSATO",
       "Scegli una data di oggi o successiva",
+    );
+  }
+
+  // DIFETTO VISTO IN COLLAUDO (no-limite-server-domenica-festivi-30gg):
+  // domenica/festività/orizzonte 30gg erano applicati SOLO nel wizard
+  // client (src/app/prenota/page.tsx), mai qui: chiamando l'API
+  // direttamente (bypassando il wizard) si aggiravano. `calendario-
+  // biblioteca.ts` e' ora la fonte di verita' UNICA, usata sia qui sia dal
+  // wizard, cosi' le due regole non possono piu' divergere.
+  const chiusura = isGiornoChiusoBiblioteca(data);
+  if (chiusura.chiuso) {
+    throw new ValidazioneError("GIORNO_CHIUSO", chiusura.motivo);
+  }
+
+  if (superaOrizzonteMassimo(data, oggi)) {
+    throw new ValidazioneError(
+      "DATA_TROPPO_LONTANA",
+      `Puoi prenotare al massimo con ${ORIZZONTE_MASSIMO_GIORNI} giorni di anticipo`,
     );
   }
 
@@ -772,6 +802,20 @@ export async function promuoviPrimoInCoda(
             // prenotazione per lo slot appena liberato, non una richiesta
             // nuova dell'utente promosso.
             permettiOrarioPassato: true,
+            // BUG TROVATO SCRIVENDO I TEST per GIORNO_CHIUSO/DATA_TROPPO_LONTANA
+            // (no-limite-server-domenica-festivi-30gg): questa chiamata NON
+            // propagava `input.adesso` alla validazione interna, che quindi
+            // calcolava "oggi" con l'orologio REALE invece che con l'istante
+            // iniettato dal chiamante — inconsistente con l'`intervallo`
+            // calcolato sopra (che invece lo riceve). In produzione i due
+            // "adesso" coincidevano comunque (nessun chiamante passa
+            // `adesso` a `promuoviPrimoInCoda`, vedi automation-service.ts e
+            // admin/prenotazioni/route.ts: entrambi lasciano l'orologio
+            // reale), ma senza questo campo la funzione non era testabile in
+            // modo deterministico e, per un ipotetico chiamante futuro che
+            // passasse `adesso`, il controllo DATA_TROPPO_LONTANA
+            // validerebbe contro l'orologio sbagliato.
+            adesso: input.adesso,
           },
           tx,
         );

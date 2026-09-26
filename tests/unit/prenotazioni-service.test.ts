@@ -385,6 +385,68 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
       }),
     ).not.toThrow();
   });
+
+  // DIFETTO VISTO IN COLLAUDO (no-limite-server-domenica-festivi-30gg):
+  // domenica/festivita'/orizzonte 30gg erano applicati SOLO nel wizard
+  // client, mai da validaIntervallo: POST /api/prenotazioni accettava con
+  // 201 CONFERMATA richieste per domenica, per Ognissanti e a 53 giorni di
+  // distanza. Le regole di calendario vere e proprie (domenica/festivita'
+  // fisse/Pasquetta) sono testate a fondo, pure, in
+  // tests/unit/calendario-biblioteca.test.ts: qui si verifica solo che
+  // validaIntervallo le richiami davvero (test di CABLAGGIO server-side).
+  it("[TC-BIB27-026] rifiuta una domenica con GIORNO_CHIUSO", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-01-20", // domenica
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: oggi,
+      }),
+    ).toThrowError(
+      expect.objectContaining({ code: "GIORNO_CHIUSO", status: 422 }),
+    );
+  });
+
+  it("[TC-BIB27-027] accetta una data esattamente al limite di 30 giorni", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-02-14", // 30 giorni dopo il 2030-01-15 ("oggi" del fixture)
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: oggi,
+      }),
+    ).not.toThrow();
+  });
+
+  it("[TC-BIB27-028] rifiuta una data oltre il limite di 30 giorni con DATA_TROPPO_LONTANA", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-02-15", // 31 giorni dopo "oggi": un giorno oltre il limite
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: oggi,
+      }),
+    ).toThrowError(
+      expect.objectContaining({ code: "DATA_TROPPO_LONTANA", status: 422 }),
+    );
+  });
+
+  // GIORNO_CHIUSO non e' un controllo su una richiesta "nuova" come
+  // ORARIO_NEL_PASSATO: resta attivo anche quando si opera su uno slot
+  // gia' esistente (promozione dalla coda, estensione). Se cosi' non fosse,
+  // basterebbe passare permettiOrarioPassato:true per far creare una
+  // prenotazione di domenica dalla lista d'attesa.
+  it("[TC-BIB27-029] GIORNO_CHIUSO resta attivo anche con permettiOrarioPassato:true", () => {
+    expect(() =>
+      validaIntervallo({
+        data: "2030-01-20", // domenica
+        oraInizio: "09:00",
+        oraFine: "11:00",
+        adesso: oggi,
+        permettiOrarioPassato: true,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "GIORNO_CHIUSO" }));
+  });
 });
 
 const dataDb = new Date("2030-01-15T00:00:00.000Z");
