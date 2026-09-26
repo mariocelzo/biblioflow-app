@@ -30,8 +30,9 @@ import {
 import { toast } from "sonner";
 import { formattaOraDb, formattaDataDb } from "@/lib/tempo-db";
 import {
+  MARGINE_PENDOLARE_MINUTI,
   QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA,
-  TOLLERANZA_CHECK_IN_MINUTI,
+  tolleranzaCheckIn,
   valutaFinestraCheckIn,
 } from "@/lib/prenotazioni-regole";
 import {
@@ -46,6 +47,7 @@ import {
   Loader2,
   History,
   Timer,
+  Train,
 } from "lucide-react";
 
 // Tipi
@@ -61,6 +63,10 @@ interface Prenotazione {
   stato: "IN_ATTESA" | "CONFERMATA" | "CHECK_IN" | "COMPLETATA" | "CANCELLATA" | "NO_SHOW";
   checkInAt: string | null;
   checkOutAt: string | null;
+  // Margine Pendolare: estende la finestra di check-in di questa prenotazione
+  // (vedi tolleranzaCheckIn/MARGINE_PENDOLARE_MINUTI in prenotazioni-regole.ts).
+  // Deciso e verificato SOLO dal server alla creazione (mai da questo client).
+  marginePendolare: boolean;
   posto: {
     id: string;
     numero: string;
@@ -326,12 +332,18 @@ function PrenotazioniContent() {
     // sbagliato quanto quello (gia' corretto) del server. `adesso` e' lo
     // stato che tiene la pagina, aggiornato ogni 30s (vedi sopra): senza,
     // il pulsante comparirebbe solo al prossimo refresh manuale.
+    // `tolleranzaCheckIn` restituisce MARGINE_PENDOLARE_MINUTI (30) al posto
+    // dei normali TOLLERANZA_CHECK_IN_MINUTI (15) quando questa prenotazione
+    // ha il Margine Pendolare attivo: stessa funzione usata dal server (POST
+    // /api/prenotazioni/[id]/check-in, PATCH check-in, scanner bibliotecario),
+    // cosi' il pulsante compare/scompare esattamente quando il server lo
+    // accetterebbe davvero.
     const esitoCheckIn = prenotazione.stato === "CONFERMATA"
       ? valutaFinestraCheckIn(
           new Date(prenotazione.data),
           new Date(prenotazione.oraInizio),
           adesso,
-          TOLLERANZA_CHECK_IN_MINUTI,
+          tolleranzaCheckIn(prenotazione),
         )
       : null;
     const puoFareCheckIn = esitoCheckIn?.consentito === true;
@@ -383,8 +395,19 @@ function PrenotazioniContent() {
                   {formatOra(prenotazione.oraInizio)} - {formatOra(prenotazione.oraFine)}
                 </div>
               </div>
+
+              {/* Margine Pendolare attivo: coerente col server (stessa finestra
+                  usata da valutaFinestraCheckIn qui sopra). Mostrato solo finche'
+                  la finestra di check-in ha ancora senso (prenotazione ancora
+                  CONFERMATA, check-in non ancora fatto). */}
+              {prenotazione.marginePendolare && prenotazione.stato === "CONFERMATA" && (
+                <div className="flex items-center gap-1 text-xs text-blue-700 dark:text-blue-400">
+                  <Train className="h-3.5 w-3.5" />
+                  Margine pendolare attivo: check-in valido fino a {MARGINE_PENDOLARE_MINUTI} minuti dopo l&rsquo;inizio
+                </div>
+              )}
             </div>
-            
+
             {/* Badge stato */}
             {getStatoBadge(prenotazione.stato)}
           </div>

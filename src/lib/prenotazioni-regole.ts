@@ -248,6 +248,50 @@ export function valutaFinestraCheckIn(
 }
 
 /**
+ * Minuti di ESTENSIONE della tolleranza di check-in per chi e' pendolare
+ * (feature "Margine Pendolare": compensa il ritardo dei mezzi pubblici).
+ * Con il margine attivo la finestra si chiude a `ANTICIPO_CHECK_IN_MINUTI`
+ * prima → `MARGINE_PENDOLARE_MINUTI` dopo l'inizio (30), invece dei normali
+ * `TOLLERANZA_CHECK_IN_MINUTI` (15).
+ *
+ * PERCHE' UNA COSTANTE SERVER, NON UN VALORE DAL CLIENT: prima
+ * `POST /api/prenotazioni` accettava `minutiMarginePendolare` direttamente dal
+ * body della richiesta (default 30 solo se assente) e lo salvava cosi' com'era
+ * — un client poteva quindi inviare, es., `minutiMarginePendolare: 9999` e
+ * ottenere una finestra di check-in arbitrariamente lunga, aggirando anche il
+ * rilascio no-show (che allora avrebbe dovuto fidarsi dello stesso valore).
+ * Ora il valore e' SEMPRE questa costante: il client puo' solo chiedere SE
+ * applicare il margine (`marginePendolare: boolean`), mai QUANTO valga — vedi
+ * `creaPrenotazioneAtomica` in src/lib/prenotazioni-service.ts, che inoltre
+ * concede il margine solo se `User.isPendolare` e' vero SUL DATABASE (non se
+ * il body lo dichiara).
+ *
+ * CONFINE ALLINEATO AL NO-SHOW ANCHE CON IL MARGINE: `releaseNoShowReservations`
+ * (src/lib/automation-service.ts) usa la STESSA costante, con lo stesso `CASE
+ * WHEN "marginePendolare"` di `tolleranzaCheckIn` qui sotto, cosi' la proprieta'
+ * "mai un istante in cui il check-in e' ancora ammesso e il posto e' gia'
+ * stato rilasciato" (vedi il commento su `TOLLERANZA_CHECK_IN_MINUTI`) resta
+ * vera anche per le prenotazioni con margine attivo, non solo per quelle senza.
+ */
+export const MARGINE_PENDOLARE_MINUTI = 30;
+
+/**
+ * Tolleranza DOPO l'inizio da applicare a UNA prenotazione, tenendo conto del
+ * suo margine pendolare: unica funzione da cui derivare il terzo argomento di
+ * `valutaFinestraCheckIn` (lato check-in autonomo, PATCH check-in, scanner
+ * bibliotecario) e la soglia SQL di `releaseNoShowReservations` — cosi' i due
+ * lati del confine (check-in che si chiude / posto che si libera) non possono
+ * divergere leggendo `marginePendolare` in punti diversi con logiche diverse.
+ */
+export function tolleranzaCheckIn(prenotazione: {
+  marginePendolare: boolean;
+}): number {
+  return prenotazione.marginePendolare
+    ? MARGINE_PENDOLARE_MINUTI
+    : TOLLERANZA_CHECK_IN_MINUTI;
+}
+
+/**
  * Inverso "parziale" di `minutiCorrentiBiblioteca`: minuti dalla mezzanotte
  * -> Date sulla data fittizia 1970-01-01 UTC, lo stesso formato con cui
  * Prisma legge/scrive le colonne `@db.Time` (vedi src/lib/tempo-db.ts).
@@ -274,11 +318,13 @@ export const QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA = "evidenzia";
 
 /**
  * Unico costruttore del link verso una prenotazione specifica, usato da
- * TUTTI i produttori di notifiche/eventi che devono puntare a UNA
- * prenotazione (src/lib/automation-service.ts per il promemoria check-in e
- * per la notifica CODA_PROMOZIONE, src/lib/realtime-events.ts per l'evento
- * realtime di promozione, src/app/api/admin/prenotazioni/route.ts per la
- * promozione innescata dal personale).
+ * TUTTI i produttori di notifiche che devono puntare a UNA prenotazione
+ * (src/lib/automation-service.ts per il promemoria check-in e per la
+ * notifica CODA_PROMOZIONE, src/app/api/admin/prenotazioni/route.ts per la
+ * promozione innescata dal personale). Un terzo produttore, l'evento
+ * realtime di promozione su `src/lib/realtime-events.ts`, e' stato rimosso:
+ * quel modulo non era mai raggiunto da alcun consumatore (vedi il commento
+ * in testa a src/lib/automation-service.ts).
  *
  * PRIMA questi produttori usavano formati DIVERSI e inconsistenti: alcuni
  * `/prenotazioni/${id}` (una route che non esiste: sotto src/app/prenotazioni/

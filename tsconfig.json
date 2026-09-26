@@ -30,5 +30,20 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    // tests/pre-modifica/ caratterizza il comportamento del tag immutabile
+    // `baseline-pre-cr-bf-01` (vedi docs/report-finale.md): non e' pensato per
+    // essere eseguito - ne', quindi, tipizzato - contro il codice TO-BE di
+    // `main`, dove puo' legittimamente riferirsi a moduli gia' rimossi da una
+    // correzione successiva (qui: src/lib/realtime-events.ts e la catena SSE,
+    // rimossi perche' mai raggiunti da alcun consumatore - vedi il commento in
+    // testa a src/lib/automation-service.ts). Restano compilabili ed
+    // eseguibili SOLO checkoutando quel tag, dove i moduli che referenziano
+    // esistono ancora insieme a loro. Senza questa esclusione, `next build`
+    // (che tipizza l'intero progetto secondo `include` qui sotto, test
+    // compresi) fallirebbe per un modulo mancante che non ha nulla a che fare
+    // con l'applicazione TO-BE.
+    "tests/pre-modifica/**"
+  ]
 }

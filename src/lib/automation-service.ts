@@ -4,13 +4,47 @@
  * Gestisce tutte le automazioni periodiche del sistema:
  * - Reminder check-in (15 min prima)
  * - Alert scadenza prestiti (3 giorni prima + giorno scadenza)
- * - Rilascio automatico no-show (15 min dopo ora inizio)
+ * - Rilascio automatico no-show (15 min dopo ora inizio, 30 con Margine Pendolare)
  * - Notifica posto liberato
  * - Innesco della promozione dalla lista d'attesa quando un posto si libera
  *   automaticamente (BIB-40 / CA-04)
  * - Tracciabilità completa degli eventi di coda su LogEvento (BIB-46 / CA-05)
  * - Finestra di conferma della promozione: chi non conferma entro il tempo
  *   limite decade e il posto passa al successivo in coda (BIB-44 / CA-04)
+ *
+ * AGGIORNAMENTI IN TEMPO REALE — PERCHE' NON CI SONO (decisione, non omissione):
+ * fino a questa PR esisteva un canale SSE (`@/lib/realtime-events`,
+ * `@/lib/sse-emitter`, l'endpoint `GET /api/sse/posti`) che avrebbe dovuto
+ * spingere ai client connessi gli eventi generati qui (posto liberato,
+ * promozione dalla coda...). E' stato rimosso perche' non poteva funzionare
+ * in modo affidabile in produzione su Vercel, per DUE limiti strutturali
+ * dell'infrastruttura serverless, non per un bug risolvibile:
+ *  1. OGNI richiesta HTTP puo' finire su un'istanza serverless diversa (o su
+ *     un nuovo cold start). L'emettitore SSE (`sse-emitter.ts`) teneva i
+ *     client connessi in una `Map` nella memoria di UN SOLO processo: un
+ *     evento emesso dall'istanza che gestisce, es., una PATCH di cancellazione
+ *     non raggiunge MAI le connessioni SSE aperte su un'altra istanza. Con
+ *     piu' istanze attive (il caso normale sotto traffico) l'evento arriva
+ *     solo a una frazione imprevedibile dei client, spesso zero.
+ *  2. Le funzioni serverless hanno una durata massima di esecuzione: una
+ *     connessione SSE (pensata per restare aperta minuti/ore) verrebbe
+ *     comunque chiusa dalla piattaforma, obbligando il client a riconnettersi
+ *     di continuo — nessun vantaggio pratico rispetto a un polling.
+ * Verificato con grep su tutto `src/`: a parte `emitCodaPromozione` (rimosso
+ * in questa stessa PR), NESSUN produttore di eventi era mai chiamato da una
+ * route, e l'hook client `useSSE`/`usePostiRealtime` non era usato da NESSUNA
+ * pagina — la catena era scollegata a ENTRAMBI i capi, quindi la limitazione
+ * sopra non era nemmeno osservabile finora.
+ * ALTERNATIVE PER AGGIORNAMENTI IN TEMPO REALE (non implementate qui, restano
+ * per una PR futura se il bisogno si presentasse davvero):
+ *  - polling lato client (es. refetch periodico di `/api/prenotazioni` o
+ *    `/api/posti`), semplice ma con latenza e traffico proporzionali alla
+ *    frequenza di refresh;
+ *  - Supabase Realtime (o un servizio equivalente esterno al processo
+ *    Next.js, es. Pusher/Ably), che risolve strutturalmente il problema (1)
+ *    perche' lo stato delle connessioni vive fuori dal processo serverless.
+ * Le notifiche persistite (`prisma.notifica.create`, lette dal campanello
+ * via polling) NON dipendevano dal realtime e restano invariate.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -19,8 +53,11 @@ import { formattaOraDb, formattaDataDb } from '@/lib/tempo-db';
 import {
   actionUrlPrenotazione,
   dataCorrenteBiblioteca,
+  MARGINE_PENDOLARE_MINUTI,
   minutiCorrentiBiblioteca,
   oraDbDaMinuti,
+  tolleranzaCheckIn,
+  TOLLERANZA_CHECK_IN_MINUTI,
 } from '@/lib/prenotazioni-regole';
 import {
   Prisma,
@@ -137,6 +174,19 @@ export async function sendCheckInReminders() {
   let count = 0;
 
   for (const prenotazione of prenotazioni) {
+    // MARGINE PENDOLARE: il promemoria diceva "hai tempo fino alle
+    // {oraInizio}", che era già una sottostima anche PRIMA di questa PR (il
+    // vero limite è oraInizio + TOLLERANZA_CHECK_IN_MINUTI, non oraInizio) —
+    // e lo sarebbe rimasta in modo ancora più marcato per chi ha il margine
+    // pendolare attivo (limite vero: +30, non +15). Si calcola qui l'orario
+    // di chiusura REALE con la stessa `tolleranzaCheckIn` (per-riga, letta
+    // dal DB) usata da `releaseNoShowReservations` e dagli endpoint di
+    // check-in, cosi' il promemoria non promette un tempo più corto di
+    // quello che il server concede davvero.
+    const minutiOraInizio =
+      prenotazione.oraInizio.getUTCHours() * 60 + prenotazione.oraInizio.getUTCMinutes();
+    const oraLimiteCheckIn = oraDbDaMinuti(minutiOraInizio + tolleranzaCheckIn(prenotazione));
+
     await prisma.notifica.create({
       data: {
         userId: prenotazione.userId,
@@ -146,7 +196,7 @@ export async function sendCheckInReminders() {
         // al 1970-01-01, `toLocaleTimeString` senza fuso esplicito lo
         // convertirebbe nel fuso LOCALE del server. Su Vercel oggi funziona
         // solo per coincidenza (il server gira in UTC) - vedi src/lib/tempo-db.ts.
-        messaggio: `Non dimenticare di fare check-in per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}. Hai tempo fino alle ${formattaOraDb(prenotazione.oraInizio)}.`,
+        messaggio: `Non dimenticare di fare check-in per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome}. Hai tempo fino alle ${formattaOraDb(oraLimiteCheckIn)}.`,
         actionUrl: actionUrlPrenotazione(prenotazione.id),
         actionLabel: 'Fai check-in',
       },
@@ -622,7 +672,11 @@ export async function processaCodaPerPosto(
 
 /**
  * 3️⃣ RILASCIO AUTOMATICO NO-SHOW
- * Libera i posti di prenotazioni confermate senza check-in dopo 15 minuti dall'ora di inizio
+ * Libera i posti di prenotazioni confermate senza check-in dopo 15 minuti
+ * dall'ora di inizio (30 se la prenotazione ha il Margine Pendolare attivo —
+ * vedi `tolleranzaCheckIn`/`MARGINE_PENDOLARE_MINUTI` in
+ * src/lib/prenotazioni-regole.ts, applicati RIGA PER RIGA nella query SQL
+ * qui sotto).
  *
  * BIB-46 / CA-05: ogni catena di rilascio+promozione è correlata da un `correlationId`
  * univoco, così gli audit log consentono di ricostruire l'intera storia di una promozione.
@@ -676,11 +730,31 @@ export async function releaseNoShowReservations() {
   // scritto a mano — esattamente come `valutaFinestraCheckIn` in
   // src/lib/prenotazioni-regole.ts fa lato applicazione con
   // `Intl.DateTimeFormat`.
+  //
+  // MARGINE PENDOLARE: la tolleranza NON è più fissa a 15 minuti per ogni
+  // riga. Le prenotazioni con `marginePendolare` vero hanno diritto alla
+  // stessa estensione concessa al check-in (`MARGINE_PENDOLARE_MINUTI`, 30
+  // minuti — vedi `tolleranzaCheckIn` in prenotazioni-regole.ts): il `CASE
+  // WHEN` qui sotto applica RIGA PER RIGA la stessa tolleranza che
+  // `valutaFinestraCheckIn` userebbe per quella prenotazione, cosi' il
+  // confine "check-in ancora ammesso / posto già rilasciato" (vedi il
+  // commento su `TOLLERANZA_CHECK_IN_MINUTI`) resta senza sovrapposizioni
+  // anche per chi ha il margine attivo. I due minuti sono costanti del
+  // server (mai un valore letto dalla colonna `minutiMarginePendolare`,
+  // che esiste solo a fini informativi): un'unica fonte di verità condivisa
+  // con `tolleranzaCheckIn`, non due copie che potrebbero divergere.
   const righeNoShow = await prisma.$queryRaw<{ id: string }[]>`
     SELECT id
     FROM "Prenotazione"
     WHERE stato = 'CONFERMATA'
-      AND (("data" + "oraInizio") AT TIME ZONE 'Europe/Rome') <= (${now}::timestamptz - interval '15 minutes')
+      AND (("data" + "oraInizio") AT TIME ZONE 'Europe/Rome') <= (
+        ${now}::timestamptz - (
+          CASE WHEN "marginePendolare"
+            THEN ${MARGINE_PENDOLARE_MINUTI}::int
+            ELSE ${TOLLERANZA_CHECK_IN_MINUTI}::int
+          END
+        ) * interval '1 minute'
+      )
   `;
 
   // Trova prenotazioni confermate con ora inizio passata da più di 15 minuti
@@ -762,12 +836,18 @@ export async function releaseNoShowReservations() {
     });
 
     // Notifica utente
+    // MARGINE PENDOLARE: il numero di minuti nel messaggio riflette la
+    // tolleranza REALMENTE applicata a QUESTA prenotazione (30 se aveva il
+    // margine pendolare attivo, 15 altrimenti) — la stessa che la query SQL
+    // qui sopra ha usato per selezionarla, tramite `tolleranzaCheckIn`
+    // (src/lib/prenotazioni-regole.ts). Un testo fisso a "15 minuti" sarebbe
+    // ora falso per chi aveva il margine attivo.
     await prisma.notifica.create({
       data: {
         userId: prenotazione.userId,
         tipo: TipoNotifica.ALERT,
         titolo: '❌ Prenotazione annullata per no-show',
-        messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome} è stata annullata perché non hai fatto check-in entro 15 minuti dall'orario di inizio.`,
+        messaggio: `La tua prenotazione per il posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome} è stata annullata perché non hai fatto check-in entro ${tolleranzaCheckIn(prenotazione)} minuti dall'orario di inizio.`,
         actionUrl: '/prenotazioni',
       },
     });
