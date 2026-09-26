@@ -30,6 +30,16 @@ vi.mock("@/lib/auth", () => ({
   AuthError: mocks.MockAuthError,
   requireUser: mocks.requireUser,
 }));
+// Questo file esercita la CONCORRENZA sulla creazione (vincolo DB, non il
+// rate limiting): fra i due `it` genera fino a 6+15=21 richieste reali verso
+// POST /api/prenotazioni, ben oltre le 10 ogni 30 minuti di
+// `bookingRateLimiter` — senza mock, dalla seconda `it` in poi alcune
+// richieste riceverebbero 429 invece di 201/409, falsando l'assunto del test
+// (esattamente una 201, le altre 409). Si mocka quindi `bookingRateLimiter`
+// per isolare il comportamento sotto test.
+vi.mock("@/lib/rate-limit", () => ({
+  bookingRateLimiter: vi.fn(() => null),
+}));
 
 const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_TEST_DATABASE_URL;
 assertTestDatabaseUrl(databaseUrl);
