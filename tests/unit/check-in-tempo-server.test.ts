@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => {
       prenotazione: { findUnique: vi.fn(), update: vi.fn() },
       posto: { update: vi.fn() },
     },
+    criticalApiRateLimiter: vi.fn(),
   };
 });
 
@@ -51,6 +52,12 @@ vi.mock("@/lib/auth", () => ({
   assertOwnership: mocks.assertOwnership,
 }));
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma, prisma: mocks.prisma }));
+// Il rate limiting non e' l'oggetto principale del resto di questo file: si
+// mocka per non far scattare 429 con le ripetute chiamate a route.POST nei
+// test M-2/Margine Pendolare qui sotto (e' testato a parte, vedi in fondo).
+vi.mock("@/lib/rate-limit", () => ({
+  criticalApiRateLimiter: mocks.criticalApiRateLimiter,
+}));
 
 type Route = typeof import("@/app/api/prenotazioni/[id]/check-in/route");
 let route: Route;
@@ -90,6 +97,9 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.requireUser.mockResolvedValue(user);
+  // `null` = "consentito" nel contratto dei rate limiter (vedi rate-limit.ts):
+  // per default nessun test qui e' sul rate limiting, quindi non blocca mai.
+  mocks.criticalApiRateLimiter.mockResolvedValue(null);
   mocks.prisma.prenotazione.findUnique.mockResolvedValue(prenotazione);
   mocks.prisma.prenotazione.update.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     ...prenotazione,
@@ -205,5 +215,34 @@ describe("Margine Pendolare · la finestra si estende a 30 minuti SOLO se margin
 
     expect(response.status).toBe(400);
     expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("Rate limiting · POST /api/prenotazioni/[id]/check-in usa criticalApiRateLimiter DOPO l'autenticazione", () => {
+  it("[TC-RL-CHECKIN-001] limite superato: 429 del limitatore, nessuna lettura della prenotazione", async () => {
+    const rispostaLimite = new Response(null, { status: 429 });
+    mocks.criticalApiRateLimiter.mockResolvedValue(rispostaLimite);
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-15T06:50:00.000Z"));
+
+    const response = await route.POST(request({}), params);
+
+    expect(response.status).toBe(429);
+    // Il limite scatta DOPO requireUser() ma PRIMA di qualunque lettura DB:
+    // un client che ha esaurito la quota non deve nemmeno far girare una
+    // query per la prenotazione altrui.
+    expect(mocks.requireUser).toHaveBeenCalledTimes(1);
+    expect(mocks.prisma.prenotazione.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("[TC-RL-CHECKIN-002] limite libero: la richiesta procede normalmente", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-15T06:50:00.000Z"));
+
+    const response = await route.POST(request({}), params);
+
+    expect(response.status).toBe(200);
+    expect(mocks.criticalApiRateLimiter).toHaveBeenCalledTimes(1);
   });
 });

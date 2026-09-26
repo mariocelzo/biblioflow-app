@@ -291,15 +291,28 @@ export const passwordResetRateLimiter = createRateLimiter({
  * Rate limiter STANDARD per API generiche
  * 100 richieste al minuto
  *
- * STATO ATTUALE (verificato con grep su tutto `src/`, settembre 2026): nessuna
- * route lo importa. Le route di sola lettura usano `readApiRateLimiter`
- * (300/min), quelle di scrittura/cancellazione usano `criticalApiRateLimiter`
- * o `staffCriticalApiRateLimiter` qui sotto. Non lo si rimuove perché resta
- * la scelta corretta per un futuro endpoint di scrittura "non critico" (che
- * cioè non cancella né modifica dati sensibili): usarlo direttamente eviterebbe
- * di inventare un quarto limitatore ad hoc. Se in futuro risultasse ancora
- * inutilizzato, andrebbe rimosso davvero: codice morto che "sembra" già
- * collegato è un rischio, non una comodità.
+ * STATO ATTUALE (RI-verificato con grep su tutto `src/`, settembre 2026,
+ * insieme al collegamento di `bookingRateLimiter`/`criticalApiRateLimiter`
+ * qui sotto): nessuna route lo importa ancora. Le route di sola lettura usano
+ * `readApiRateLimiter` (300/min), quelle di scrittura/cancellazione usano
+ * `criticalApiRateLimiter` o `staffCriticalApiRateLimiter` qui sotto.
+ *
+ * Questa riverifica ha anche trovato, con lo stesso grep, alcune route di
+ * scrittura ANCORA senza alcun limitatore (`POST /api/prenotazioni/[id]/estendi`,
+ * `POST /api/admin/scanner/validate`, `PATCH /api/admin/anomalie`, `POST
+ * /api/admin/utenti/[id]/notifica`): NESSUNA di queste è pero' il "futuro
+ * endpoint non critico" per cui `apiRateLimiter` è pensato — sono tutte
+ * operazioni critiche (estendono una prenotazione, effettuano un check-in,
+ * annullano prenotazioni in blocco, notificano un utente), quindi andrebbero
+ * semmai su `criticalApiRateLimiter`/`staffCriticalApiRateLimiter`. Collegarle
+ * è fuori dal perimetro di questa PR (che si limita a creazione prenotazione e
+ * check-in autonomo) ed è tracciato separatamente.
+ *
+ * Non lo si rimuove perché resta la scelta corretta per un futuro endpoint di
+ * scrittura "non critico" (che cioè non cancella né modifica dati sensibili):
+ * usarlo direttamente eviterebbe di inventare un quinto limitatore ad hoc. Se
+ * in futuro risultasse ancora inutilizzato, andrebbe rimosso davvero: codice
+ * morto che "sembra" già collegato è un rischio, non una comodità.
  */
 export const apiRateLimiter = createRateLimiter({
   max: 100,
@@ -373,6 +386,21 @@ export const staffCriticalApiRateLimiter = createRateLimiter({
 /**
  * Rate limiter per creazione prenotazioni
  * 10 prenotazioni ogni 30 minuti
+ *
+ * COLLEGATO A: POST /api/prenotazioni. Era dichiarato ma non collegato a
+ * nessuna route: la creazione di una prenotazione non aveva alcun limite,
+ * a differenza di check-in/check-out/cancellazione (`criticalApiRateLimiter`)
+ * e della lista d'attesa (`criticalApiRateLimiter` anche li').
+ *
+ * PERCHÉ 10 OGNI 30 MINUTI E NON DI MENO: un uso legittimo crea al più
+ * qualche prenotazione per sessione — anche contando chi sbaglia orario/sala e
+ * ricrea subito la richiesta dopo un errore di validazione (422) o un
+ * conflitto di disponibilità (409), che qui CONTANO comunque come tentativi
+ * (a differenza di `registrationRateLimiter`, questo limitatore non separa
+ * "verifica" da "conta": un ripensamento legittimo consuma un tentativo, ma
+ * dieci ne restano ampiamente sufficienti anche per diversi errori di fila).
+ * Il valore resta invece stretto contro uno script che tenti di intasare i
+ * posti disponibili creando prenotazioni a raffica.
  */
 export const bookingRateLimiter = createRateLimiter({
   max: 10,

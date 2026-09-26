@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { tolleranzaCheckIn, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 
 function errorResponse(error: unknown) {
   if (error instanceof AuthError) {
@@ -29,6 +30,16 @@ export async function POST(
 ) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione, stesso limitatore e stesso schema
+    // gia' usato dal case "check-in" della PATCH /api/prenotazioni/[id] (vedi
+    // quel file): sono due percorsi verso la STESSA azione critica, quindi
+    // devono condividere il limitatore invece di lasciare questo secondo
+    // percorso scoperto (prima lo era: nessun limite qui, mentre la PATCH ne
+    // aveva gia' uno).
+    const rateLimitResult = await criticalApiRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+
     const { id: prenotazioneId } = await context.params;
 
     // Hardening M-2 (audit sicurezza 2026-09-04): il body PUO' contenere un

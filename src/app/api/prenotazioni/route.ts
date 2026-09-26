@@ -7,7 +7,7 @@ import {
   creaPrenotazioneAtomica,
   PrenotazioneError,
 } from "@/lib/prenotazioni-service";
-import { readApiRateLimiter } from "@/lib/rate-limit";
+import { bookingRateLimiter, readApiRateLimiter } from "@/lib/rate-limit";
 
 function errorResponse(error: unknown, fallback: string) {
   if (error instanceof AuthError) {
@@ -117,6 +117,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione, stesso schema delle altre route
+    // critiche (vedi PATCH/DELETE /api/prenotazioni/[id], POST
+    // /api/prenotazioni/coda): autorizzare prima evita che un anonimo consumi
+    // la quota di qualcun altro (la chiave del limite e' l'IP, non l'utente);
+    // il limite stesso protegge l'account autenticato da chi tenta di creare
+    // prenotazioni a raffica (es. per intasare i posti disponibili). Dieci
+    // ogni 30 minuti (vedi bookingRateLimiter, src/lib/rate-limit.ts) resta
+    // ampio per l'uso legittimo, compreso chi sbaglia e ricrea subito una
+    // prenotazione: un utente reale ne crea al piu' un paio a sessione.
+    const rateLimitResult = await bookingRateLimiter(request);
+    if (rateLimitResult) return rateLimitResult;
+
     const body = await request.json();
     const {
       postoId,
