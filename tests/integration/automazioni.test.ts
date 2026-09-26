@@ -582,7 +582,7 @@ describe("BIB-47 · CA-05 — tracciabilità della promozione", RETRY_CONCORRENZ
     const notifica = await prisma.notifica.findFirstOrThrow({
       where: { userId: "bib47-u2", tipo: "CODA_PROMOZIONE" },
     });
-    expect(notifica.actionUrl).toBe(`/prenotazioni/${nuovaPren.id}`);
+    expect(notifica.actionUrl).toBe(`/prenotazioni?evidenzia=${nuovaPren.id}`);
 
     // Esiste un LogEvento CODA_PROMOZIONE con targetUserId = U2 e prenotazioneId = nuova prenotazione.
     const logPromozione = await prisma.logEvento.findMany({

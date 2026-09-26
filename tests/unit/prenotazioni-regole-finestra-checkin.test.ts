@@ -2,13 +2,19 @@
  * Test unitari per `valutaFinestraCheckIn` / `oraDbDaMinuti`
  * (src/lib/prenotazioni-regole.ts) — difetti "checkin-fuso-orario-troppo-
  * presto-sempre", "checkin-finestra-bypassata", "checkin-finestra-oraria-
- * sempre-aperta".
+ * sempre-aperta", e la finestra UNICA introdotta dopo il collaudo dal vivo
+ * di settembre 2026 (prima il check-in autonomo dello studente chiudeva
+ * esattamente all'inizio — tolleranza 0 — mentre lo scanner del
+ * bibliotecario concedeva 15 minuti dopo: uno studente arrivato, es., 5
+ * minuti in ritardo non poteva piu' fare check-in da solo pur restando
+ * "suo" il posto fino al rilascio no-show).
  *
  * PERCHE' QUESTO FILE: prima la finestra di check-in veniva ricostruita in
  * TRE punti diversi (POST /check-in, PATCH azione:"check-in", scanner
  * bibliotecario), con DUE bug distinti che condividevano la stessa causa —
  * trattare le cifre di Roma salvate in `oraInizio` come se fossero gia' UTC.
- * Questo file blinda l'unica implementazione condivisa che li sostituisce.
+ * Questo file blinda l'unica implementazione condivisa che li sostituisce,
+ * ORA con una tolleranza DOPO l'inizio identica per tutti e tre i chiamanti.
  *
  * REGOLA DEL PROGETTO PER I TEST SUL TEMPO: gira SEMPRE con
  * `process.env.TZ = "UTC"` (come il server su Vercel) e con un "adesso"
@@ -22,7 +28,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   ANTICIPO_CHECK_IN_MINUTI,
   oraDbDaMinuti,
-  TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+  TOLLERANZA_CHECK_IN_MINUTI,
   valutaFinestraCheckIn,
 } from "@/lib/prenotazioni-regole";
 
@@ -37,121 +43,167 @@ function oraDb(hh: number, mm: number): Date {
   return new Date(Date.UTC(1970, 0, 1, hh, mm));
 }
 
-describe("valutaFinestraCheckIn · ANTICIPO_CHECK_IN_MINUTI e' 15", () => {
-  it("[REGR] la costante condivisa vale 15 minuti", () => {
+describe("valutaFinestraCheckIn · costanti condivise", () => {
+  it("[REGR] ANTICIPO_CHECK_IN_MINUTI e TOLLERANZA_CHECK_IN_MINUTI valgono entrambe 15", () => {
     expect(ANTICIPO_CHECK_IN_MINUTI).toBe(15);
-    expect(TOLLERANZA_CHECK_IN_SCANNER_MINUTI).toBe(15);
+    expect(TOLLERANZA_CHECK_IN_MINUTI).toBe(15);
   });
 });
 
-describe("valutaFinestraCheckIn · ora legale (CEST, Roma = UTC+2, 15 giugno)", () => {
+/**
+ * Finestra UNICA: [-ANTICIPO_CHECK_IN_MINUTI, +TOLLERANZA_CHECK_IN_MINUTI)
+ * rispetto all'inizio, con la tolleranza passata ESPLICITAMENTE (come fanno
+ * i tre chiamanti reali) cosi' questi test restano validi anche se in futuro
+ * il default della funzione cambiasse.
+ *
+ * Punti di confine richiesti dal collaudo dal vivo:
+ *  -16  → rifiutato (troppo presto)
+ *  -15  → consentito (apertura esatta)
+ *    0  → consentito (esattamente all'inizio)
+ *  +10  → consentito
+ *  +15  → rifiutato ("scaduto"): e' lo STESSO istante in cui
+ *         `releaseNoShowReservations` (now() >= inizio + 15min, disuguaglianza
+ *         NON stretta) considera il posto gia' rilasciabile per no-show — non
+ *         deve esistere un istante in cui qui si direbbe "consentito" mentre
+ *         il posto e' gia' stato riassegnato altrove.
+ *  +16  → rifiutato (scaduto)
+ */
+describe("valutaFinestraCheckIn · finestra unica, ora legale (CEST, Roma = UTC+2, 15 giugno)", () => {
   // oraInizio "10:00" di Roma == 08:00 UTC reali, in giugno.
   const DATA = new Date(Date.UTC(2030, 5, 15));
   const ORA_INIZIO = oraDb(10, 0);
 
-  it("[TC-FIN-001] BUG STORICO: un istante ricostruito con Date.UTC() (senza offset Europe/Rome) avrebbe detto 'troppo presto' anche a slot gia' iniziato da 10 minuti reali — qui deve essere 'scaduto' (tolleranza 0), MAI 'troppo_presto'", () => {
-    // 08:10 UTC = 10:10 di Roma: 10 minuti REALI dopo l'inizio dichiarato
-    // (10:00 di Roma). Il difetto storico (Date.UTC(..., oraInizio.getUTCHours())
-    // senza offset) avrebbe qui risposto "troppo presto" perche' confrontava
-    // 08:10 UTC con un "inizio" ricostruito come 10:00 UTC (le cifre di Roma
-    // lette come se fossero gia' UTC): 08:10 < 10:00 → sempre "troppo presto",
-    // anche a slot ampiamente iniziato in orario REALE di Roma.
-    const adesso = new Date("2030-06-15T08:10:00.000Z");
-    const esito = valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso);
-    expect(esito).toEqual({ consentito: false, motivo: "scaduto", minutiRitardo: 10 });
-  });
-
-  it("[TC-FIN-002] 15 minuti PRIMA (apertura esatta della finestra): consentito", () => {
-    // 07:45 UTC = 09:45 di Roma.
-    const adesso = new Date("2030-06-15T07:45:00.000Z");
-    expect(valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso)).toEqual({ consentito: true });
-  });
-
-  it("[TC-FIN-003] 16 minuti prima: troppo presto (tolleranza 0 di default)", () => {
-    // 07:44 UTC = 09:44 di Roma.
-    const adesso = new Date("2030-06-15T07:44:00.000Z");
-    const esito = valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso);
-    expect(esito).toEqual({ consentito: false, motivo: "troppo_presto", minutiMancanti: 1 });
-  });
-
-  it("[TC-FIN-004] esattamente all'inizio: ancora consentito (chiude ALL'inizio, non prima)", () => {
-    const adesso = new Date("2030-06-15T08:00:00.000Z");
-    expect(valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso)).toEqual({ consentito: true });
-  });
-
-  it("[TC-FIN-005] 1 minuto dopo l'inizio: scaduto con tolleranza 0 (check-in autonomo)", () => {
-    const adesso = new Date("2030-06-15T08:01:00.000Z");
-    const esito = valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso);
-    expect(esito).toEqual({ consentito: false, motivo: "scaduto", minutiRitardo: 1 });
-  });
-
-  it("[TC-FIN-006] 1 minuto dopo l'inizio ma con la tolleranza dello SCANNER (15): ancora consentito", () => {
-    const adesso = new Date("2030-06-15T08:01:00.000Z");
-    const esito = valutaFinestraCheckIn(
-      DATA,
-      ORA_INIZIO,
-      adesso,
-      TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+  function esitoA(minutiDallInizio: number) {
+    const adesso = new Date(
+      Date.UTC(2030, 5, 15, 8, 0, 0) + minutiDallInizio * 60_000,
     );
-    expect(esito).toEqual({ consentito: true });
+    return valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso, TOLLERANZA_CHECK_IN_MINUTI);
+  }
+
+  it("[TC-FIN-001] -16 minuti: rifiutato (troppo presto)", () => {
+    expect(esitoA(-16)).toEqual({
+      consentito: false,
+      motivo: "troppo_presto",
+      minutiMancanti: 1,
+    });
   });
 
-  it("[TC-FIN-007] 16 minuti dopo l'inizio, anche con la tolleranza dello scanner: scaduto", () => {
-    const adesso = new Date("2030-06-15T08:16:00.000Z");
-    const esito = valutaFinestraCheckIn(
-      DATA,
-      ORA_INIZIO,
-      adesso,
-      TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
-    );
-    expect(esito).toEqual({ consentito: false, motivo: "scaduto", minutiRitardo: 16 });
+  it("[TC-FIN-002] -15 minuti (apertura esatta della finestra): consentito", () => {
+    expect(esitoA(-15)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-003] 0 minuti (esattamente all'inizio): consentito", () => {
+    expect(esitoA(0)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-004] +10 minuti: consentito", () => {
+    expect(esitoA(10)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-005] +15 minuti: rifiutato (scaduto) — confine coerente col rilascio no-show", () => {
+    expect(esitoA(15)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 15,
+    });
+  });
+
+  it("[TC-FIN-006] +16 minuti: rifiutato (scaduto)", () => {
+    expect(esitoA(16)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 16,
+    });
   });
 });
 
-describe("valutaFinestraCheckIn · ora solare (CET, Roma = UTC+1, 15 dicembre) — l'offset non e' fisso", () => {
+describe("valutaFinestraCheckIn · finestra unica, ora solare (CET, Roma = UTC+1, 15 dicembre) — l'offset non e' fisso", () => {
   // Stesse cifre di Roma ("10:00"), ma qui l'offset e' +1h, non +2h: se la
   // correzione avesse un offset scritto a mano, uno dei due describe fallirebbe.
   const DATA = new Date(Date.UTC(2030, 11, 15));
   const ORA_INIZIO = oraDb(10, 0);
 
-  it("[TC-FIN-008] con la tolleranza dello scanner (15), 10 minuti dopo l'inizio reale (09:00 UTC = 10:00 Roma, CET) e' ancora consentito", () => {
-    const adesso = new Date("2030-12-15T09:10:00.000Z");
-    const esito = valutaFinestraCheckIn(
-      DATA,
-      ORA_INIZIO,
-      adesso,
-      TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+  function esitoA(minutiDallInizio: number) {
+    // 10:00 di Roma (CET, +1h) = 09:00 UTC.
+    const adesso = new Date(
+      Date.UTC(2030, 11, 15, 9, 0, 0) + minutiDallInizio * 60_000,
     );
-    expect(esito).toEqual({ consentito: true });
+    return valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso, TOLLERANZA_CHECK_IN_MINUTI);
+  }
+
+  it("[TC-FIN-007] -16 minuti: rifiutato (troppo presto)", () => {
+    expect(esitoA(-16)).toEqual({
+      consentito: false,
+      motivo: "troppo_presto",
+      minutiMancanti: 1,
+    });
   });
 
-  it("[TC-FIN-009] 40 minuti dopo l'inizio reale, anche con la tolleranza dello scanner: scaduto (conferma che l'offset CET e' applicato correttamente, non ignorato)", () => {
-    const adesso = new Date("2030-12-15T09:40:00.000Z"); // 40 min dopo le 09:00 UTC reali
-    const esito = valutaFinestraCheckIn(
-      DATA,
-      ORA_INIZIO,
-      adesso,
-      TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
-    );
-    expect(esito).toEqual({ consentito: false, motivo: "scaduto", minutiRitardo: 40 });
+  it("[TC-FIN-008] -15 minuti: consentito", () => {
+    expect(esitoA(-15)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-009] 0 minuti: consentito", () => {
+    expect(esitoA(0)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-010] +10 minuti: consentito", () => {
+    expect(esitoA(10)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-011] +15 minuti: rifiutato (scaduto) — confine coerente col rilascio no-show", () => {
+    expect(esitoA(15)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 15,
+    });
+  });
+
+  it("[TC-FIN-012] +16 minuti: rifiutato (scaduto)", () => {
+    expect(esitoA(16)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 16,
+    });
+  });
+});
+
+describe("valutaFinestraCheckIn · default della funzione == TOLLERANZA_CHECK_IN_MINUTI", () => {
+  // oraInizio "10:00" di Roma == 08:00 UTC reali, in giugno (CEST).
+  const DATA = new Date(Date.UTC(2030, 5, 15));
+  const ORA_INIZIO = oraDb(10, 0);
+
+  it("[TC-FIN-013] senza passare tolleranzaDopoMinuti, +10 minuti e' comunque consentito (default = 15, non piu' 0)", () => {
+    const adesso = new Date("2030-06-15T08:10:00.000Z");
+    // Nessun 4° argomento: usa il default della funzione.
+    expect(valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso)).toEqual({ consentito: true });
+  });
+
+  it("[TC-FIN-014] senza passare tolleranzaDopoMinuti, +15 minuti e' comunque rifiutato (stesso confine dei chiamanti espliciti)", () => {
+    const adesso = new Date("2030-06-15T08:15:00.000Z");
+    expect(valutaFinestraCheckIn(DATA, ORA_INIZIO, adesso)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 15,
+    });
   });
 });
 
 describe("valutaFinestraCheckIn · giorno diverso da oggi (fuso Roma)", () => {
-  it("[TC-FIN-010] prenotazione di domani: sempre troppo presto, qualunque sia l'ora", () => {
+  it("[TC-FIN-015] prenotazione di domani: sempre troppo presto, qualunque sia l'ora", () => {
     const oggi = new Date(Date.UTC(2030, 5, 15));
     const domani = new Date(Date.UTC(2030, 5, 16));
     const adesso = new Date("2030-06-15T20:00:00.000Z"); // tarda sera, comunque "oggi"
-    const esito = valutaFinestraCheckIn(domani, oraDb(9, 0), adesso);
+    const esito = valutaFinestraCheckIn(domani, oraDb(9, 0), adesso, TOLLERANZA_CHECK_IN_MINUTI);
     expect(esito).toEqual({ consentito: false, motivo: "troppo_presto" });
     // sanity: `oggi` qui sopra non e' usato nell'asserzione ma documenta lo scenario.
     void oggi;
   });
 
-  it("[TC-FIN-011] prenotazione di ieri: sempre scaduta, qualunque sia l'ora", () => {
+  it("[TC-FIN-016] prenotazione di ieri: sempre scaduta, qualunque sia l'ora", () => {
     const ieri = new Date(Date.UTC(2030, 5, 14));
     const adesso = new Date("2030-06-15T06:00:00.000Z"); // presto al mattino, comunque "oggi"
-    const esito = valutaFinestraCheckIn(ieri, oraDb(9, 0), adesso);
+    const esito = valutaFinestraCheckIn(ieri, oraDb(9, 0), adesso, TOLLERANZA_CHECK_IN_MINUTI);
     expect(esito).toEqual({ consentito: false, motivo: "scaduto" });
   });
 });

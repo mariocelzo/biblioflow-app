@@ -4,6 +4,7 @@ import prisma from "@/lib/prisma";
 import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
 import { emitCodaPromozione } from "@/lib/realtime-events";
 import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
+import { actionUrlPrenotazione } from "@/lib/prenotazioni-regole";
 
 type PrenotazioneCancellata = {
   id: string;
@@ -160,7 +161,10 @@ async function promuoviDopoCancellazione(
       tipo: "CODA_PROMOZIONE",
       titolo: "🎉 Posto assegnato dalla lista d'attesa",
       messaggio: `Buone notizie: il posto ${prenotazione.posto.numero} si è liberato e la prenotazione è ora tua. Ricordati di fare il check-in nei tempi previsti per non perderla.`,
-      actionUrl: `/prenotazioni/${esito.prenotazioneId}`,
+      // Formato unico di link verso una prenotazione (vedi `actionUrlPrenotazione`
+      // in src/lib/prenotazioni-regole.ts): prima qui c'era `/prenotazioni/${id}`,
+      // una route inesistente sotto src/app/prenotazioni/ (404 al click).
+      actionUrl: actionUrlPrenotazione(esito.prenotazioneId),
       actionLabel: "Vedi prenotazione",
     },
   });

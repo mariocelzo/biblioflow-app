@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
 import { validateScannedQR } from "@/lib/qr-signature";
 import {
-  TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+  dataCorrenteBiblioteca,
+  TOLLERANZA_CHECK_IN_MINUTI,
   valutaFinestraCheckIn,
 } from "@/lib/prenotazioni-regole";
 
@@ -129,18 +130,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verifica che sia oggi
-    const oggi = new Date();
-    oggi.setHours(0, 0, 0, 0);
-    const dataPrenotazione = new Date(prenotazione.data);
-    dataPrenotazione.setHours(0, 0, 0, 0);
+    // L'istante di riferimento e' SEMPRE l'orologio del server, condiviso da
+    // entrambi i controlli qui sotto (giorno e finestra oraria).
+    const now = new Date();
 
-    if (dataPrenotazione.getTime() !== oggi.getTime()) {
+    // Verifica che sia oggi.
+    //
+    // BUG STORICO CORRETTO QUI (verificato dal vivo: fra mezzanotte e le 2 di
+    // Roma lo scanner sbagliava giorno): `new Date(); setHours(0,0,0,0)`
+    // azzera l'orario nel fuso LOCALE del PROCESSO (su Vercel/Node, UTC), non
+    // in quello della biblioteca. Fra le 00:00 e le ~02:00 di Roma (l'offset
+    // Europe/Rome e' ancora "domani" in UTC solo dopo mezzanotte UTC) il
+    // giorno civile di Roma era gia' cambiato ma `oggi` restava ancorato al
+    // giorno UTC precedente: una prenotazione di "oggi" (Roma) sembrava
+    // "domani" e veniva rifiutata come `wrong_date`. `dataCorrenteBiblioteca`
+    // (stessa funzione usata da `valutaFinestraCheckIn` per la finestra
+    // oraria qui sotto) calcola il giorno civile nel fuso Europe/Rome, non in
+    // quello del server.
+    const oggiBiblioteca = dataCorrenteBiblioteca(now);
+
+    if (prenotazione.data.getTime() !== oggiBiblioteca.getTime()) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: `La prenotazione è per il ${dataPrenotazione.toLocaleDateString("it-IT")}`, 
-          type: "wrong_date" 
+        {
+          success: false,
+          error: `La prenotazione è per il ${prenotazione.data.toLocaleDateString("it-IT", { timeZone: "UTC" })}`,
+          type: "wrong_date"
         },
         { status: 400 }
       );
@@ -159,12 +173,14 @@ export async function POST(request: NextRequest) {
     // (condivisa anche con gli endpoint di check-in lato studente, vedi
     // src/lib/prenotazioni-regole.ts) legge direttamente le cifre UTC
     // dell'oggetto Date e confronta sempre nel fuso della biblioteca.
-    const now = new Date();
+    //
+    // Finestra UNICA (collaudo dal vivo, settembre 2026): la stessa
+    // tolleranza DOPO l'inizio del check-in autonomo dello studente.
     const esito = valutaFinestraCheckIn(
       prenotazione.data,
       prenotazione.oraInizio,
       now,
-      TOLLERANZA_CHECK_IN_SCANNER_MINUTI,
+      TOLLERANZA_CHECK_IN_MINUTI,
     );
 
     if (!esito.consentito && esito.motivo === "troppo_presto") {

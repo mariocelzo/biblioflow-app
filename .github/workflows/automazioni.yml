@@ -1,0 +1,115 @@
+# ============================================================================
+# Scheduler delle automazioni (check-in, no-show, lista d'attesa) ogni 5 minuti
+# ----------------------------------------------------------------------------
+# PERCHE' QUESTO WORKFLOW ESISTE: in produzione il cron NATIVO di Vercel
+# (vercel.json, "0 9 * * *") gira UNA sola volta al giorno — limite del piano
+# Hobby, che consente un solo cron job giornaliero per progetto. Le tre
+# automazioni con soglie temporali strette non possono quindi essere puntuali:
+#   - promemoria di check-in "15 minuti prima" dell'inizio;
+#   - rilascio dei no-show "15 minuti dopo" l'inizio (releaseNoShowReservations);
+#   - scadenza/promozione della lista d'attesa (finestra di 15 minuti).
+# Con un solo giro al giorno, uno studente riceverebbe il promemoria con ore
+# di ritardo (o mai) e un posto non liberato per no-show resterebbe bloccato
+# fino al giorno dopo. Questo workflow invoca lo STESSO endpoint
+# (`GET /api/cron/automations`) ogni 5 minuti da GitHub Actions, così le
+# soglie a 15 minuti restano effettivamente rispettate. Legge
+# `src/app/api/cron/automations/route.ts`: la route espone sia GET sia POST
+# con lo stesso comportamento, ma POST è documentata come "endpoint
+# alternativo per test manuali" — le invocazioni automatiche/esterne usano GET.
+#
+# IDEMPOTENZA: l'endpoint è pensato per essere chiamato più volte ravvicinate
+# (da questo workflow ogni 5 minuti E, in sovrapposizione, dal cron
+# giornaliero di Vercel) senza doppie notifiche né doppi effetti — vedi
+# `src/lib/automation-service.ts`:
+#   - un lock transazionale Postgres (`pg_try_advisory_xact_lock` in
+#     `runAutomationsWithLock`, route.ts) fa sì che due invocazioni sovrapposte
+#     eseguano le automazioni una sola volta: la seconda si limita a rispondere
+#     "skipped" senza toccare il database (testato in
+#     tests/unit/cron-automations.test.ts, TC-BIB41-001/002/003);
+#   - ogni transizione di stato (rilascio no-show, scadenza promozione) è una
+#     query/updateMany con guardia sullo stato atteso: una run successiva che
+#     ritrova la riga già processata non ha alcun effetto (idempotenza anche
+#     SENZA sovrapposizione, testata in tests/integration/automazioni.test.ts,
+#     TC-BIB47-002/002b/006, e in tests/unit/automation-service.test.ts,
+#     TC-BIB44-003);
+#   - i promemoria di check-in deduplicano per PRENOTAZIONE (chiave: l'unico
+#     `actionUrl` della notifica, univoco per prenotazione — vedi
+#     `actionUrlPrenotazione` in src/lib/prenotazioni-regole.ts), non solo per
+#     giornata: un giro successivo non rispedisce lo stesso promemoria.
+# Nessun punto non idempotente trovato in fase di verifica per questa card:
+# la correzione qui è solo il workflow, non il codice applicativo.
+#
+# LIMITI NOTI DI UNO SCHEDULE GITHUB ACTIONS (documentazione ufficiale):
+#   - "schedule" può ritardare o SALTARE del tutto un'esecuzione nei momenti
+#     di carico elevato sull'infrastruttura GitHub: non è un cron garantito
+#     al minuto. Il cron giornaliero di Vercel resta quindi la RETE DI
+#     SICUREZZA che comunque libera i no-show rimasti bloccati e chiude le
+#     code scadute entro 24 ore, anche se questo workflow salta più run di
+#     fila;
+#   - su un repository PUBBLICO, GitHub disattiva automaticamente gli
+#     "schedule" trigger dopo 60 giorni SENZA alcuna attività sul repository
+#     (commit, PR, ecc.): se le esecuzioni programmate si interrompono senza
+#     preavviso, è la causa più probabile — riattivare con un push o
+#     riabilitando il workflow da Actions.
+#
+# CONFIGURAZIONE RICHIESTA (non automatizzata qui, va fatta a mano una volta):
+#   gh secret set CRON_SECRET
+# con lo STESSO valore già configurato su Vercel (env "CRON_SECRET" prod). Se
+# il secret manca, il job fallisce subito con un messaggio esplicito invece
+# di chiamare l'endpoint senza autorizzazione (l'endpoint risponderebbe
+# comunque 401, ma fallire prima rende la causa immediatamente leggibile nei
+# log di Actions, senza dover aprire la risposta HTTP).
+# ============================================================================
+
+name: Automazioni BiblioFlow
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  # Per lanciarlo a mano da Actions -> "Run workflow" (es. per verificare la
+  # configurazione del secret senza aspettare il prossimo tick).
+  workflow_dispatch: {}
+
+# Non accavallare due esecuzioni: se un giro è ancora in corso (es. l'endpoint
+# è lento a rispondere) i tick successivi restano in coda invece di partire in
+# parallelo. `cancel-in-progress: false` perché un'esecuzione in corso non va
+# mai interrotta a metà (potrebbe lasciare l'automazione a metà strada prima
+# che le sue transizioni di stato siano scritte) — è comunque innocuo se GitHub
+# ne accoda un'altra nel frattempo: il lock lato server (vedi sopra) la farebbe
+# comunque risultare "skipped" se dovesse sovrapporsi.
+concurrency:
+  group: automazioni-biblioflow
+  cancel-in-progress: false
+
+# Il job si limita a una chiamata HTTP verso un servizio esterno (Vercel):
+# non ha bisogno di alcun permesso sul repository.
+permissions: {}
+
+jobs:
+  automazioni:
+    name: invoca /api/cron/automations
+    runs-on: ubuntu-latest
+    # Basso apposta: la chiamata è una singola richiesta HTTP con un timeout
+    # interno (`--max-time` sotto) già ben più corto di questo tetto. Se il
+    # job supera comunque questo limite qualcosa si è bloccato a un livello
+    # più esterno (rete, runner) e va fatto fallire in fretta.
+    timeout-minutes: 2
+    # Il secret passa da una variabile d'ambiente del job e viene controllato
+    # nello shell: GitHub NON permette di usare il contesto `secrets` dentro una
+    # condizione `if:` (il file verrebbe rifiutato e lo scheduler non partirebbe
+    # mai, senza alcun errore visibile nelle esecuzioni).
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Chiama l'endpoint delle automazioni
+        run: |
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET non configurato nei secret del repository. Impostalo con: gh secret set CRON_SECRET (stesso valore della variabile d'ambiente CRON_SECRET su Vercel Production)."
+            exit 1
+          fi
+          curl --request GET \
+            --silent --show-error \
+            --fail-with-body \
+            --max-time 30 \
+            --header "Authorization: Bearer ${CRON_SECRET}" \
+            "https://biblioflow-app.vercel.app/api/cron/automations"

@@ -6,7 +6,7 @@ import {
   requireUser,
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+import { TOLLERANZA_CHECK_IN_MINUTI, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
 
 function errorResponse(error: unknown) {
   if (error instanceof AuthError) {
@@ -84,7 +84,17 @@ export async function POST(
     // Roma salvate in `oraInizio` come se fossero gia' UTC, senza applicare
     // l'offset Europe/Rome. `valutaFinestraCheckIn` confronta invece sempre
     // nel fuso della biblioteca (vedi src/lib/prenotazioni-regole.ts).
-    const esito = valutaFinestraCheckIn(prenotazione.data, prenotazione.oraInizio, now);
+    //
+    // Finestra UNICA (collaudo dal vivo, settembre 2026): la tolleranza DOPO
+    // l'inizio e' la STESSA dello scanner del bibliotecario, passata qui in
+    // modo esplicito invece di affidarsi al default della funzione — vedi il
+    // commento su `TOLLERANZA_CHECK_IN_MINUTI`.
+    const esito = valutaFinestraCheckIn(
+      prenotazione.data,
+      prenotazione.oraInizio,
+      now,
+      TOLLERANZA_CHECK_IN_MINUTI,
+    );
     if (!esito.consentito && esito.motivo === "scaduto") {
       return NextResponse.json(
         { success: false, error: "Il periodo di check-in è scaduto" },

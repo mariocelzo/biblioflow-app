@@ -154,7 +154,7 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
       data: expect.objectContaining({
         userId: promozione.prenotazione.userId,
         tipo: "CODA_PROMOZIONE",
-        actionUrl: `/prenotazioni/${promozione.prenotazione.id}`,
+        actionUrl: `/prenotazioni?evidenzia=${promozione.prenotazione.id}`,
       }),
     });
     expect(mocks.prisma.logEvento.create).toHaveBeenCalledWith({

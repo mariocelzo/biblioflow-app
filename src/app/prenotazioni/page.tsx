@@ -8,9 +8,9 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Header } from "@/components/layout/header";
 import { BackButton } from "@/components/ui/back-button";
@@ -29,6 +29,11 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formattaOraDb, formattaDataDb } from "@/lib/tempo-db";
+import {
+  QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA,
+  TOLLERANZA_CHECK_IN_MINUTI,
+  valutaFinestraCheckIn,
+} from "@/lib/prenotazioni-regole";
 import {
   Calendar,
   Clock,
@@ -68,15 +73,27 @@ interface Prenotazione {
   };
 }
 
-export default function PrenotazioniPage() {
+function PrenotazioniContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  
+  const searchParams = useSearchParams();
+
   const [prenotazioni, setPrenotazioni] = useState<Prenotazione[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogCancellaAperto, setDialogCancellaAperto] = useState(false);
   const [prenotazioneDaCancellare, setPrenotazioneDaCancellare] = useState<string | null>(null);
   const [operazioneInCorso, setOperazioneInCorso] = useState(false);
+
+  // "Adesso" aggiornato periodicamente (non solo al primo render): la
+  // finestra di check-in dipende dal tempo che passa, non solo dal
+  // caricamento della pagina. Senza questo tick uno studente che tiene la
+  // pagina aperta da prima dell'apertura della finestra (-15 minuti) non
+  // vedrebbe mai comparire il pulsante senza ricaricare manualmente.
+  const [adesso, setAdesso] = useState(() => new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setAdesso(new Date()), 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Redirect se non autenticato
   useEffect(() => {
@@ -84,6 +101,17 @@ export default function PrenotazioniPage() {
       router.push("/login?callbackUrl=/prenotazioni");
     }
   }, [status, router]);
+
+  // Prenotazione da evidenziare/scorrere in vista, quando l'utente arriva da
+  // un link di notifica (promemoria check-in, promozione dalla lista
+  // d'attesa...): vedi `actionUrlPrenotazione` in
+  // src/lib/prenotazioni-regole.ts, unico produttore di questo link. Se l'id
+  // non corrisponde piu' a nessuna prenotazione dell'utente (es. e' stata nel
+  // frattempo cancellata) semplicemente non succede nulla: nessun errore.
+  const prenotazioneEvidenziataId = searchParams.get(QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA);
+  const [tabAttiva, setTabAttiva] = useState<"attive" | "passate">("attive");
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const evidenziataScrollataRef = useRef(false);
 
   // Carica prenotazioni
   useEffect(() => {
@@ -117,6 +145,38 @@ export default function PrenotazioniPage() {
   const prenotazioniPassate = prenotazioni.filter(
     (p) => ["COMPLETATA", "CANCELLATA", "NO_SHOW"].includes(p.stato)
   );
+
+  // Una volta caricate le prenotazioni, se l'URL punta a una prenotazione
+  // specifica (`?evidenzia=<id>`) selezioniamo la tab che la contiene e ci
+  // scorriamo sopra. Gira una sola volta per caricamento pagina
+  // (`evidenziataScrollataRef`): senza guardia, ogni tick del "now" qui sopra
+  // (che non tocca `prenotazioni`) non la ririggirerebbe comunque, ma teniamo
+  // la guardia esplicita per non ri-scrollare se l'utente ha gia' cambiato
+  // tab manualmente.
+  useEffect(() => {
+    if (!prenotazioneEvidenziataId || loading || evidenziataScrollataRef.current) return;
+
+    const inAttive = prenotazioniAttive.some((p) => p.id === prenotazioneEvidenziataId);
+    const inPassate = prenotazioniPassate.some((p) => p.id === prenotazioneEvidenziataId);
+    // Non e' (piu') nella lista dell'utente: nessun errore, semplicemente
+    // niente da evidenziare (es. prenotazione di un altro utente, o link
+    // ormai stantio).
+    if (!inAttive && !inPassate) return;
+
+    if (inAttive) setTabAttiva("attive");
+    else setTabAttiva("passate");
+
+    evidenziataScrollataRef.current = true;
+    // Rimanda lo scroll al prossimo tick: la card della tab appena attivata
+    // deve prima montarsi nel DOM.
+    const timeout = setTimeout(() => {
+      cardRefs.current[prenotazioneEvidenziataId]?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+    }, 100);
+    return () => clearTimeout(timeout);
+  }, [prenotazioneEvidenziataId, loading, prenotazioniAttive, prenotazioniPassate]);
 
   // Check-in
   const handleCheckIn = async (prenotazioneId: string) => {
@@ -256,15 +316,45 @@ export default function PrenotazioniPage() {
   const PrenotazioneCard = ({ prenotazione }: { prenotazione: Prenotazione }) => {
     const isAttiva = ["IN_ATTESA", "CONFERMATA"].includes(prenotazione.stato);
     const isInCorso = prenotazione.stato === "CHECK_IN";
-    const puoFareCheckIn = prenotazione.stato === "CONFERMATA";
-    
+
+    // Il pulsante di check-in compare/si abilita SOLO nella stessa finestra
+    // che il server applica davvero (POST /api/prenotazioni/[id]/check-in,
+    // PATCH azione "check-in"): da ANTICIPO_CHECK_IN_MINUTI prima a
+    // TOLLERANZA_CHECK_IN_MINUTI dopo l'inizio, calcolata SEMPRE nel fuso di
+    // Roma con gli helper di prenotazioni-regole.ts — mai con un confronto
+    // `new Date()` locale, che userebbe il fuso del browser dell'utente,
+    // sbagliato quanto quello (gia' corretto) del server. `adesso` e' lo
+    // stato che tiene la pagina, aggiornato ogni 30s (vedi sopra): senza,
+    // il pulsante comparirebbe solo al prossimo refresh manuale.
+    const esitoCheckIn = prenotazione.stato === "CONFERMATA"
+      ? valutaFinestraCheckIn(
+          new Date(prenotazione.data),
+          new Date(prenotazione.oraInizio),
+          adesso,
+          TOLLERANZA_CHECK_IN_MINUTI,
+        )
+      : null;
+    const puoFareCheckIn = esitoCheckIn?.consentito === true;
+    const isEvidenziata = prenotazione.id === prenotazioneEvidenziataId;
+
     const cardAriaLabel = `Prenotazione posto ${prenotazione.posto.numero} in ${prenotazione.posto.sala.nome},
       ${formatData(prenotazione.data)} dalle ${formatOra(prenotazione.oraInizio)} alle ${formatOra(prenotazione.oraFine)},
       stato: ${prenotazione.stato.replace('_', ' ').toLowerCase()}`;
-    
+
     return (
-      <Card 
-        className={isInCorso ? "border-green-500 border-2" : ""}
+      <div
+        ref={(el) => {
+          cardRefs.current[prenotazione.id] = el;
+        }}
+      >
+      <Card
+        className={
+          isEvidenziata
+            ? "border-primary border-2 ring-2 ring-primary ring-offset-2"
+            : isInCorso
+              ? "border-green-500 border-2"
+              : ""
+        }
         role="article"
         aria-label={cardAriaLabel}
       >
@@ -298,6 +388,19 @@ export default function PrenotazioniPage() {
             {/* Badge stato */}
             {getStatoBadge(prenotazione.stato)}
           </div>
+
+          {/* Testo che spiega perche' il pulsante di check-in non c'e' ancora
+              (o non c'e' piu'): stessa finestra del server, stesso motivo
+              ("troppo_presto" / "scaduto") restituito da valutaFinestraCheckIn. */}
+          {esitoCheckIn && !esitoCheckIn.consentito && (
+            <p className="text-xs text-muted-foreground mt-2">
+              {esitoCheckIn.motivo === "troppo_presto"
+                ? esitoCheckIn.minutiMancanti !== undefined
+                  ? `Check-in disponibile fra ${esitoCheckIn.minutiMancanti} minuti`
+                  : "Check-in non ancora disponibile"
+                : "Check-in scaduto: il posto verrà rilasciato automaticamente"}
+            </p>
+          )}
 
           {/* Azioni */}
           {(isAttiva || isInCorso) && (
@@ -357,6 +460,7 @@ export default function PrenotazioniPage() {
           )}
         </CardContent>
       </Card>
+      </div>
     );
   };
 
@@ -402,7 +506,11 @@ export default function PrenotazioniPage() {
         </div>
 
         {/* Tabs */}
-        <Tabs defaultValue="attive" className="space-y-4">
+        <Tabs
+          value={tabAttiva}
+          onValueChange={(value) => setTabAttiva(value as "attive" | "passate")}
+          className="space-y-4"
+        >
           <TabsList>
             <TabsTrigger value="attive" className="flex items-center gap-2">
               <Calendar className="h-4 w-4" />
@@ -500,5 +608,30 @@ export default function PrenotazioniPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// `useSearchParams` (per il link `?evidenzia=<id>`) richiede un confine di
+// Suspense per non forzare tutta la pagina al rendering dinamico — stesso
+// pattern gia' usato in src/app/verifica-email/page.tsx.
+export default function PrenotazioniPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-background">
+          <Header />
+          <main className="container mx-auto px-4 py-6">
+            <Skeleton className="h-8 w-64 mb-6" />
+            <div className="space-y-4">
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+              <Skeleton className="h-32" />
+            </div>
+          </main>
+        </div>
+      }
+    >
+      <PrenotazioniContent />
+    </Suspense>
   );
 }

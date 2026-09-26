@@ -120,18 +120,36 @@ export function minutiCorrentiBiblioteca(adesso: Date): number {
 export const ANTICIPO_CHECK_IN_MINUTI = 15;
 
 /**
- * Minuti di tolleranza DOPO l'inizio concessi dallo SCANNER del
- * bibliotecario prima di considerare il check-in "scaduto" e annullare la
- * prenotazione come NO_SHOW. Testo promesso in
+ * Minuti di tolleranza DOPO l'inizio entro cui il check-in resta consentito,
+ * PRIMA di essere considerato "scaduto". Decisione di prodotto (collaudo
+ * dal vivo, settembre 2026): finestra UNICA per tutti i percorsi di check-in
+ * — studente autonomo (POST /api/prenotazioni/[id]/check-in, PATCH
+ * /api/prenotazioni/[id] azione "check-in") e scanner del bibliotecario
+ * (/api/admin/scanner/validate) — da ANTICIPO_CHECK_IN_MINUTI prima a
+ * TOLLERANZA_CHECK_IN_MINUTI dopo l'inizio.
+ *
+ * PRIMA lo studente autonomo aveva tolleranza 0 (si chiudeva esattamente
+ * all'inizio) mentre lo scanner ne concedeva 15: uno studente che arrivava,
+ * es., 5 minuti dopo l'inizio non poteva piu' fare check-in da solo — doveva
+ * per forza passare dal bibliotecario — pur restando "suo" il posto fino al
+ * rilascio no-show (15 minuti dopo, vedi releaseNoShowReservations in
+ * src/lib/automation-service.ts). Testo promesso in
  * src/app/admin/scanner/page.tsx: "Il check-in può essere effettuato da 15
- * min prima fino a 15 min dopo l'inizio". Il check-in AUTONOMO dello
- * studente (POST/PATCH) non concede questa tolleranza: si chiude esattamente
- * all'orario di inizio (tolleranza 0, il valore di default di
- * `valutaFinestraCheckIn`) — lo studente resta CONFERMATA fino al passaggio
- * del cron di rilascio no-show, che applica la propria soglia sul database
- * (vedi releaseNoShowReservations in src/lib/automation-service.ts).
+ * min prima fino a 15 min dopo l'inizio" — ora vero anche per il check-in
+ * autonomo.
+ *
+ * CONFINE ALLINEATO AL NO-SHOW: `releaseNoShowReservations` libera il posto
+ * con la condizione NON stretta `now() >= inizio + 15 minuti` (vedi il
+ * commento su quella funzione): al minuto esatto +15 il posto e' GIA'
+ * rilasciabile. Perche' non esista un istante in cui il check-in e' ancora
+ * ammesso E il posto e' gia' stato rilasciato, la finestra di check-in deve
+ * essere gia' CHIUSA in quello stesso istante: "consentito" richiede quindi
+ * la disuguaglianza STRETTA `minutiAttuali < oraInizio +
+ * TOLLERANZA_CHECK_IN_MINUTI` (equivalente a "scaduto" da `minutiAttuali >=
+ * chiusura`, vedi sotto). Le due regole si toccano al minuto +15 senza
+ * sovrapporsi: il check-in e' gia' chiuso qui, il posto viene liberato la'.
  */
-export const TOLLERANZA_CHECK_IN_SCANNER_MINUTI = 15;
+export const TOLLERANZA_CHECK_IN_MINUTI = 15;
 
 /** Esito di `valutaFinestraCheckIn`. */
 export type EsitoFinestraCheckIn =
@@ -173,15 +191,18 @@ export type EsitoFinestraCheckIn =
  * @param adesso istante reale corrente — SEMPRE l'orologio del server, mai
  *        un valore fornito dal client (hardening M-2, audit 2026-09-04).
  * @param tolleranzaDopoMinuti minuti di grazia DOPO l'inizio prima che la
- *        finestra sia "scaduta". Default 0 (check-in autonomo: chiude
- *        esattamente all'inizio). Lo scanner passa
- *        `TOLLERANZA_CHECK_IN_SCANNER_MINUTI`.
+ *        finestra sia "scaduta". Default `TOLLERANZA_CHECK_IN_MINUTI` (15):
+ *        i tre chiamanti (POST check-in, PATCH check-in, scanner) la passano
+ *        comunque in modo esplicito, cosi' un quarto chiamante futuro che
+ *        dimenticasse l'argomento otterrebbe comunque la finestra corretta
+ *        invece di richiudersi silenziosamente all'inizio (vedi il
+ *        commento su `TOLLERANZA_CHECK_IN_MINUTI`).
  */
 export function valutaFinestraCheckIn(
   dataPrenotazione: Date,
   oraInizio: Date,
   adesso: Date,
-  tolleranzaDopoMinuti = 0,
+  tolleranzaDopoMinuti = TOLLERANZA_CHECK_IN_MINUTI,
 ): EsitoFinestraCheckIn {
   const oggiBiblioteca = dataCorrenteBiblioteca(adesso);
   const minutiAttuali = minutiCorrentiBiblioteca(adesso);
@@ -209,7 +230,14 @@ export function valutaFinestraCheckIn(
       minutiMancanti: aperturaMinuti - minutiAttuali,
     };
   }
-  if (minutiAttuali > chiusuraMinuti) {
+  // Disuguaglianza NON stretta (`>=`, non `>`): al minuto esatto della
+  // chiusura (oraInizio + tolleranzaDopoMinuti) il check-in e' GIA' scaduto.
+  // E' l'esatto confine su cui `releaseNoShowReservations` (con la propria
+  // disuguaglianza NON stretta sul lato opposto, `now() >= inizio + 15min`)
+  // libera il posto: senza questa scelta esisterebbe un istante — il minuto
+  // +15 esatto — in cui qui si direbbe ancora "consentito" mentre il posto e'
+  // gia' stato riassegnato come no-show altrove.
+  if (minutiAttuali >= chiusuraMinuti) {
     return {
       consentito: false,
       motivo: "scaduto",
@@ -234,6 +262,41 @@ export function oraDbDaMinuti(minuti: number): Date {
   return new Date(
     Date.UTC(1970, 0, 1, Math.floor(minutiNormalizzati / 60), minutiNormalizzati % 60),
   );
+}
+
+/**
+ * Nome del query param con cui `/prenotazioni` (src/app/prenotazioni/page.tsx)
+ * riconosce quale prenotazione evidenziare/scorrere in vista quando l'utente
+ * arriva da un link di notifica (promemoria check-in, promozione dalla lista
+ * d'attesa, ecc.).
+ */
+export const QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA = "evidenzia";
+
+/**
+ * Unico costruttore del link verso una prenotazione specifica, usato da
+ * TUTTI i produttori di notifiche/eventi che devono puntare a UNA
+ * prenotazione (src/lib/automation-service.ts per il promemoria check-in e
+ * per la notifica CODA_PROMOZIONE, src/lib/realtime-events.ts per l'evento
+ * realtime di promozione, src/app/api/admin/prenotazioni/route.ts per la
+ * promozione innescata dal personale).
+ *
+ * PRIMA questi produttori usavano formati DIVERSI e inconsistenti: alcuni
+ * `/prenotazioni/${id}` (una route che non esiste: sotto src/app/prenotazioni/
+ * c'e' solo la pagina lista, nessuna `[id]/page.tsx` — click a vuoto, 404),
+ * altri gia' corretti in `/prenotazioni?checkIn=${id}` (PR #79) ma con un
+ * query param che la pagina lista non leggeva comunque. Ora TUTTI producono
+ * lo stesso formato, che la pagina SA gestire (evidenzia la card e ci scorre
+ * sopra; se la prenotazione non e' piu' nella lista dell'utente, es. perche'
+ * nel frattempo e' stata cancellata, la pagina non genera alcun errore).
+ *
+ * L'id della prenotazione resta nell'URL (query string), quindi il risultato
+ * e' univoco per prenotazione: `sendCheckInReminders` in
+ * src/lib/automation-service.ts usa questo stesso valore come chiave di
+ * deduplicazione "un promemoria per prenotazione, non per utente" — un
+ * `actionUrl` uguale per piu' prenotazioni romperebbe quella deduplicazione.
+ */
+export function actionUrlPrenotazione(prenotazioneId: string): string {
+  return `/prenotazioni?${QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA}=${prenotazioneId}`;
 }
 
 /**

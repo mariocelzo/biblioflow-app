@@ -7,7 +7,7 @@ import {
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { criticalApiRateLimiter } from "@/lib/rate-limit";
-import { valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+import { TOLLERANZA_CHECK_IN_MINUTI, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
 // La promozione dalla lista d'attesa NON viene reimplementata qui: si
 // riusano gli helper gia' pronti di automation-service.ts (che a loro volta
 // invocano `promuoviPrimoInCoda`, la funzione di dominio transazionale e
@@ -191,8 +191,17 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         // risultava sempre "troppo presto". `valutaFinestraCheckIn` (condivisa
         // anche con l'endpoint dedicato e con lo scanner bibliotecario)
         // confronta invece sempre nel fuso della biblioteca.
+        //
+        // Finestra UNICA (collaudo dal vivo, settembre 2026): stessa
+        // tolleranza DOPO l'inizio dell'endpoint dedicato e dello scanner,
+        // passata qui in modo esplicito (vedi TOLLERANZA_CHECK_IN_MINUTI).
         const adesso = new Date();
-        const esito = valutaFinestraCheckIn(prenotazione.data, prenotazione.oraInizio, adesso);
+        const esito = valutaFinestraCheckIn(
+          prenotazione.data,
+          prenotazione.oraInizio,
+          adesso,
+          TOLLERANZA_CHECK_IN_MINUTI,
+        );
 
         if (!esito.consentito && esito.motivo === "scaduto") {
           return NextResponse.json(
