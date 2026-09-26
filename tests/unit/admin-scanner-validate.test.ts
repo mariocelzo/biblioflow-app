@@ -263,6 +263,55 @@ describe("finestra di check-in +-15 minuti (difetto: la finestra era sempre igno
   });
 });
 
+// Margine Pendolare: lo scanner del bibliotecario usa la STESSA
+// `tolleranzaCheckIn` (src/lib/prenotazioni-regole.ts) del check-in autonomo,
+// quindi una prenotazione con `marginePendolare: true` deve accettare fino a
+// 30 minuti di ritardo invece dei 15 normali — con lo stesso confine.
+describe("Margine Pendolare · lo scanner estende la finestra a 30 minuti quando marginePendolare e' vero", () => {
+  it("[TC-MP-SCAN-001] marginePendolare:true, 20 minuti di ritardo: check-in riuscito (oltre i 15 normali)", async () => {
+    const prenotazione = prenotazioneDiOggi(oraInizioRomaMenoMinuti(20), {
+      marginePendolare: true,
+    });
+
+    mocks.validateScannedQR.mockReturnValue({
+      valid: true,
+      payload: { prenotazioneId: prenotazione.id, userId: prenotazione.userId },
+    });
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue(prenotazione);
+    mocks.prisma.prenotazione.update.mockResolvedValue({ ...prenotazione, stato: "CHECK_IN" });
+
+    const res = await route.POST(request("qr-valido"));
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(mocks.prisma.prenotazione.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stato: "CHECK_IN" }) })
+    );
+  });
+
+  it("[TC-MP-SCAN-002] marginePendolare:true, 30 minuti esatti di ritardo (confine): scaduto, come TC-TOL-004", async () => {
+    const prenotazione = prenotazioneDiOggi(oraInizioRomaMenoMinuti(30), {
+      marginePendolare: true,
+    });
+
+    mocks.validateScannedQR.mockReturnValue({
+      valid: true,
+      payload: { prenotazioneId: prenotazione.id, userId: prenotazione.userId },
+    });
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue(prenotazione);
+
+    const res = await route.POST(request("qr-valido"));
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.type).toBe("too_late");
+    expect(mocks.prisma.prenotazione.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ stato: "NO_SHOW" }) }),
+    );
+  });
+});
+
 // Difetto "checkin-bypassa-manutenzione": il check-in riusciva anche su un
 // posto in MANUTENZIONE, sovrascrivendo silenziosamente il flag con OCCUPATO.
 describe("posto in MANUTENZIONE (difetto: il check-in lo sovrascriveva con OCCUPATO)", () => {

@@ -36,6 +36,7 @@ export {
 import {
   DURATA_MASSIMA_PRENOTAZIONE_MINUTI,
   DURATA_MINIMA_PRENOTAZIONE_MINUTI,
+  MARGINE_PENDOLARE_MINUTI,
   dataCorrenteBiblioteca,
   minutiCorrentiBiblioteca,
   orarioInMinuti,
@@ -130,8 +131,14 @@ export type Sovrapposizioni = {
 export type CreaPrenotazioneAtomicaInput = IntervalloInput & {
   userId: string;
   postoId: string;
+  // Preferenza del CLIENTE ("vorrei il margine pendolare"), non una verita':
+  // `creaPrenotazioneNellaTransazione` la concede solo se `User.isPendolare`
+  // e' vero SUL DATABASE (mai fidandosi di questo booleano da solo). Niente
+  // `minutiMarginePendolare` qui: i minuti sono SEMPRE `MARGINE_PENDOLARE_MINUTI`
+  // (src/lib/prenotazioni-regole.ts) — un valore dal client permetterebbe una
+  // finestra di check-in arbitrariamente lunga (vedi il commento su quella
+  // costante).
   marginePendolare?: boolean;
-  minutiMarginePendolare?: number;
   note?: string | null;
 };
 
@@ -534,6 +541,33 @@ async function creaPrenotazioneNellaTransazione(
 
   validaPrenotazione({ ...input, posto, prenotazioniEsistenti });
 
+  // Il margine pendolare vale SOLO se l'utente e' pendolare secondo il
+  // DATABASE, mai secondo il body della richiesta: la sessione (JWT) puo'
+  // essere fino a `INTERVALLO_RIVALIDAZIONE_JWT_MS` (60s) o anche piu' vecchia
+  // sul campo `isPendolare` — quel callback di rivalidazione in
+  // src/lib/auth.ts rilegge solo `attivo`/`ruolo`, MAI `isPendolare` — quindi
+  // uno studente che disattiva "pendolare" dal profilo resterebbe pendolare
+  // agli occhi del suo token fino al prossimo login. Per lo stesso motivo un
+  // client (o chiunque chiami l'API direttamente) non puo' semplicemente
+  // dichiarare `marginePendolare: true` per un account che non lo e' davvero.
+  //
+  // La query e' condizionata a `input.marginePendolare` per non pagare una
+  // SELECT extra su OGNI creazione (la stragrande maggioranza delle
+  // prenotazioni non richiede il margine): quando il client non lo chiede,
+  // il risultato e' comunque `false`, quindi la lettura sarebbe superflua.
+  // Questo lascia anche invariato il comportamento di `promuoviPrimoInCoda`
+  // (che invoca questa funzione per la promozione da coda SENZA passare
+  // `marginePendolare`): niente lettura extra, niente margine — corretto,
+  // dato che la promozione non e' un'azione volontaria dell'utente pendolare.
+  let marginePendolareEffettivo = false;
+  if (input.marginePendolare) {
+    const utente = await tx.user.findUnique({
+      where: { id: input.userId },
+      select: { isPendolare: true },
+    });
+    marginePendolareEffettivo = utente?.isPendolare ?? false;
+  }
+
   return tx.prenotazione.create({
     data: {
       userId: input.userId,
@@ -541,8 +575,11 @@ async function creaPrenotazioneNellaTransazione(
       data: intervallo.data,
       oraInizio,
       oraFine,
-      marginePendolare: input.marginePendolare ?? false,
-      minutiMarginePendolare: input.minutiMarginePendolare ?? 30,
+      marginePendolare: marginePendolareEffettivo,
+      // Costante server, MAI dal client (vedi MARGINE_PENDOLARE_MINUTI in
+      // src/lib/prenotazioni-regole.ts): un valore arbitrario qui darebbe una
+      // finestra di check-in di durata a piacere di chi chiama l'API.
+      minutiMarginePendolare: MARGINE_PENDOLARE_MINUTI,
       note: input.note ?? null,
     },
   });

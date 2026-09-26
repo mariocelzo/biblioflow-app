@@ -123,8 +123,15 @@ export async function POST(request: NextRequest) {
       data,
       oraInizio,
       oraFine,
+      // NOTA (Margine Pendolare): `marginePendolare` qui e' solo la
+      // PREFERENZA del client ("vorrei il margine"). Il server la concede
+      // solo se `User.isPendolare` e' vero sul DATABASE — vedi
+      // `creaPrenotazioneNellaTransazione` in prenotazioni-service.ts. Niente
+      // `minutiMarginePendolare` dal body: i minuti sono SEMPRE la costante
+      // server `MARGINE_PENDOLARE_MINUTI` (src/lib/prenotazioni-regole.ts),
+      // altrimenti chiunque chiami questa API direttamente potrebbe darsi una
+      // finestra di check-in lunga a piacere.
       marginePendolare,
-      minutiMarginePendolare,
       note,
     } = body;
 
@@ -149,7 +156,6 @@ export async function POST(request: NextRequest) {
         oraInizio,
         oraFine,
         marginePendolare,
-        minutiMarginePendolare,
         note,
       },
       prisma,

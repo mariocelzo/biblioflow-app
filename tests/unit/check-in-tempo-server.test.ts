@@ -58,6 +58,9 @@ let route: Route;
 const user = { id: "studente-1", ruolo: "STUDENTE" as const };
 
 // Prenotazione con slot 09:00–11:00 del 2030-06-15 (Date @db.Date / @db.Time).
+// `marginePendolare: false` esplicito: questa prenotazione usa la finestra
+// NORMALE (15 min dopo l'inizio) — il margine pendolare (30 min) è coperto a
+// parte piu' sotto (describe "Margine Pendolare").
 const prenotazione = {
   id: "pren-1",
   userId: user.id,
@@ -66,6 +69,7 @@ const prenotazione = {
   oraInizio: new Date("1970-01-01T09:00:00.000Z"),
   oraFine: new Date("1970-01-01T11:00:00.000Z"),
   stato: "CONFERMATA",
+  marginePendolare: false,
   user,
   posto: { id: "posto-1", numero: "A1", sala: { nome: "Sala", piano: 1 } },
 };
@@ -150,6 +154,54 @@ describe("M-2 · il check-in usa il tempo del server, non del client", () => {
       request({ timestamp: "2030-06-15T06:50:00.000Z" }),
       params,
     );
+
+    expect(response.status).toBe(400);
+    expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("Margine Pendolare · la finestra si estende a 30 minuti SOLO se marginePendolare e' vero sulla riga", () => {
+  it("[TC-MP-CHECKIN-001] marginePendolare:true — +20 minuti dall'inizio (oltre i 15 normali): check-in riuscito", async () => {
+    // Ora server: 07:20Z = 09:20 di Roma → +20 minuti dall'inizio (09:00).
+    // Con la finestra NORMALE (15) sarebbe gia' scaduta; col margine (30) no.
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue({
+      ...prenotazione,
+      marginePendolare: true,
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-15T07:20:00.000Z"));
+
+    const response = await route.POST(request({}), params);
+
+    expect(response.status).toBe(200);
+    expect(mocks.prisma.prenotazione.update).toHaveBeenCalledTimes(1);
+  });
+
+  it("[TC-MP-CHECKIN-002] marginePendolare:false — stessi +20 minuti: check-in scaduto (400)", async () => {
+    // Stessa prenotazione, stesso orario, ma SENZA margine: qui la finestra
+    // normale (15) e' gia' chiusa. Dimostra che l'estensione dipende
+    // davvero da `marginePendolare`, non da un default piu' permissivo.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-15T07:20:00.000Z"));
+
+    const response = await route.POST(request({}), params);
+
+    expect(response.status).toBe(400);
+    expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();
+  });
+
+  it("[TC-MP-CHECKIN-003] marginePendolare:true — +30 minuti esatti (confine): check-in scaduto (400)", async () => {
+    // Stesso confine di TC-TOL-004 (prenotazioni-regole-finestra-checkin.test.ts):
+    // al minuto esatto +30 la finestra e' GIA' chiusa, coerente col rilascio
+    // no-show che a quello stesso istante considera il posto rilasciabile.
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue({
+      ...prenotazione,
+      marginePendolare: true,
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-15T07:30:00.000Z"));
+
+    const response = await route.POST(request({}), params);
 
     expect(response.status).toBe(400);
     expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();

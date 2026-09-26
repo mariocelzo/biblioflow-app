@@ -6,7 +6,7 @@ import {
   requireUser,
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { TOLLERANZA_CHECK_IN_MINUTI, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+import { tolleranzaCheckIn, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
 
 function errorResponse(error: unknown) {
   if (error instanceof AuthError) {
@@ -88,12 +88,16 @@ export async function POST(
     // Finestra UNICA (collaudo dal vivo, settembre 2026): la tolleranza DOPO
     // l'inizio e' la STESSA dello scanner del bibliotecario, passata qui in
     // modo esplicito invece di affidarsi al default della funzione — vedi il
-    // commento su `TOLLERANZA_CHECK_IN_MINUTI`.
+    // commento su `TOLLERANZA_CHECK_IN_MINUTI`. `tolleranzaCheckIn` la estende
+    // a `MARGINE_PENDOLARE_MINUTI` quando questa prenotazione ha il margine
+    // pendolare attivo (`prenotazione.marginePendolare`, letto dal DB qui
+    // sopra — mai da un booleano del client): vedi il commento su
+    // `MARGINE_PENDOLARE_MINUTI` in prenotazioni-regole.ts.
     const esito = valutaFinestraCheckIn(
       prenotazione.data,
       prenotazione.oraInizio,
       now,
-      TOLLERANZA_CHECK_IN_MINUTI,
+      tolleranzaCheckIn(prenotazione),
     );
     if (!esito.consentito && esito.motivo === "scaduto") {
       return NextResponse.json(
