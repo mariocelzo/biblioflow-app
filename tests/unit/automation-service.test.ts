@@ -68,6 +68,7 @@ import {
   oraDbDaMinuti,
 } from "@/lib/prenotazioni-regole";
 import {
+  completaPrenotazioniCheckInScaduto,
   FINESTRA_CONFERMA_PROMOZIONE_MINUTI,
   notificaEventoCoda,
   notificaScadenzaCoda,
@@ -1213,5 +1214,164 @@ describe("sendCheckInReminders — finestra oraria, deduplicazione, link (BUG st
     expect(risultato).toEqual({ sent: 0, message: "0 reminder check-in inviati" });
     expect(notificaFindManyMock).not.toHaveBeenCalled();
     expect(notificaCreateMock).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Test unitari — `completaPrenotazioniCheckInScaduto` (correzione del
+ * difetto verificato in produzione: nessuna automazione chiudeva mai una
+ * prenotazione rimasta in CHECK_IN dopo la fine della sua fascia — vedi il
+ * commento esteso sulla funzione in src/lib/automation-service.ts).
+ *
+ * Qui Prisma è mockato: `$queryRaw` (che in produzione esegue il confronto
+ * `("data" + "oraFine") AT TIME ZONE 'Europe/Rome'` lato Postgres) è simulato
+ * restituendo direttamente gli id "scaduti" decisi dal test — la semantica
+ * SQL/fuso orario del confronto è invece verificata dal vivo (DB reale) in
+ * tests/integration/completamento-check-in-scaduto.test.ts. Questo file
+ * verifica IL CONTRATTO a valle: guardia di idempotenza, rilascio guardato
+ * del posto, `checkOutAt`, LogEvento.
+ */
+describe("completaPrenotazioniCheckInScaduto — completamento automatico a fine fascia", () => {
+  const fineFasciaIstante = new Date("2026-09-27T09:00:00.000Z");
+
+  /** Prenotazione CHECK_IN con fascia scaduta, nella forma restituita da findMany (include posto). */
+  function prenotazioneCheckInScaduta(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "pren-1",
+      userId: "utente-1",
+      postoId: "posto-1",
+      oraFine: oraFineDb,
+      posto: { id: "posto-1", numero: "A1", stato: "OCCUPATO" },
+      ...overrides,
+    };
+  }
+
+  function configuraRigheScadute(
+    prenotazioni: ReturnType<typeof prenotazioneCheckInScaduta>[],
+  ) {
+    queryRawMock.mockResolvedValue(
+      prenotazioni.map((p) => ({ id: p.id, fineFasciaIstante })) as never,
+    );
+    findManyMock.mockResolvedValue(prenotazioni as never);
+  }
+
+  beforeEach(() => {
+    prenotazioneUpdateManyMock.mockResolvedValue({ count: 1 } as never);
+    prenotazioneFindFirstMock.mockResolvedValue(null as never);
+  });
+
+  it("[TC-COMP-001] nessuna riga scaduta: nessuna scrittura, risultato a zero", async () => {
+    queryRawMock.mockResolvedValue([] as never);
+
+    const risultato = await completaPrenotazioniCheckInScaduto();
+
+    expect(risultato).toEqual({
+      completed: 0,
+      message: "0 prenotazioni completate automaticamente",
+    });
+    expect(findManyMock).not.toHaveBeenCalled();
+    expect(prenotazioneUpdateManyMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-COMP-002] completa la prenotazione, libera il posto e usa l'istante di FINE FASCIA come checkOutAt (non 'adesso')", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // "Adesso" è molto più tardi della fine fascia (lo stesso scenario delle
+    // due prenotazioni del 6 gennaio, ancora CHECK_IN a fine settembre):
+    // checkOutAt deve restare l'istante di fine fascia, non "adesso".
+    vi.setSystemTime(new Date("2026-09-27T20:00:00.000Z"));
+    configuraRigheScadute([prenotazioneCheckInScaduta()]);
+
+    const risultato = await completaPrenotazioniCheckInScaduto();
+
+    expect(risultato).toEqual({
+      completed: 1,
+      message: "1 prenotazioni completate automaticamente a fine fascia",
+    });
+    expect(prenotazioneUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: "pren-1", stato: "CHECK_IN" },
+      data: { stato: "COMPLETATA", checkOutAt: fineFasciaIstante },
+    });
+    expect(postoUpdateMock).toHaveBeenCalledWith({
+      where: { id: "posto-1" },
+      data: { stato: "DISPONIBILE" },
+    });
+    expect(logEventoCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "CHECK_OUT",
+        prenotazioneId: "pren-1",
+        userId: "utente-1",
+        dettagli: expect.objectContaining({
+          automatico: true,
+          checkOutAt: fineFasciaIstante,
+          attore: { tipo: "automazione", processo: "cron-automations" },
+        }),
+      }),
+    });
+  });
+
+  it("[TC-COMP-003] IDEMPOTENZA: se la guardia updateMany non trova più la riga in CHECK_IN (già chiusa altrove), nessun effetto doppio", async () => {
+    configuraRigheScadute([prenotazioneCheckInScaduta()]);
+    // Un check-out manuale (o un'altra esecuzione) ha già chiuso la riga fra
+    // la selezione e questa scrittura: la guardia sullo stato atteso fallisce.
+    prenotazioneUpdateManyMock.mockResolvedValue({ count: 0 } as never);
+
+    const risultato = await completaPrenotazioniCheckInScaduto();
+
+    expect(risultato).toEqual({
+      completed: 0,
+      message: "0 prenotazioni completate automaticamente a fine fascia",
+    });
+    expect(postoUpdateMock).not.toHaveBeenCalled();
+    expect(logEventoCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-COMP-004] due CHECK_IN sullo stesso posto (una finita, una in corso): il posto resta OCCUPATO", async () => {
+    configuraRigheScadute([prenotazioneCheckInScaduta()]);
+    // Un'altra prenotazione è ancora CHECK_IN sullo stesso posto.
+    prenotazioneFindFirstMock.mockResolvedValue({ id: "pren-altra-check-in" } as never);
+
+    const risultato = await completaPrenotazioniCheckInScaduto();
+
+    expect(risultato.completed).toBe(1); // la prenotazione scaduta è comunque COMPLETATA...
+    expect(postoUpdateMock).not.toHaveBeenCalled(); // ...ma il posto NON torna DISPONIBILE.
+  });
+
+  it("[TC-COMP-005] posto in MANUTENZIONE: non viene toccato (non si annulla la manutenzione dello staff)", async () => {
+    configuraRigheScadute([
+      prenotazioneCheckInScaduta({
+        posto: { id: "posto-1", numero: "A1", stato: "MANUTENZIONE" },
+      }),
+    ]);
+
+    const risultato = await completaPrenotazioniCheckInScaduto();
+
+    expect(risultato.completed).toBe(1);
+    expect(postoUpdateMock).not.toHaveBeenCalled();
+    // La guardia MANUTENZIONE si legge dalla prenotazione già caricata: non
+    // serve nemmeno interrogare altre CHECK_IN sullo stesso posto.
+    expect(prenotazioneFindFirstMock).not.toHaveBeenCalled();
+  });
+
+  it("[TC-COMP-006] due prenotazioni scadute su posti diversi: entrambe completate e liberate", async () => {
+    configuraRigheScadute([
+      prenotazioneCheckInScaduta(),
+      prenotazioneCheckInScaduta({
+        id: "pren-2",
+        postoId: "posto-2",
+        posto: { id: "posto-2", numero: "C1", stato: "OCCUPATO" },
+      }),
+    ]);
+
+    const risultato = await completaPrenotazioniCheckInScaduto();
+
+    expect(risultato.completed).toBe(2);
+    expect(postoUpdateMock).toHaveBeenCalledWith({
+      where: { id: "posto-1" },
+      data: { stato: "DISPONIBILE" },
+    });
+    expect(postoUpdateMock).toHaveBeenCalledWith({
+      where: { id: "posto-2" },
+      data: { stato: "DISPONIBILE" },
+    });
   });
 });

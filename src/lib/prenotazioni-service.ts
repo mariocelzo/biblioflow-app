@@ -329,6 +329,17 @@ export function validaPostoPrenotabile(
     );
   }
 
+  // RISERVATO è uno stato "assoluto" impostato dallo staff (es. per un evento):
+  // va bloccato qui esattamente come MANUTENZIONE, altrimenti /api/posti mostra
+  // il posto come non disponibile ma la creazione di prenotazioni/coda lo accetta
+  // comunque, vanificando in modo silenzioso il blocco impostato dallo staff.
+  if (posto.stato === "RISERVATO") {
+    throw new ValidazioneError(
+      "POSTO_RISERVATO",
+      "Questo posto è riservato dallo staff e non è disponibile per la prenotazione",
+    );
+  }
+
   if (!posto.sala.attiva) {
     throw new ValidazioneError(
       "SALA_NON_ATTIVA",

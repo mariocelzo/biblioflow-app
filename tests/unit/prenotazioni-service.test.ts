@@ -128,6 +128,20 @@ describe("servizio di validazione prenotazioni BIB-27", () => {
     ).toThrowError(expect.objectContaining({ code: "POSTO_IN_MANUTENZIONE" }));
   });
 
+  // Blocca "RISERVATO non blocca la creazione di prenotazioni/coda": lo
+  // staff riserva un posto (es. per un evento) e /api/posti lo segnala come
+  // non disponibile, ma senza questo controllo POST /api/prenotazioni e
+  // POST /api/prenotazioni/coda lo accettavano comunque, vanificando il
+  // blocco impostato dallo staff.
+  it("[TC-BIB27-010b] rifiuta un posto riservato dallo staff", () => {
+    expect(() =>
+      validaPrenotazione({
+        ...inputValido(),
+        posto: { ...posto, stato: "RISERVATO" },
+      }),
+    ).toThrowError(expect.objectContaining({ code: "POSTO_RISERVATO" }));
+  });
+
   it("[TC-BIB27-011] restituisce 404 quando il posto non esiste", () => {
     expect(() => validaPostoPrenotabile(null)).toThrowError(
       expect.objectContaining({ code: "POSTO_NON_TROVATO", status: 404 }),
