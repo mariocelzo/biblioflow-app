@@ -41,8 +41,13 @@ export default async function AdminLayout({
       {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile Header */}
+        {/* PERCHE' NON E' UN <h1>: ogni pagina admin ha gia' il proprio <h1>
+            (es. "Gestione Posti"). Prima questo era un secondo <h1> su ogni
+            pagina in vista mobile — il nome del prodotto in un header/toolbar
+            non e' un titolo di pagina, quindi resta un semplice `<span>`
+            (nessun livello di titolo), cosi' ogni pagina ha un solo <h1>. */}
         <div className="flex md:hidden items-center justify-between h-16 px-4 border-b bg-card">
-          <h1 className="text-lg font-bold">BiblioFlow Admin</h1>
+          <span className="text-lg font-bold">BiblioFlow Admin</span>
         </div>
 
         {/* Content Area */}
