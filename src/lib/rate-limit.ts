@@ -325,16 +325,25 @@ export const passwordResetRateLimiter = createRateLimiter({
  * `readApiRateLimiter` (300/min), quelle di scrittura/cancellazione usano
  * `criticalApiRateLimiter` o `staffCriticalApiRateLimiter` qui sotto.
  *
- * Questa riverifica ha anche trovato, con lo stesso grep, alcune route di
- * scrittura ANCORA senza alcun limitatore (`POST /api/prenotazioni/[id]/estendi`,
- * `POST /api/admin/scanner/validate`, `PATCH /api/admin/anomalie`, `POST
- * /api/admin/utenti/[id]/notifica`): NESSUNA di queste è pero' il "futuro
- * endpoint non critico" per cui `apiRateLimiter` è pensato — sono tutte
- * operazioni critiche (estendono una prenotazione, effettuano un check-in,
- * annullano prenotazioni in blocco, notificano un utente), quindi andrebbero
- * semmai su `criticalApiRateLimiter`/`staffCriticalApiRateLimiter`. Collegarle
- * è fuori dal perimetro di questa PR (che si limita a creazione prenotazione e
- * check-in autonomo) ed è tracciato separatamente.
+ * Questa riverifica aveva anche trovato quattro route di scrittura critiche
+ * senza alcun limitatore, ORA collegate (PR dedicata, successiva alla #81):
+ * `POST /api/prenotazioni/[id]/estendi` → `criticalApiRateLimiter`;
+ * `POST /api/admin/scanner/validate`, `POST /api/admin/anomalie` (l'handler
+ * esporta POST, non PATCH come indicato in precedenza) e
+ * `POST /api/admin/utenti/[id]/notifica` → `staffCriticalApiRateLimiter`.
+ * Nessuna era il "futuro endpoint non critico" per cui `apiRateLimiter` è
+ * pensato: estendono una prenotazione, effettuano un check-in, agiscono in
+ * blocco su prenotazioni/notifiche, notificano un utente.
+ *
+ * Lo stesso grep (`grep -rl "export async function \(POST\|PATCH\|DELETE\)"
+ * src/app/api --include="route.ts" | xargs grep -L "RateLimiter("`) elenca
+ * ancora, a settembre 2026, route di scrittura senza limitatore rimaste FUORI
+ * dal perimetro di quella PR: `/api/notifiche` (POST/PATCH/DELETE),
+ * `POST /api/richieste`, `PATCH /api/profilo`, `PATCH /api/prestiti/[id]`,
+ * `POST /api/prestiti/[id]/rinnova` e `/api/cron/automations` (quest'ultima
+ * protetta da `CRON_SECRET`, non da un limitatore). Vanno valutate una per
+ * una prima di decidere se qualcuna sia il caso "non critico" di questo
+ * limitatore.
  *
  * Non lo si rimuove perché resta la scelta corretta per un futuro endpoint di
  * scrittura "non critico" (che cioè non cancella né modifica dati sensibili):
@@ -364,8 +373,10 @@ export const readApiRateLimiter = createRateLimiter({
  * 10 richieste al minuto.
  *
  * COLLEGATO A: PATCH/DELETE `/api/prenotazioni/[id]`, POST/DELETE
- * `/api/prenotazioni/coda`. In precedenza era dichiarato ma non collegato a
- * nessuna route: uno studente poteva cancellare/modificare senza alcun limite.
+ * `/api/prenotazioni/coda`, POST `/api/prenotazioni/[id]/check-in`, POST
+ * `/api/prenotazioni/[id]/estendi`. In precedenza era dichiarato ma non
+ * collegato a nessuna route: uno studente poteva cancellare/modificare senza
+ * alcun limite.
  *
  * PERCHÉ 10 VA BENE QUI E NON PER LO STAFF: un utente normale interagisce con
  * queste operazioni una alla volta (annulla la propria prenotazione, esce
@@ -380,7 +391,8 @@ export const readApiRateLimiter = createRateLimiter({
  * (`limiter(request)`, nessun terzo argomento). Il check-in autonomo (POST
  * `/api/prenotazioni/[id]/check-in`, findings revisione PR #81) lo invoca
  * invece con `user.id` come chiave (vedi `chiaveUtente` su
- * `createRateLimiter`): stesso motivo di `bookingRateLimiter` sopra, un NAT di
+ * `createRateLimiter`), e cosi' anche POST `/api/prenotazioni/[id]/estendi`,
+ * collegato dopo: stesso motivo di `bookingRateLimiter` sotto, un NAT di
  * ateneo condivide un solo IP fra molti studenti. Portare la chiave per utente
  * anche sugli altri call-site di questo limitatore e' un follow-up naturale e
  * a basso rischio (stessa funzione, stessa firma), ma e' fuori dal perimetro
@@ -415,7 +427,12 @@ export const criticalApiRateLimiter = createRateLimiter({
  *
  * COLLEGATO A: PATCH `/api/admin/posti/[id]`, PATCH `/api/admin/richieste`,
  * POST `/api/admin/prenotazioni`, POST `/api/admin/prestiti`, PATCH
- * `/api/admin/utenti/[id]`.
+ * `/api/admin/utenti/[id]` (chiave storica per IP); POST
+ * `/api/admin/scanner/validate`, POST `/api/admin/anomalie`, POST
+ * `/api/admin/utenti/[id]/notifica` (chiave per UTENTE staff,
+ * `session.user.id`: piu' bibliotecari in servizio sulla stessa rete della
+ * biblioteca non devono dividersi un'unica quota — vedi `chiaveUtente` su
+ * `createRateLimiter`).
  */
 export const staffCriticalApiRateLimiter = createRateLimiter({
   max: 60,
