@@ -39,7 +39,7 @@ const mocks = vi.hoisted(() => {
     requireUser: vi.fn(),
     assertOwnership: vi.fn(),
     prisma: {
-      prenotazione: { findUnique: vi.fn(), update: vi.fn() },
+      prenotazione: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
       posto: { update: vi.fn() },
       logEvento: { create: vi.fn() },
     },
@@ -76,7 +76,7 @@ function prenotazioneConStato(stato: string) {
     oraInizio: new Date("1970-01-01T09:00:00.000Z"),
     oraFine: new Date("1970-01-01T11:00:00.000Z"),
     stato,
-    posto: { id: "posto-1", numero: "A1", sala: { nome: "Sala Studio" } },
+    posto: { id: "posto-1", numero: "A1", stato: "OCCUPATO", sala: { nome: "Sala Studio" } },
   };
 }
 
@@ -113,6 +113,9 @@ beforeEach(() => {
       ...data,
     }),
   );
+  // Default neutro: nessuna ALTRA prenotazione ancora CHECK_IN sullo stesso
+  // posto (vedi `rilasciaPostoSeLibero` in src/app/api/prenotazioni/[id]/route.ts).
+  mocks.prisma.prenotazione.findFirst.mockResolvedValue(null);
   mocks.prisma.posto.update.mockResolvedValue({ id: "posto-1", stato: "DISPONIBILE" });
   mocks.prisma.logEvento.create.mockResolvedValue({ id: "log-1" });
   mocks.processaCodaPerPosto.mockResolvedValue({ promossa: false });

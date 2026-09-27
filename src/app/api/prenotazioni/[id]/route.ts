@@ -19,6 +19,54 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * 🐞→✅ RILASCIO POSTO GUARDATO (verificato in produzione: un posto rimasto
+ * OCCUPATO da gennaio 2026 perche' nessuno ha mai premuto "check-out" — vedi
+ * `completaPrenotazioniCheckInScaduto` in src/lib/automation-service.ts per
+ * il completamento automatico dello stesso difetto).
+ *
+ * PRIMA sia il check-out sia la cancellazione di una prenotazione in CHECK_IN
+ * forzavano incondizionatamente `Posto.stato = DISPONIBILE`. Due problemi:
+ *  1. sovrascriveva in silenzio una MANUTENZIONE impostata dallo staff nel
+ *     frattempo (letta qui dalla `posto` gia' caricata insieme alla
+ *     prenotazione, quindi PRIMA di questa stessa chiusura);
+ *  2. non guardava se un'ALTRA prenotazione fosse ancora in CHECK_IN sullo
+ *     stesso posto. Il vincolo EXCLUDE del DB dovrebbe impedire due CHECK_IN
+ *     sovrapposti sullo stesso posto, ma e' una guardia difensiva a costo
+ *     quasi nullo (una sola query indicizzata su `postoId`+`stato`): se mai
+ *     capitasse (es. dati storici incoerenti), il posto resta occupato
+ *     dall'altra sessione invece di essere liberato sotto i suoi piedi.
+ *
+ * Stessa guardia usata dal completamento automatico a fine fascia.
+ */
+async function rilasciaPostoSeLibero(
+  postoId: string,
+  statoPostoAttuale: string,
+  prenotazioneIdChiusa: string,
+): Promise<void> {
+  if (statoPostoAttuale === "MANUTENZIONE") {
+    return;
+  }
+
+  const altraCheckIn = await prisma.prenotazione.findFirst({
+    where: {
+      postoId,
+      stato: "CHECK_IN",
+      id: { not: prenotazioneIdChiusa },
+    },
+    select: { id: true },
+  });
+
+  if (altraCheckIn) {
+    return;
+  }
+
+  await prisma.posto.update({
+    where: { id: postoId },
+    data: { stato: "DISPONIBILE" },
+  });
+}
+
 function errorResponse(error: unknown, fallback: string) {
   if (error instanceof AuthError) {
     return NextResponse.json(
@@ -238,10 +286,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           );
         }
         updateData = { stato: "COMPLETATA", checkOutAt: new Date() };
-        await prisma.posto.update({
-          where: { id: prenotazione.postoId },
-          data: { stato: "DISPONIBILE" },
-        });
+        await rilasciaPostoSeLibero(
+          prenotazione.postoId,
+          prenotazione.posto.stato,
+          prenotazione.id,
+        );
         logTipo = "CHECK_OUT";
         logDescrizione = `Check-out effettuato per posto ${prenotazione.posto.numero}`;
         break;
@@ -255,10 +304,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
         updateData = { stato: "CANCELLATA" };
         if (prenotazione.stato === "CHECK_IN") {
-          await prisma.posto.update({
-            where: { id: prenotazione.postoId },
-            data: { stato: "DISPONIBILE" },
-          });
+          await rilasciaPostoSeLibero(
+            prenotazione.postoId,
+            prenotazione.posto.stato,
+            prenotazione.id,
+          );
         }
         logTipo = "PRENOTAZIONE_CANCELLATA";
         logDescrizione = `Prenotazione cancellata per posto ${prenotazione.posto.numero}`;
@@ -361,10 +411,11 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
     }
 
     if (prenotazione.stato === "CHECK_IN") {
-      await prisma.posto.update({
-        where: { id: prenotazione.postoId },
-        data: { stato: "DISPONIBILE" },
-      });
+      await rilasciaPostoSeLibero(
+        prenotazione.postoId,
+        prenotazione.posto.stato,
+        prenotazione.id,
+      );
     }
 
     await prisma.prenotazione.update({
