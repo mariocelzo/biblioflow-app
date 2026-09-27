@@ -27,7 +27,9 @@
 import { afterAll, describe, expect, it } from "vitest";
 import {
   ANTICIPO_CHECK_IN_MINUTI,
+  MARGINE_PENDOLARE_MINUTI,
   oraDbDaMinuti,
+  tolleranzaCheckIn,
   TOLLERANZA_CHECK_IN_MINUTI,
   valutaFinestraCheckIn,
 } from "@/lib/prenotazioni-regole";
@@ -47,6 +49,28 @@ describe("valutaFinestraCheckIn · costanti condivise", () => {
   it("[REGR] ANTICIPO_CHECK_IN_MINUTI e TOLLERANZA_CHECK_IN_MINUTI valgono entrambe 15", () => {
     expect(ANTICIPO_CHECK_IN_MINUTI).toBe(15);
     expect(TOLLERANZA_CHECK_IN_MINUTI).toBe(15);
+  });
+
+  it("[REGR] MARGINE_PENDOLARE_MINUTI vale 30 (Margine Pendolare)", () => {
+    expect(MARGINE_PENDOLARE_MINUTI).toBe(30);
+  });
+});
+
+/**
+ * `tolleranzaCheckIn` e' l'unico punto da cui derivare il terzo argomento di
+ * `valutaFinestraCheckIn` per UNA prenotazione (i tre chiamanti reali — POST
+ * check-in, PATCH check-in, scanner — e la query SQL di
+ * `releaseNoShowReservations` la usano tutti): deve restituire esattamente
+ * TOLLERANZA_CHECK_IN_MINUTI (15) o MARGINE_PENDOLARE_MINUTI (30) a seconda
+ * SOLO di `marginePendolare`, mai di altri campi.
+ */
+describe("tolleranzaCheckIn · seleziona la tolleranza in base al margine pendolare", () => {
+  it("[TC-TOL-001] marginePendolare:false -> TOLLERANZA_CHECK_IN_MINUTI (15)", () => {
+    expect(tolleranzaCheckIn({ marginePendolare: false })).toBe(15);
+  });
+
+  it("[TC-TOL-002] marginePendolare:true -> MARGINE_PENDOLARE_MINUTI (30)", () => {
+    expect(tolleranzaCheckIn({ marginePendolare: true })).toBe(30);
   });
 });
 
@@ -113,6 +137,56 @@ describe("valutaFinestraCheckIn · finestra unica, ora legale (CEST, Roma = UTC+
       consentito: false,
       motivo: "scaduto",
       minutiRitardo: 16,
+    });
+  });
+});
+
+/**
+ * Stesso scenario (ora legale, stessa prenotazione) ma con la tolleranza del
+ * Margine Pendolare (30, da `MARGINE_PENDOLARE_MINUTI`/`tolleranzaCheckIn`)
+ * al posto dei normali 15: la finestra si chiude 15 minuti più tardi, stesso
+ * confine (disuguaglianza NON stretta) — e' lo stesso istante in cui
+ * `releaseNoShowReservations` libera il posto per QUESTA prenotazione, perche'
+ * la query SQL usa `CASE WHEN "marginePendolare" THEN 30 ELSE 15 END` (vedi
+ * il commento in src/lib/automation-service.ts).
+ *
+ *  +29  → consentito (ultimo minuto valido)
+ *  +30  → rifiutato ("scaduto"): confine, stesso principio di TC-FIN-005
+ *  +31  → rifiutato (scaduto)
+ */
+describe("valutaFinestraCheckIn · Margine Pendolare (30 min), ora legale — stesso confine, tolleranza estesa", () => {
+  const DATA = new Date(Date.UTC(2030, 5, 15));
+  const ORA_INIZIO = oraDb(10, 0);
+
+  function esitoConMargine(minutiDallInizio: number) {
+    const adesso = new Date(
+      Date.UTC(2030, 5, 15, 8, 0, 0) + minutiDallInizio * 60_000,
+    );
+    return valutaFinestraCheckIn(
+      DATA,
+      ORA_INIZIO,
+      adesso,
+      tolleranzaCheckIn({ marginePendolare: true }),
+    );
+  }
+
+  it("[TC-TOL-003] +29 minuti: consentito (il margine pendolare estende la finestra oltre i +15 normali)", () => {
+    expect(esitoConMargine(29)).toEqual({ consentito: true });
+  });
+
+  it("[TC-TOL-004] +30 minuti: rifiutato (scaduto) — confine coerente col rilascio no-show con margine attivo", () => {
+    expect(esitoConMargine(30)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 30,
+    });
+  });
+
+  it("[TC-TOL-005] +31 minuti: rifiutato (scaduto)", () => {
+    expect(esitoConMargine(31)).toEqual({
+      consentito: false,
+      motivo: "scaduto",
+      minutiRitardo: 31,
     });
   });
 });

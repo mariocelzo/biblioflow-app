@@ -65,6 +65,12 @@ vi.mock("@/lib/rate-limit", () => ({
   // questo file (che testa l'isolamento CA-01), va mockato per non
   // interferire con le richieste ripetute nei test qui sotto.
   criticalApiRateLimiter: vi.fn(() => null),
+  // Collegato a POST /api/prenotazioni (creazione): stesso motivo di
+  // criticalApiRateLimiter qui sopra. Senza questa entry l'import di
+  // `bookingRateLimiter` nella route risulterebbe `undefined`, e la chiamata
+  // `await bookingRateLimiter(request)` lancerebbe un TypeError intercettato
+  // dal catch generico della route (500 invece di 201/401).
+  bookingRateLimiter: vi.fn(() => null),
 }));
 vi.mock("@/lib/prenotazioni-service", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/prenotazioni-service")>()),

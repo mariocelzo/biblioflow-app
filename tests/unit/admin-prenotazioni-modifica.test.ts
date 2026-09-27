@@ -28,16 +28,12 @@ const mocks = vi.hoisted(() => ({
     $transaction: vi.fn(),
   },
   promuoviPrimoInCoda: vi.fn(),
-  emitCodaPromozione: vi.fn(),
 }));
 
 vi.mock("@/lib/auth", () => ({ auth: mocks.auth }));
 vi.mock("@/lib/prisma", () => ({ default: mocks.prisma }));
 vi.mock("@/lib/prenotazioni-service", () => ({
   promuoviPrimoInCoda: mocks.promuoviPrimoInCoda,
-}));
-vi.mock("@/lib/realtime-events", () => ({
-  emitCodaPromozione: mocks.emitCodaPromozione,
 }));
 // Il rate limiting non è oggetto di questo file: viene mockato per non far
 // scattare 429 con le ripetute chiamate a route.POST nei test qui sotto.

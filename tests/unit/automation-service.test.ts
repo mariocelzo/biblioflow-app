@@ -403,6 +403,41 @@ describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)
   });
 });
 
+// Margine Pendolare: la SELEZIONE dei candidati (query SQL riga per riga) non
+// è esercitabile con Prisma mockato — vedi tests/integration/no-show-margine-
+// pendolare.test.ts, che usa un DB reale — ma il COMPORTAMENTO A VALLE (testo
+// della notifica) è verificabile qui: `tolleranzaCheckIn` deve riflettere il
+// valore REALE di `marginePendolare` sulla riga selezionata.
+describe("releaseNoShowReservations — Margine Pendolare nel testo della notifica", () => {
+  it("[TC-MP-NOSHOW-001] marginePendolare:false -> il messaggio dice 15 minuti", async () => {
+    configuraCandidatiNoShow([prenotazioneNoShow({ marginePendolare: false })]);
+
+    await releaseNoShowReservations();
+
+    expect(notificaCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          messaggio: expect.stringContaining("entro 15 minuti"),
+        }),
+      }),
+    );
+  });
+
+  it("[TC-MP-NOSHOW-002] marginePendolare:true -> il messaggio dice 30 minuti, non 15", async () => {
+    configuraCandidatiNoShow([prenotazioneNoShow({ marginePendolare: true })]);
+
+    await releaseNoShowReservations();
+
+    expect(notificaCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          messaggio: expect.stringContaining("entro 30 minuti"),
+        }),
+      }),
+    );
+  });
+});
+
 describe("processaCodaPerPosto — helper riusabile", () => {
   const slot = {
     postoId: "posto-1",

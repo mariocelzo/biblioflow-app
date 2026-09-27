@@ -91,13 +91,27 @@ docker-compose logs -f
   - `LogEvento`: System audit trail
 
 ### Real-Time Features
-- **SSE (Server-Sent Events)**: Lightweight alternative to WebSockets
-  - **Emitter**: `src/lib/sse-emitter.ts` - Singleton service for broadcasting events
-  - **Events Service**: `src/lib/realtime-events.ts` - Helper functions for emitting domain events
-  - **API Endpoint**: `/api/sse/posti` - Stream for seat availability updates
-  - **Usage Pattern**: 
-    - Server: `emitPostoUpdate(postoId, 'OCCUPATO', numero, salaId)` after DB changes
-    - Client: Hook into SSE endpoint to receive live updates
+- **Removed** (see the PR that removed it, and the header comment on
+  `src/lib/automation-service.ts`): an SSE (Server-Sent Events) layer used to
+  exist here (`src/lib/sse-emitter.ts`, `src/lib/realtime-events.ts`,
+  `/api/sse/posti`), but it never worked reliably in production and was
+  never actually connected to a UI consumer. Two structural reasons, not a
+  fixable bug:
+  1. Vercel serverless: each request can land on a different instance, but
+     the emitter kept connected clients in a single process's memory — an
+     event emitted on one instance never reaches SSE connections open on
+     another.
+  2. Serverless functions have a max execution duration, which would keep
+     closing long-lived SSE connections anyway.
+  A grep across `src/` confirmed every producer except `emitCodaPromozione`
+  was called by zero routes, and the client hook (`useSSE`/`usePostiRealtime`)
+  was used by zero pages — the chain was disconnected at both ends.
+  - **If real-time updates are needed later**: client-side polling (simplest,
+    latency/traffic scale with refresh frequency), or an external realtime
+    service whose connection state lives outside the Next.js process (e.g.
+    Supabase Realtime, Pusher, Ably) — not implemented here.
+  - Persisted notifications (`Notifica` model, read via polling by the
+    notification bell) never depended on this and are unaffected.
 
 ### Automation System
 - **Service**: `src/lib/automation-service.ts`
@@ -187,22 +201,26 @@ docker-compose logs -f
 - **Click & Collect States**: `PENDENTE` → `IN_LAVORAZIONE` → `PRONTA_RITIRO` → `COMPLETATA` (or `RIFIUTATA`, `CANCELLATA`)
 - **Seat States**: `DISPONIBILE` ↔ `OCCUPATO` / `MANUTENZIONE` / `RISERVATO`
 
-### Real-Time Event Pattern
-When updating database state that affects real-time clients:
-```typescript
-// 1. Update database
-await prisma.posto.update({ where: { id }, data: { stato: 'OCCUPATO' } });
-
-// 2. Emit real-time event
-await emitPostoUpdate(id, 'OCCUPATO', posto.numero, posto.salaId);
-await emitOccupazioneUpdate(posto.salaId);
-```
-
-### Commuter Student Handling
-- **Flag**: `User.isPendolare` (boolean in DB)
-- **UI Integration**: Booking flow detects flag and offers 30-minute check-in extension
-- **Database Field**: `Prenotazione.margineToleranzaMinuti` (stores custom tolerance)
-- **Check-in Logic**: Validation allows check-in up to `oraInizio + margineToleranzaMinuti`
+### Commuter Student Handling ("Margine Pendolare")
+- **Flag**: `User.isPendolare` (boolean in DB, set at registration / profile)
+- **UI Integration**: booking wizard offers the extension only when the
+  profile fetch says `isPendolare: true`; the client sends only a boolean
+  preference (`marginePendolare`), never a minute count
+- **Server is the source of truth, not the client**: `creaPrenotazioneAtomica`
+  (`src/lib/prenotazioni-service.ts`) grants the margin only if
+  `User.isPendolare` is true **on the database** at creation time — the JWT
+  session can be stale (it doesn't re-read `isPendolare` on its periodic
+  revalidation, see `src/lib/auth.ts`), so it is never trusted for this
+  decision
+- **Database Fields**: `Prenotazione.marginePendolare` (bool, whether it
+  applies to this reservation) and `Prenotazione.minutiMarginePendolare`
+  (always the server constant, never a client-supplied value)
+- **Single source for the minutes**: `MARGINE_PENDOLARE_MINUTI` (30) and the
+  `tolleranzaCheckIn()` helper in `src/lib/prenotazioni-regole.ts` — used by
+  every check-in path (`POST .../check-in`, the PATCH `check-in` case, the
+  librarian scanner) and by the no-show release SQL in
+  `src/lib/automation-service.ts`, so the check-in window and the no-show
+  release always agree on the same boundary (15 or 30 minutes after start)
 
 ### Accessibility-First Development
 - **Always Check**: `session.user.necessitaAccessibilita` flag
@@ -266,12 +284,6 @@ No test framework is currently configured. To validate changes:
 - **Environment Variables**: Configure in Vercel dashboard
 - **Database**: Hosted on Supabase (PostgreSQL)
 - **Cron Jobs**: Configured in `vercel.json`, managed by Vercel Cron
-
-### Debugging Real-Time Issues
-1. Check SSE client connections: Console logs show connection/disconnection events
-2. Verify event emission: Look for `📤 SSE Evento` logs in server console
-3. Test SSE endpoint directly: `curl -N http://localhost:3000/api/sse/posti`
-4. Confirm `emitPostoUpdate()` calls after database mutations
 
 ### Working with Accessibility Features
 1. Test with accessibility mode enabled in user profile

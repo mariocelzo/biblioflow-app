@@ -4,7 +4,7 @@ import db from "@/lib/prisma";
 import { validateScannedQR } from "@/lib/qr-signature";
 import {
   dataCorrenteBiblioteca,
-  TOLLERANZA_CHECK_IN_MINUTI,
+  tolleranzaCheckIn,
   valutaFinestraCheckIn,
 } from "@/lib/prenotazioni-regole";
 
@@ -176,11 +176,14 @@ export async function POST(request: NextRequest) {
     //
     // Finestra UNICA (collaudo dal vivo, settembre 2026): la stessa
     // tolleranza DOPO l'inizio del check-in autonomo dello studente.
+    // `tolleranzaCheckIn` la estende a MARGINE_PENDOLARE_MINUTI quando questa
+    // prenotazione ha il margine pendolare attivo (`marginePendolare` letto
+    // dal DB, mai da un valore del client) — vedi prenotazioni-regole.ts.
     const esito = valutaFinestraCheckIn(
       prenotazione.data,
       prenotazione.oraInizio,
       now,
-      TOLLERANZA_CHECK_IN_MINUTI,
+      tolleranzaCheckIn(prenotazione),
     );
 
     if (!esito.consentito && esito.motivo === "troppo_presto") {

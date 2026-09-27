@@ -30,6 +30,7 @@ import { toast } from "sonner";
 // cima a prenotazioni-regole.ts.
 import {
   DURATA_MINIMA_PRENOTAZIONE_MINUTI,
+  MARGINE_PENDOLARE_MINUTI,
   dataCorrenteBiblioteca,
   formatDurataMinuti,
   generaOpzioniDurata,
@@ -1009,7 +1010,10 @@ export default function PrenotaPage() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                Estendi il tempo di check-in di <strong>30 minuti</strong> per compensare eventuali ritardi dei mezzi. {tragittoPendolare ? `(Tragitto: ${tragittoPendolare})` : ""}
+                {/* Testo derivato da MARGINE_PENDOLARE_MINUTI (src/lib/prenotazioni-regole.ts),
+                    la STESSA costante che il server applica davvero: prima "30 minuti" era
+                    scritto a mano qui e poteva divergere dalla regola server-side. */}
+                Estendi il tempo di check-in di <strong>{MARGINE_PENDOLARE_MINUTI} minuti</strong> per compensare eventuali ritardi dei mezzi. {tragittoPendolare ? `(Tragitto: ${tragittoPendolare})` : ""}
               </p>
             </div>
           )}

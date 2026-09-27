@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
-import { emitCodaPromozione } from "@/lib/realtime-events";
 import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 import { actionUrlPrenotazione } from "@/lib/prenotazioni-regole";
 
@@ -32,14 +31,6 @@ type EsitoPromozioneAdmin = {
   // nell'interfaccia admin dica *chi* è stato promosso senza leggere i log.
   utente?: { nome: string; cognome: string };
 };
-
-function dataIso(data: Date): string {
-  return data.toISOString().slice(0, 10);
-}
-
-function oraIso(ora: Date): string {
-  return ora.toISOString().slice(11, 16);
-}
 
 // INTEGRITA' DATI: stati di una prenotazione da cui e' ancora possibile una
 // transizione (cancellazione, check-in, modifica). Da COMPLETATA, CANCELLATA,
@@ -193,16 +184,16 @@ async function promuoviDopoCancellazione(
     },
   });
 
-  emitCodaPromozione({
-    userId: esito.userId,
-    postoId: prenotazione.postoId,
-    numero: prenotazione.posto.numero,
-    prenotazioneId: esito.prenotazioneId,
-    data: dataIso(prenotazione.data),
-    oraInizio: oraIso(prenotazione.oraInizio),
-    oraFine: oraIso(prenotazione.oraFine),
-  });
-
+  // NON emette piu' un evento realtime qui (prima: `emitCodaPromozione` verso
+  // `@/lib/realtime-events`). Rimosso insieme a tutta la catena SSE — vedi il
+  // commento in testa al modulo src/lib/automation-service.ts (che documenta
+  // il PERCHE': su Vercel ogni richiesta puo' girare su un'istanza serverless
+  // diversa, mentre l'emettitore SSE viveva nella memoria di UN SOLO
+  // processo, e nessuna pagina apriva mai una connessione per riceverlo) e il
+  // corpo della PR che l'ha rimossa. La notifica REALE che l'utente vede
+  // resta quella persistita sopra (`prisma.notifica.create`, letta dal
+  // campanello notifiche via polling) — questa non e' mai dipesa dal
+  // realtime e non cambia.
   return esito;
 }
 

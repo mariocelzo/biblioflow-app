@@ -6,7 +6,8 @@ import {
   requireUser,
 } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { TOLLERANZA_CHECK_IN_MINUTI, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+import { tolleranzaCheckIn, valutaFinestraCheckIn } from "@/lib/prenotazioni-regole";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 
 function errorResponse(error: unknown) {
   if (error instanceof AuthError) {
@@ -29,6 +30,27 @@ export async function POST(
 ) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione, stesso limitatore e stesso schema
+    // gia' usato dal case "check-in" della PATCH /api/prenotazioni/[id] (vedi
+    // quel file): sono due percorsi verso la STESSA azione critica, quindi
+    // devono condividere il limitatore invece di lasciare questo secondo
+    // percorso scoperto (prima lo era: nessun limite qui, mentre la PATCH ne
+    // aveva gia' uno).
+    //
+    // Chiave per UTENTE (`user.id`), non per IP (findings revisione PR #81):
+    // con la chiave storica per IP, una rete universitaria dietro un NAT di
+    // ateneo avrebbe condiviso lo stesso contatore fra tutti gli studenti che
+    // fanno check-in da li', anche se ognuno agisce sulla propria singola
+    // prenotazione. Vedi il commento su `chiaveUtente` in
+    // src/lib/rate-limit.ts per il dettaglio.
+    const rateLimitResult = await criticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      user.id,
+    );
+    if (rateLimitResult) return rateLimitResult;
+
     const { id: prenotazioneId } = await context.params;
 
     // Hardening M-2 (audit sicurezza 2026-09-04): il body PUO' contenere un
@@ -88,12 +110,16 @@ export async function POST(
     // Finestra UNICA (collaudo dal vivo, settembre 2026): la tolleranza DOPO
     // l'inizio e' la STESSA dello scanner del bibliotecario, passata qui in
     // modo esplicito invece di affidarsi al default della funzione — vedi il
-    // commento su `TOLLERANZA_CHECK_IN_MINUTI`.
+    // commento su `TOLLERANZA_CHECK_IN_MINUTI`. `tolleranzaCheckIn` la estende
+    // a `MARGINE_PENDOLARE_MINUTI` quando questa prenotazione ha il margine
+    // pendolare attivo (`prenotazione.marginePendolare`, letto dal DB qui
+    // sopra — mai da un booleano del client): vedi il commento su
+    // `MARGINE_PENDOLARE_MINUTI` in prenotazioni-regole.ts.
     const esito = valutaFinestraCheckIn(
       prenotazione.data,
       prenotazione.oraInizio,
       now,
-      TOLLERANZA_CHECK_IN_MINUTI,
+      tolleranzaCheckIn(prenotazione),
     );
     if (!esito.consentito && esito.motivo === "scaduto") {
       return NextResponse.json(

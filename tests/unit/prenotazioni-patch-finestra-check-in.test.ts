@@ -66,6 +66,8 @@ let route: Route;
 const user = { id: "studente-1", ruolo: "STUDENTE" as const };
 
 // Prenotazione per venerdi' 2030-06-14, slot 09:00-11:00 (Date @db.Date / @db.Time).
+// `marginePendolare: false`: finestra NORMALE. Il margine pendolare (30 min)
+// e' coperto a parte piu' sotto (describe "Margine Pendolare").
 const prenotazione = {
   id: "pren-1",
   userId: user.id,
@@ -74,6 +76,7 @@ const prenotazione = {
   oraInizio: new Date("1970-01-01T09:00:00.000Z"),
   oraFine: new Date("1970-01-01T11:00:00.000Z"),
   stato: "CONFERMATA",
+  marginePendolare: false,
   posto: { id: "posto-1", numero: "A1" },
 };
 
@@ -164,6 +167,36 @@ describe("Integrita' dati - finestra di check-in sulla PATCH prenotazione", () =
       request({ azione: "check-in", timestamp: "2030-06-14T08:50:00.000Z" }),
       params,
     );
+
+    expect(response.status).toBe(400);
+    expect(mocks.prisma.posto.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("Margine Pendolare · la PATCH check-in estende la finestra a 30 minuti quando marginePendolare e' vero", () => {
+  it("[TC-MP-PATCH-001] marginePendolare:true — +20 minuti dall'inizio: consentito (oltre i 15 normali)", async () => {
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue({
+      ...prenotazione,
+      marginePendolare: true,
+    });
+    // 07:20Z = 09:20 di Roma → +20 minuti dall'inizio (09:00).
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-14T07:20:00.000Z"));
+
+    const response = await route.PATCH(request({ azione: "check-in" }), params);
+
+    expect(response.status).toBe(200);
+    expect(mocks.prisma.posto.update).toHaveBeenCalledWith({
+      where: { id: "posto-1" },
+      data: { stato: "OCCUPATO" },
+    });
+  });
+
+  it("[TC-MP-PATCH-002] marginePendolare:false — stessi +20 minuti: scaduto (la finestra normale è già chiusa)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-06-14T07:20:00.000Z"));
+
+    const response = await route.PATCH(request({ azione: "check-in" }), params);
 
     expect(response.status).toBe(400);
     expect(mocks.prisma.posto.update).not.toHaveBeenCalled();

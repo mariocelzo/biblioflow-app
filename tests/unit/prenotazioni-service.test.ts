@@ -527,6 +527,97 @@ describe("servizio di dominio BIB-28—BIB-31", () => {
     expect(tx.prenotazione.create).toHaveBeenCalledTimes(1);
   });
 
+  // Margine Pendolare: il server concede il margine SOLO se `User.isPendolare`
+  // e' vero sul DATABASE, mai secondo il solo booleano del body (vedi il
+  // commento su `creaPrenotazioneNellaTransazione` in prenotazioni-service.ts
+  // e su MARGINE_PENDOLARE_MINUTI in prenotazioni-regole.ts).
+  describe("Margine Pendolare · la verità è il DATABASE, non il body della richiesta", () => {
+    it("[TC-MP-001] marginePendolare:true nel body ma isPendolare:false sul DB -> margine IGNORATO (non un errore)", async () => {
+      const tx = {
+        posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+        user: { findUnique: vi.fn().mockResolvedValue({ isPendolare: false }) },
+        prenotazione: {
+          findMany: vi.fn().mockResolvedValue([]),
+          create: vi.fn().mockResolvedValue(prenotazioneCreata),
+        },
+      };
+      const { client } = transactionRunner(tx);
+
+      await expect(
+        creaPrenotazioneAtomica(
+          { ...inputAtomico(), marginePendolare: true },
+          client,
+        ),
+      ).resolves.toEqual(prenotazioneCreata);
+
+      expect(tx.user.findUnique).toHaveBeenCalledWith({
+        where: { id: inputAtomico().userId },
+        select: { isPendolare: true },
+      });
+      expect(tx.prenotazione.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          marginePendolare: false,
+          minutiMarginePendolare: 30,
+        }),
+      });
+    });
+
+    it("[TC-MP-002] marginePendolare:true nel body E isPendolare:true sul DB -> margine CONCESSO, minuti = costante server", async () => {
+      const tx = {
+        posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+        user: { findUnique: vi.fn().mockResolvedValue({ isPendolare: true }) },
+        prenotazione: {
+          findMany: vi.fn().mockResolvedValue([]),
+          create: vi.fn().mockResolvedValue(prenotazioneCreata),
+        },
+      };
+      const { client } = transactionRunner(tx);
+
+      // Anche se un chiamante (chiamata diretta all'API, non passando dal
+      // wizard) inviasse un valore arbitrario per i minuti, il tipo di
+      // `CreaPrenotazioneAtomicaInput` non lo prevede piu': qui si verifica
+      // che il valore SCRITTO sia comunque sempre la costante server, non un
+      // input.
+      await expect(
+        creaPrenotazioneAtomica(
+          { ...inputAtomico(), marginePendolare: true },
+          client,
+        ),
+      ).resolves.toEqual(prenotazioneCreata);
+
+      expect(tx.prenotazione.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          marginePendolare: true,
+          minutiMarginePendolare: 30,
+        }),
+      });
+    });
+
+    it("[TC-MP-003] marginePendolare assente nel body -> nessuna lettura extra di User (l'esito e' comunque 'niente margine')", async () => {
+      const tx = {
+        posto: { findUnique: vi.fn().mockResolvedValue(posto) },
+        user: { findUnique: vi.fn() },
+        prenotazione: {
+          findMany: vi.fn().mockResolvedValue([]),
+          create: vi.fn().mockResolvedValue(prenotazioneCreata),
+        },
+      };
+      const { client } = transactionRunner(tx);
+
+      await expect(
+        creaPrenotazioneAtomica(inputAtomico(), client),
+      ).resolves.toEqual(prenotazioneCreata);
+
+      expect(tx.user.findUnique).not.toHaveBeenCalled();
+      expect(tx.prenotazione.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          marginePendolare: false,
+          minutiMarginePendolare: 30,
+        }),
+      });
+    });
+  });
+
   it("[TC-BIB31-002] traduce la violazione DB in conflitto proponibile come coda", async () => {
     const tx = {
       posto: { findUnique: vi.fn().mockResolvedValue(posto) },
