@@ -212,6 +212,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     let updateData: Record<string, unknown>;
     let logTipo: "CHECK_IN" | "CHECK_OUT" | "PRENOTAZIONE_CANCELLATA";
     let logDescrizione: string;
+    // Azione sul Posto da eseguire SOLO dopo che la scrittura guardata sulla
+    // Prenotazione (vedi piu' sotto, dopo lo switch) e' andata a buon fine:
+    // se un'altra richiesta (o il cron) ha gia' chiuso questa riga, non si
+    // deve toccare ne' il posto ne' l'audit di QUESTA richiesta.
+    let aggiornaPosto: (() => Promise<void>) | null = null;
 
     switch (azione) {
       case "check-in": {
@@ -269,10 +274,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
 
         updateData = { stato: "CHECK_IN", checkInAt: adesso };
-        await prisma.posto.update({
-          where: { id: prenotazione.postoId },
-          data: { stato: "OCCUPATO" },
-        });
+        aggiornaPosto = async () => {
+          await prisma.posto.update({
+            where: { id: prenotazione.postoId },
+            data: { stato: "OCCUPATO" },
+          });
+        };
         logTipo = "CHECK_IN";
         logDescrizione = `Check-in effettuato per posto ${prenotazione.posto.numero}`;
         break;
@@ -286,11 +293,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           );
         }
         updateData = { stato: "COMPLETATA", checkOutAt: new Date() };
-        await rilasciaPostoSeLibero(
-          prenotazione.postoId,
-          prenotazione.posto.stato,
-          prenotazione.id,
-        );
+        aggiornaPosto = () =>
+          rilasciaPostoSeLibero(
+            prenotazione.postoId,
+            prenotazione.posto.stato,
+            prenotazione.id,
+          );
         logTipo = "CHECK_OUT";
         logDescrizione = `Check-out effettuato per posto ${prenotazione.posto.numero}`;
         break;
@@ -304,11 +312,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         }
         updateData = { stato: "CANCELLATA" };
         if (prenotazione.stato === "CHECK_IN") {
-          await rilasciaPostoSeLibero(
-            prenotazione.postoId,
-            prenotazione.posto.stato,
-            prenotazione.id,
-          );
+          aggiornaPosto = () =>
+            rilasciaPostoSeLibero(
+              prenotazione.postoId,
+              prenotazione.posto.stato,
+              prenotazione.id,
+            );
         }
         logTipo = "PRENOTAZIONE_CANCELLATA";
         logDescrizione = `Prenotazione cancellata per posto ${prenotazione.posto.numero}`;
@@ -321,9 +330,44 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         );
     }
 
-    const prenotazioneAggiornata = await prisma.prenotazione.update({
-      where: { id },
+    // GUARDIA DI CONCORRENZA (bloccante di revisione PR #83): prima si
+    // scriveva incondizionatamente `prisma.prenotazione.update(...)` dopo aver
+    // letto la riga una volta sola in cima a questa PATCH. Da quando il cron
+    // (`completaPrenotazioniCheckInScaduto`, ogni 5 minuti) puo' chiudere da
+    // solo una CHECK_IN appena la sua fascia finisce, questa route puo'
+    // competere ESATTAMENTE sulle righe la cui fascia sta per scadere — lo
+    // stesso istante in cui un utente reale preme "check-out". Senza guardia,
+    // una richiesta gia' oltre i controlli sopra poteva sovrascrivere una riga
+    // gia' chiusa dal cron: secondo LogEvento per la stessa sessione e il
+    // `checkOutAt` del cron (l'istante corretto di fine fascia) rimpiazzato in
+    // silenzio da "adesso". La `updateMany` con lo stato atteso nel `where` e'
+    // la STESSA guardia gia' usata da `completaPrenotazioniCheckInScaduto`
+    // (src/lib/automation-service.ts): se un'altra scrittura e' arrivata
+    // prima, `count` e' 0 e ci si ferma qui, PRIMA di toccare posto/log/coda.
+    const risultatoUpdate = await prisma.prenotazione.updateMany({
+      where: { id, stato: prenotazione.stato },
       data: updateData,
+    });
+
+    if (risultatoUpdate.count !== 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "La prenotazione è stata aggiornata da un'altra operazione nel frattempo. Ricarica la pagina e riprova.",
+        },
+        { status: 409 },
+      );
+    }
+
+    // Il posto viene toccato SOLO ora, avendo appena verificato di essere
+    // stati noi a effettuare la transizione (vedi guardia sopra).
+    if (aggiornaPosto) {
+      await aggiornaPosto();
+    }
+
+    const prenotazioneAggiornata = await prisma.prenotazione.findUniqueOrThrow({
+      where: { id },
       include: {
         user: { select: { id: true, nome: true, cognome: true } },
         posto: {
@@ -410,6 +454,30 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // GUARDIA DI CONCORRENZA (bloccante di revisione PR #83): stessa guardia
+    // della PATCH qui sopra — niente scrittura incondizionata sulla
+    // Prenotazione. La `updateMany` con lo stato atteso nel `where` conta 1
+    // solo se questa richiesta e' davvero la prima a chiudere la riga; se il
+    // cron (`completaPrenotazioniCheckInScaduto`) o un'altra richiesta l'hanno
+    // gia' chiusa nel frattempo, `count` e' 0 e ci si ferma PRIMA di toccare
+    // posto/log/coda (niente doppio LogEvento, niente `checkOutAt`/dati
+    // sovrascritti).
+    const risultatoUpdate = await prisma.prenotazione.updateMany({
+      where: { id, stato: prenotazione.stato },
+      data: { stato: "CANCELLATA" },
+    });
+
+    if (risultatoUpdate.count !== 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "La prenotazione è stata aggiornata da un'altra operazione nel frattempo. Ricarica la pagina e riprova.",
+        },
+        { status: 409 },
+      );
+    }
+
     if (prenotazione.stato === "CHECK_IN") {
       await rilasciaPostoSeLibero(
         prenotazione.postoId,
@@ -417,11 +485,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         prenotazione.id,
       );
     }
-
-    await prisma.prenotazione.update({
-      where: { id },
-      data: { stato: "CANCELLATA" },
-    });
 
     // La cancellazione viene tracciata come qualunque altra transizione di
     // stato, cosi' resta ricostruibile chi ha fatto cosa e quando.

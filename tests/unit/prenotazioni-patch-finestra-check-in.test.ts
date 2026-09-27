@@ -40,7 +40,13 @@ const mocks = vi.hoisted(() => {
     requireUser: vi.fn(),
     assertOwnership: vi.fn(),
     prisma: {
-      prenotazione: { findUnique: vi.fn(), update: vi.fn(), delete: vi.fn() },
+      prenotazione: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+        findUniqueOrThrow: vi.fn(),
+        delete: vi.fn(),
+      },
       posto: { update: vi.fn() },
       logEvento: { create: vi.fn(), deleteMany: vi.fn() },
     },
@@ -103,6 +109,11 @@ beforeEach(() => {
       ...data,
     }),
   );
+  // Guardia di concorrenza (bloccante di revisione PR #83): la PATCH scrive
+  // con `updateMany({ where: { id, stato } })` e rilegge con
+  // `findUniqueOrThrow` per la risposta. Default neutro "ha avuto successo".
+  mocks.prisma.prenotazione.updateMany.mockResolvedValue({ count: 1 });
+  mocks.prisma.prenotazione.findUniqueOrThrow.mockImplementation(async () => prenotazione);
   mocks.prisma.posto.update.mockResolvedValue({ ...prenotazione.posto, stato: "OCCUPATO" });
   mocks.prisma.logEvento.create.mockResolvedValue({ id: "log-1" });
 });
@@ -123,7 +134,7 @@ describe("Integrita' dati - finestra di check-in sulla PATCH prenotazione", () =
     // Il punto critico: il posto non deve MAI passare a OCCUPATO fuori finestra,
     // altrimenti resta bloccato per gli altri utenti per giorni.
     expect(mocks.prisma.posto.update).not.toHaveBeenCalled();
-    expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();
+    expect(mocks.prisma.prenotazione.updateMany).not.toHaveBeenCalled();
   });
 
   it("[TC-INT-CHECKIN-002] check-in dopo l'inizio dello slot respinto (periodo scaduto)", async () => {
@@ -136,7 +147,7 @@ describe("Integrita' dati - finestra di check-in sulla PATCH prenotazione", () =
 
     expect(response.status).toBe(400);
     expect(mocks.prisma.posto.update).not.toHaveBeenCalled();
-    expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();
+    expect(mocks.prisma.prenotazione.updateMany).not.toHaveBeenCalled();
   });
 
   it("[TC-INT-CHECKIN-003] check-in dentro la finestra dei 15 minuti: consentito", async () => {
@@ -148,9 +159,11 @@ describe("Integrita' dati - finestra di check-in sulla PATCH prenotazione", () =
     const response = await route.PATCH(request({ azione: "check-in" }), params);
 
     expect(response.status).toBe(200);
-    const arg = mocks.prisma.prenotazione.update.mock.calls[0][0] as {
+    const arg = mocks.prisma.prenotazione.updateMany.mock.calls[0][0] as {
+      where: { id: string; stato: string };
       data: { stato: string };
     };
+    expect(arg.where.stato).toBe("CONFERMATA");
     expect(arg.data.stato).toBe("CHECK_IN");
     expect(mocks.prisma.posto.update).toHaveBeenCalledWith({
       where: { id: "posto-1" },

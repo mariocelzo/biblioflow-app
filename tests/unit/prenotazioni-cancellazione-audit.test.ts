@@ -40,6 +40,7 @@ const mocks = vi.hoisted(() => {
         findUnique: vi.fn(),
         findFirst: vi.fn(),
         update: vi.fn(),
+        updateMany: vi.fn(),
         delete: vi.fn(),
       },
       posto: { update: vi.fn() },
@@ -110,6 +111,10 @@ beforeEach(() => {
       ...data,
     }),
   );
+  // Guardia di concorrenza (bloccante di revisione PR #83): la DELETE ora
+  // scrive con `updateMany({ where: { id, stato } })`. Default neutro "ha
+  // avuto successo" (count: 1) — i test sulla guardia stessa lo sovrascrivono.
+  mocks.prisma.prenotazione.updateMany.mockResolvedValue({ count: 1 });
   mocks.prisma.prenotazione.delete.mockResolvedValue(prenotazioneConStato("CONFERMATA"));
   // Default neutro: nessuna ALTRA prenotazione ancora in CHECK_IN sullo
   // stesso posto (vedi `rilasciaPostoSeLibero` in
@@ -140,13 +145,32 @@ describe("Integrita' dati - la cancellazione utente non distrugge l'audit trail"
 
     expect(response.status).toBe(200);
     expect(mocks.prisma.prenotazione.delete).not.toHaveBeenCalled();
-    expect(mocks.prisma.prenotazione.update).toHaveBeenCalledTimes(1);
-    const arg = mocks.prisma.prenotazione.update.mock.calls[0][0] as {
-      where: { id: string };
+    // Guardia di concorrenza (bloccante di revisione PR #83): la scrittura è
+    // una `updateMany` guardata sullo stato letto, non una `update` incondizionata.
+    expect(mocks.prisma.prenotazione.updateMany).toHaveBeenCalledTimes(1);
+    const arg = mocks.prisma.prenotazione.updateMany.mock.calls[0][0] as {
+      where: { id: string; stato: string };
       data: { stato: string };
     };
     expect(arg.where.id).toBe("pren-1");
+    expect(arg.where.stato).toBe("CONFERMATA");
     expect(arg.data.stato).toBe("CANCELLATA");
+  });
+
+  it("[TC-INT-DEL-008] se la prenotazione è già stata chiusa da un'altra scrittura (es. il cron), la DELETE risponde 409 e non tocca posto/log/coda", async () => {
+    // Riproduce la corsa col cron `completaPrenotazioniCheckInScaduto`
+    // (src/lib/automation-service.ts): fra la lettura iniziale e questa
+    // scrittura, un'altra operazione ha già cambiato lo stato della riga.
+    // La `updateMany` guardata su `stato` non trova più righe da aggiornare.
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue(prenotazioneConStato("CHECK_IN"));
+    mocks.prisma.prenotazione.updateMany.mockResolvedValue({ count: 0 });
+
+    const response = await route.DELETE(request(), params);
+
+    expect(response.status).toBe(409);
+    expect(mocks.prisma.posto.update).not.toHaveBeenCalled();
+    expect(mocks.prisma.logEvento.create).not.toHaveBeenCalled();
+    expect(mocks.processaCodaPerPosto).not.toHaveBeenCalled();
   });
 
   it("[TC-INT-DEL-003] la cancellazione traccia un evento PRENOTAZIONE_CANCELLATA", async () => {
@@ -206,6 +230,7 @@ describe("Integrita' dati - la cancellazione utente non distrugge l'audit trail"
 
     expect(response.status).toBe(400);
     expect(mocks.prisma.prenotazione.update).not.toHaveBeenCalled();
+    expect(mocks.prisma.prenotazione.updateMany).not.toHaveBeenCalled();
     expect(mocks.prisma.prenotazione.delete).not.toHaveBeenCalled();
     expect(mocks.prisma.logEvento.deleteMany).not.toHaveBeenCalled();
   });
