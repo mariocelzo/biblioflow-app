@@ -12,6 +12,7 @@ import {
   PrenotazioneError,
   validaPrenotazione,
 } from "@/lib/prenotazioni-service";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -164,6 +165,26 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
 export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     const user = await requireUser();
+
+    // Rate limiting DOPO l'autenticazione: estendere una prenotazione e'
+    // un'operazione critica su una risorsa propria, come check-in/check-out e
+    // cancellazione (PATCH/DELETE /api/prenotazioni/[id]), che usano gia'
+    // `criticalApiRateLimiter`. Autenticare prima evita che un anonimo
+    // consumi quota; il limite resta a difesa contro un account autenticato
+    // che tenti di estendere/ritentare a raffica per accaparrarsi gli slot
+    // successivi del posto (ogni tentativo apre una transazione Serializable).
+    //
+    // Chiave per UTENTE (`user.id`), non per IP: stesso motivo del check-in
+    // autonomo (findings revisione PR #81), una rete universitaria dietro un
+    // NAT di ateneo condividerebbe altrimenti il contatore fra studenti
+    // diversi. Vedi il commento su `chiaveUtente` in src/lib/rate-limit.ts.
+    const rateLimitResult = await criticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      user.id,
+    );
+    if (rateLimitResult) return rateLimitResult;
+
     const { id } = await params;
     const { nuovaOraFine } = await request.json();
 

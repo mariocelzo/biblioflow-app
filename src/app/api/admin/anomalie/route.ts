@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
 import { releaseNoShowReservations } from "@/lib/automation-service";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 // POST - Azioni batch sulle anomalie
 export async function POST(request: NextRequest) {
@@ -15,6 +16,26 @@ export async function POST(request: NextRequest) {
     if (session.user.ruolo !== "BIBLIOTECARIO" && session.user.ruolo !== "ADMIN") {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
+
+    // Rate limiting DOPO l'autorizzazione: un anonimo o uno studente vengono
+    // gia' fermati dai due controlli qui sopra, quindi non ha senso far loro
+    // consumare quota. Il limite protegge da un abuso dell'account staff, non
+    // da chi non puo' nemmeno arrivarci: ogni azione di questo endpoint agisce
+    // IN BLOCCO (annulla prenotazioni senza check-in, invia notifiche a tutti
+    // gli utenti con prestiti scaduti o a TUTTI gli utenti attivi con
+    // INVIA_ALERT_BROADCAST), quindi una singola chiamata ripetuta a raffica
+    // moltiplica l'effetto su tutta l'utenza.
+    //
+    // Chiave per UTENTE (`session.user.id`), non per IP: stesso motivo dello
+    // scanner (src/app/api/admin/scanner/validate/route.ts), piu' membri dello
+    // staff sulla stessa rete della biblioteca non devono dividersi la quota.
+    // Vedi il commento su `chiaveUtente` in src/lib/rate-limit.ts.
+    const rateLimitResult = await staffCriticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      session.user.id,
+    );
+    if (rateLimitResult) return rateLimitResult;
 
     const body = await request.json();
     const { azione } = body;
