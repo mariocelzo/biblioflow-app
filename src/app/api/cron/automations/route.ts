@@ -142,6 +142,16 @@ export async function GET(request: NextRequest) {
       typeof results.noShows.promoted === 'number'
         ? results.noShows.promoted
         : 0;
+    // Campo additivo (vedi completaPrenotazioniCheckInScaduto in
+    // src/lib/automation-service.ts): stessa difesa di `promotions` qui
+    // sopra, cosi' un `results` piu' vecchio (es. in un test che mocka
+    // runAllAutomations senza questo campo) non fa fallire il logging.
+    const completamenti =
+      'completamenti' in results &&
+      results.completamenti &&
+      typeof results.completamenti.completed === 'number'
+        ? results.completamenti.completed
+        : 0;
 
     // Log risultati
     console.info('Cron automazioni completato', {
@@ -151,6 +161,7 @@ export async function GET(request: NextRequest) {
       loanAlerts: results.loanAlerts.sent,
       noShows: results.noShows.released,
       promotions,
+      completamenti,
       errors: results.errors.length,
     });
 
