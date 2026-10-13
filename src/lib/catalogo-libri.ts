@@ -44,3 +44,36 @@ export function estraiLibriDaRisposta<T = unknown>(
   }
   return corpo.data as T[];
 }
+
+/** Campi del modello Prisma `Libro` che servono a costruire la risposta del catalogo. */
+export interface LibroDb {
+  anno: number | null;
+  scaffale: string | null;
+  piano: number | null;
+  copieDisponibili: number;
+}
+
+/**
+ * Aggiunge ai campi del database i nomi che le pagine `/libri` e `/libri/[id]`
+ * leggono davvero: `disponibile`, `annoPubblicazione`, `posizione`.
+ *
+ * PERCHE': le API restituivano il modello Prisma cosi' com'e' (`anno`,
+ * `scaffale`, `piano`), mentre le pagine leggono `disponibile`,
+ * `annoPubblicazione` e `posizione`, che non esistevano: tutti i libri
+ * risultavano "Non disponibile" anche con copie libere, e anno e posizione
+ * restavano vuoti. I campi originali restano nella risposta (nessuna
+ * regressione per chi li usa).
+ */
+export function arricchisciLibro<T extends LibroDb>(libro: T) {
+  const parti: string[] = [];
+  if (libro.piano !== null && libro.piano !== undefined) {
+    parti.push(`Piano ${libro.piano}`);
+  }
+  if (libro.scaffale) parti.push(`Scaffale ${libro.scaffale}`);
+  return {
+    ...libro,
+    disponibile: libro.copieDisponibili > 0,
+    annoPubblicazione: libro.anno,
+    posizione: parti.length > 0 ? parti.join(" - ") : null,
+  };
+}
