@@ -242,7 +242,7 @@ export default async function AdminPostiPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Numero</TableHead>
-                <TableHead>Sala</TableHead>
+                <TableHead className="hidden sm:table-cell">Sala</TableHead>
                 {/* Su telefono Piano, Caratteristiche e Prenotazioni sono nascoste:
                     senza questo la colonna Azioni finiva fuori schermo. */}
                 <TableHead className="hidden md:table-cell">Piano</TableHead>
@@ -263,7 +263,7 @@ export default async function AdminPostiPage({
               posti.map((posto) => (
                 <TableRow key={posto.id}>
                   <TableCell className="font-medium">{posto.numero}</TableCell>
-                  <TableCell>{posto.sala.nome}</TableCell>
+                  <TableCell className="hidden sm:table-cell">{posto.sala.nome}</TableCell>
                   <TableCell className="hidden md:table-cell">Piano {posto.sala.piano}</TableCell>
                   <TableCell>{getStatoBadge(posto.stato)}</TableCell>
                   <TableCell className="hidden md:table-cell">
