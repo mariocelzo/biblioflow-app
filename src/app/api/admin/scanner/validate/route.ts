@@ -7,6 +7,7 @@ import {
   tolleranzaCheckIn,
   valutaFinestraCheckIn,
 } from "@/lib/prenotazioni-regole";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,6 +27,27 @@ export async function POST(request: NextRequest) {
         { status: 403 }
       );
     }
+
+    // Rate limiting DOPO l'autorizzazione: un anonimo o uno studente vengono
+    // gia' fermati dai due controlli qui sopra, quindi non ha senso far loro
+    // consumare quota. Il check-in da scanner e' un'azione critica dello
+    // staff (cambia lo stato della prenotazione e del posto, o annulla per
+    // no-show): `staffCriticalApiRateLimiter` (60/min) e non
+    // `criticalApiRateLimiter` (10/min) perche' al banco un bibliotecario
+    // scansiona legittimamente molti QR di fila all'apertura della sala.
+    //
+    // Chiave per UTENTE (`session.user.id`), non per IP: le postazioni del
+    // banco escono di norma dallo stesso IP della rete della biblioteca, e con
+    // la chiave per IP due bibliotecari in servizio insieme si dividerebbero
+    // un'unica quota. Il limite protegge dall'abuso di UN account staff
+    // (es. credenziali compromesse), quindi il contatore va per account.
+    // Vedi il commento su `chiaveUtente` in src/lib/rate-limit.ts.
+    const rateLimitResult = await staffCriticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      session.user.id,
+    );
+    if (rateLimitResult) return rateLimitResult;
 
     const { qrCode } = await request.json();
 
