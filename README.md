@@ -269,13 +269,16 @@ npm run test:db:prepare
 Eseguire quindi `npm test` con la `DATABASE_URL` di test mostrata sopra e:
 
 ```bash
+npm audit --omit=dev --audit-level=high
 npm audit --audit-level=high
 npm run test:db:down
 ```
 
-Il job `audit` riporta le vulnerabilita' ma e' non bloccante; lint,
-typecheck, build e test devono essere verdi. In CI le variabili sono repository
-secrets/variables e PostgreSQL 16 e' un service container.
+Il job `audit` blocca la pipeline sulle dipendenze di produzione. L'audit
+completo resta visibile come controllo informativo per le dipendenze di
+sviluppo; l'advisory corrente della catena ESLint non ha un fix compatibile.
+Lint, typecheck, build e test devono essere verdi. In CI le variabili sono
+repository secrets/variables e PostgreSQL 16 e' un service container.
 
 ## Struttura essenziale
 

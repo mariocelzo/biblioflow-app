@@ -10,7 +10,7 @@
 #   typecheck  -> npx tsc --noEmit        (TypeScript, nessun output)
 #   build      -> npm run build           (next build di produzione)
 #   test       -> npm test                (con PostgreSQL reale come service)
-#   audit      -> npm audit --audit-level=high  (riporta l'esito, non blocca)
+#   audit      -> produzione bloccante + audit completo informativo
 # ============================================================================
 
 name: CI
@@ -186,17 +186,11 @@ jobs:
         run: npm test --if-present
 
   # --------------------------------------------------------------------------
-  # AUDIT — vulnerabilità delle dipendenze (livello high e superiori).
+  # AUDIT — produzione bloccante; tool di sviluppo sempre visibili nel log.
   # --------------------------------------------------------------------------
   audit:
     name: audit
     runs-on: ubuntu-latest
-
-    # Deve "girare e riportare l'esito" ma NON bloccare la pipeline:
-    # la CR-BF-01 mette fuori perimetro la risoluzione indiscriminata delle
-    # vulnerabilità delle dipendenze (vedi proposta preliminare). L'esito
-    # resta visibile nel log e nella spunta del job.
-    continue-on-error: true
 
     steps:
       - name: Checkout del codice
@@ -211,5 +205,13 @@ jobs:
       - name: Installazione dipendenze (deterministica)
         run: npm ci
 
-      - name: npm audit (livello high)
+      - name: npm audit produzione (livello high)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit completo (informativo)
+        # L'advisory GHSA-vfj7-8cjw-p6xm è nella catena di sviluppo di
+        # eslint-config-next. npm propone solo un downgrade incompatibile a
+        # Next 14: lo manteniamo visibile, senza confonderlo con il rischio del
+        # bundle distribuito in produzione.
+        continue-on-error: true
         run: npm audit --audit-level=high

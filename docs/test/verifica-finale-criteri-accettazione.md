@@ -47,7 +47,8 @@ BIB-68.
 | `npx tsc --noEmit` | PASS | 0 errori |
 | `npm test` (dopo BIB-68) | **PASS pieno** | 21/21 file; **187 passati, 0 `expected fail`** — i due target `it.fails` sono ora `it()` verdi |
 | `npm run build` | PASS | Next.js 16; 43 pagine statiche; soli warning di deprecazione Sentry |
-| `npm audit --audit-level=high` | PASS | 0 vulnerabilita' alte/critiche |
+| `npm audit --omit=dev --audit-level=high` | PASS | 0 vulnerabilita' di produzione |
+| `npm audit --audit-level=high` | WARN | 5 voci high riconducibili a un solo advisory nella catena ESLint di sviluppo; il fix proposto richiede un downgrade incompatibile |
 
 Alla prima verifica il processo Vitest terminava comunque con codice 0 perche'
 i due target di sicurezza erano espressi con `it.fails` — non rendeva CA-01
