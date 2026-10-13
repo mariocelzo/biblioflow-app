@@ -104,3 +104,13 @@ I sei documenti sono generati dai sorgenti in `docs/` con
 4. allegare il pacchetto finale, che include il foglio Excel del corso con i dati
    verificati di tutti e tre i partecipanti;
 5. chiudere BIB-67 e l'epic BIB-8 solo dopo il controllo degli allegati.
+
+## Verifica dal vivo e correzione successiva
+
+La verifica manuale dell'applicazione pubblicata ha confermato home, wizard di
+prenotazione (fasce gia' iniziate e sale fuori orario disabilitate con motivo),
+mappa con indicazione della coda, notifiche e storico prenotazioni. Ha invece
+rilevato un difetto preesistente nel catalogo libri (tutti "Non disponibile",
+anno e posizione vuoti), estraneo alla CR-BF-01 e corretto dalla PR #85 con
+cinque test unitari. La PR #85 e' separata dalla #84 per non alterare la
+candidata gia' verificata; va mergiata dopo la #84.

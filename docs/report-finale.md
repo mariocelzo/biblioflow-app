@@ -312,6 +312,15 @@ modificati, non come regressioni.
 6. L'audit di produzione (`npm audit --omit=dev`) e' pulito; rimane un advisory
    high nella sola catena ESLint (`fast-glob`/`micromatch`/`braces`) senza fix
    compatibile pubblicato. Non entra nel bundle di produzione.
+7. La verifica dal vivo dell'applicazione pubblicata (13 ottobre 2026) ha
+   rilevato un difetto preesistente e indipendente dalla CR: nel catalogo
+   `/libri` tutti i libri risultavano "Non disponibile" anche con copie libere,
+   con anno e posizione vuoti, perche' `GET /api/libri` restituiva il modello
+   Prisma grezzo (`anno`, `scaffale`, `piano`) mentre la pagina legge
+   `disponibile`, `annoPubblicazione` e `posizione`. Il difetto non tocca
+   prenotazioni, lista d'attesa e concorrenza. E' corretto dalla PR #85
+   (`arricchisciLibro` in `src/lib/catalogo-libri.ts`, con cinque test
+   unitari), tenuta separata dalla PR #84 gia' verificata.
 
 ## 9. Valutazione finale
 

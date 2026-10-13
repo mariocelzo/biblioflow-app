@@ -153,6 +153,22 @@ report BIB-61 come target non soddisfatti, non come test verdi equivalenti a
 CA-01. BIB-63 non potra' dichiarare CA-01 completamente verificato finche'
 questa differenza non sara' chiusa o formalmente rimossa dal perimetro.
 
+## Casi AGGIUNTI — Correzione successiva, catalogo libri (5)
+
+Aggiunti dalla PR #85 dopo la verifica dal vivo (difetto preesistente, non
+legato alla CR-BF-01). File: `tests/unit/catalogo-libri-campi.test.ts`.
+
+| ID | Caso | Esito atteso |
+| --- | --- | --- |
+| CAT-001 | Libro con copie libere | `disponibile = true` |
+| CAT-002 | Libro senza copie libere | `disponibile = false` |
+| CAT-003 | Campi esposti | `annoPubblicazione` e `posizione` ("Piano 2 - Scaffale B3") presenti, campi originali conservati |
+| CAT-004 | Scaffale e piano assenti | `posizione = null` |
+| CAT-005 | Piano 0 | `posizione = "Piano 0"` (zero e' un piano valido) |
+
+Questi casi non modificano la suite della candidata #84 (758 test): sulla PR #85
+la suite conta 763 test.
+
 ## Matrice criteri → famiglie di test
 
 | Criterio | Famiglie principali |
