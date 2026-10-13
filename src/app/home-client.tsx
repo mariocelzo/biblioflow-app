@@ -37,7 +37,6 @@ import {
   Clock,
   QrCode,
   Navigation,
-  Star,
   Sparkles,
   ArrowRight,
   X,
@@ -89,6 +88,32 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
 
   const isAuthenticated = status === "authenticated";
   const userName = session?.user?.nome || "Ospite";
+
+  // Libri consigliati: primi titoli del catalogo reale (prima erano tre libri
+  // scritti nel codice, uno dei quali assente dal catalogo, con link a id
+  // inesistenti).
+  const [libriConsigliati, setLibriConsigliati] = useState<
+    { id: string; titolo: string; autore: string; categoria: string | null; disponibile: boolean }[]
+  >([]);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let annullato = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/libri?limit=3");
+        if (!res.ok) return;
+        const corpo = await res.json();
+        if (!annullato && corpo?.success && Array.isArray(corpo.data)) {
+          setLibriConsigliati(corpo.data);
+        }
+      } catch {
+        // Sezione accessoria: se il catalogo non risponde resta vuota.
+      }
+    })();
+    return () => {
+      annullato = true;
+    };
+  }, [isAuthenticated]);
 
   // Carica prenotazione attiva dell'utente
   useEffect(() => {
@@ -684,11 +709,7 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  { id: '1', titolo: 'Clean Code', autore: 'Robert C. Martin', categoria: 'Informatica', disponibile: true },
-                  { id: '2', titolo: 'Design Patterns', autore: 'Gang of Four', categoria: 'Informatica', disponibile: true },
-                  { id: '3', titolo: 'The Pragmatic Programmer', autore: 'David Thomas', categoria: 'Informatica', disponibile: false },
-                ].map((libro) => (
+                {libriConsigliati.map((libro) => (
                   <Card
                     key={libro.id}
                     className="cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-0 shadow-md"
@@ -704,7 +725,7 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
                           <p className="text-sm text-muted-foreground truncate">{libro.autore}</p>
                           <div className="flex items-center gap-2 mt-2">
                             <Badge variant="secondary" className="text-xs">
-                              {libro.categoria}
+                              {libro.categoria ?? 'Libro'}
                             </Badge>
                             <Badge
                               // variant "success" (non bg-green-500 scritto a mano): testo bianco su
@@ -716,71 +737,6 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
                             </Badge>
                           </div>
                         </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-
-            {/* Posti Preferiti */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
-                  <Star className="h-5 w-5 text-amber-500" />
-                  I Tuoi Posti Preferiti
-                </h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-primary"
-                  onClick={() => router.push('/prenota')}
-                >
-                  Prenota ora
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  { id: '1', numero: 'A12', sala: 'Sala Studio Silenziosa', piano: 2, caratteristiche: ['Presa elettrica', 'Vicino finestra'], disponibile: true },
-                  { id: '2', numero: 'B05', sala: 'Sala Gruppi', piano: 1, caratteristiche: ['Tavolo grande', 'Lavagna'], disponibile: false },
-                  { id: '3', numero: 'C18', sala: 'Sala Lettura', piano: 1, caratteristiche: ['Silenzioso', 'Buona luce'], disponibile: true },
-                ].map((posto) => (
-                  <Card
-                    key={posto.id}
-                    className={`cursor-pointer transition-all duration-300 hover:-translate-y-1 border-0 shadow-md ${
-                      posto.disponibile ? 'hover:shadow-lg' : 'opacity-60'
-                    }`}
-                    onClick={() => posto.disponibile && router.push(`/prenota?sala=${encodeURIComponent(posto.sala)}`)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xl font-bold text-foreground">{posto.numero}</span>
-                            <Badge
-                              // variant "success" (non bg-green-500 scritto a mano): testo bianco su
-                              // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
-                              variant={posto.disponibile ? "success" : "secondary"}
-                              className="text-xs"
-                            >
-                              {posto.disponibile ? 'Libero' : 'Occupato'}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {posto.sala} - Piano {posto.piano}
-                          </p>
-                        </div>
-                        <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
-                      </div>
-                      <div className="flex gap-1 mt-3 flex-wrap">
-                        {posto.caratteristiche.map((car, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
-                            {car}
-                          </Badge>
-                        ))}
                       </div>
                     </CardContent>
                   </Card>
