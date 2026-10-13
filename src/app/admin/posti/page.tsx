@@ -243,10 +243,12 @@ export default async function AdminPostiPage({
               <TableRow>
                 <TableHead>Numero</TableHead>
                 <TableHead>Sala</TableHead>
-                <TableHead>Piano</TableHead>
+                {/* Su telefono Piano, Caratteristiche e Prenotazioni sono nascoste:
+                    senza questo la colonna Azioni finiva fuori schermo. */}
+                <TableHead className="hidden md:table-cell">Piano</TableHead>
                 <TableHead>Stato</TableHead>
-                <TableHead>Caratteristiche</TableHead>
-                <TableHead>Prenotazioni</TableHead>
+                <TableHead className="hidden md:table-cell">Caratteristiche</TableHead>
+                <TableHead className="hidden md:table-cell">Prenotazioni</TableHead>
                 <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
@@ -262,7 +264,7 @@ export default async function AdminPostiPage({
                 <TableRow key={posto.id}>
                   <TableCell className="font-medium">{posto.numero}</TableCell>
                   <TableCell>{posto.sala.nome}</TableCell>
-                  <TableCell>Piano {posto.sala.piano}</TableCell>
+                  <TableCell className="hidden md:table-cell">Piano {posto.sala.piano}</TableCell>
                   <TableCell>{getStatoBadge(posto.stato)}</TableCell>
                   <TableCell>
                     <div className="flex gap-1">
