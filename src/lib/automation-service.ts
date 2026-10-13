@@ -937,6 +937,175 @@ export async function releaseNoShowReservations() {
   };
 }
 
+/** Esito di `completaPrenotazioniCheckInScaduto`. */
+export interface EsitoCompletamentoCheckIn {
+  /** Prenotazioni CHECK_IN con fascia gia' finita, portate a COMPLETATA. */
+  completed: number;
+  message: string;
+}
+
+/**
+ * 6️⃣ COMPLETAMENTO AUTOMATICO A FINE FASCIA (correzione difetto verificato in
+ * produzione)
+ *
+ * 🐞→✅ DIFETTO: quando uno studente fa check-in, la prenotazione passa a
+ * `CHECK_IN` e il posto a `Posto.stato = OCCUPATO`. PRIMA di questa
+ * correzione l'UNICO modo per tornare `DISPONIBILE` era che lo studente
+ * premesse "check-out" a mano (`PATCH /api/prenotazioni/[id]` azione
+ * "check-out"): nessuna automazione chiudeva MAI una prenotazione rimasta in
+ * `CHECK_IN` dopo la fine della sua fascia. Aggravante verificato dal vivo:
+ * `src/app/api/posti/route.ts` usava lo stato GLOBALE del posto come proxy di
+ * disponibilita' per QUALUNQUE data/fascia richiesta, quindi un posto
+ * dimenticato in `OCCUPATO` risultava non prenotabile per SEMPRE, non solo
+ * per la fascia della prenotazione dimenticata (corretto a parte in questo
+ * stesso PR). Prova in produzione: le prenotazioni seed
+ * `cmk465flx003z9syqorot22uf` (06/01/2026, posto A1) e
+ * `cmk465fm200489syqd5ezucdh` (06/01/2026, posto C1) erano ancora `CHECK_IN`
+ * a fine settembre — il posto A1 bloccato da quasi nove mesi.
+ *
+ * QUANDO SCATTA: la fascia e' "finita" quando `("data" + "oraFine")`,
+ * interpretato come orario di Roma (le cifre salvate in `oraFine` SONO le
+ * cifre di Roma, mai UTC — vedi src/lib/tempo-db.ts), e' nel passato rispetto
+ * ad ORA. Nessun margine di tolleranza qui (a differenza del check-in): il
+ * margine pendolare (`MARGINE_PENDOLARE_MINUTI`) estende solo la finestra per
+ * FARE check-in dopo l'INIZIO, non la durata della sessione dopo la FINE —
+ * non tocca `oraFine`.
+ *
+ * SQL grezzo per lo stesso motivo di `releaseNoShowReservations` qui sopra:
+ * ricomporre `data + oraFine` non e' esprimibile nel `where` di Prisma (non
+ * confronta colonne fra loro), e la conversione di fuso deve avvenire lato
+ * Postgres per gestire da sola il cambio dell'ora legale. La stessa query
+ * restituisce anche l'istante assoluto di fine fascia (`fineFasciaIstante`,
+ * un `timestamptz`): serve subito dopo per `checkOutAt` (vedi sotto).
+ *
+ * SCELTA — `checkOutAt` = ISTANTE DI FINE FASCIA, non istante di esecuzione
+ * del cron: il cron gira ogni 5 minuti E puo' incontrare arretrati vecchi di
+ * MESI (esattamente il caso delle due prenotazioni del 6 gennaio, ancora
+ * CHECK_IN a fine settembre). Timbrare `checkOutAt` con "adesso" scriverebbe
+ * per quelle righe un checkOutAt di settembre per una sessione di gennaio:
+ * dato storicamente falso, che le statistiche di frequenza userebbero cosi'
+ * com'e'. L'istante di fine fascia resta corretto indipendentemente da
+ * quanto tempo il cron ci ha messo ad accorgersene.
+ *
+ * ♻️ IDEMPOTENZA E CONCORRENZA — stesso schema di guardia gia' in uso in
+ * questo file (vedi `scadiPromozioniNonConfermate`): la transizione di stato
+ * e' una `updateMany` con guardia `stato: CHECK_IN` — se `count !== 1`
+ * un'altra esecuzione (o un check-out manuale sopraggiunto nel frattempo) ha
+ * gia' chiuso questa riga, e si salta senza doppi effetti. In piu', l'intera
+ * `runAllAutomations()` gira dentro il lock transazionale Postgres
+ * (`pg_try_advisory_xact_lock`, vedi `src/app/api/cron/automations/route.ts`):
+ * due invocazioni del CRON sovrapposte non possono mai eseguire questa
+ * funzione in parallelo. La guardia sulla `updateMany` resta comunque utile
+ * per la corsa che il lock non copre: un check-out MANUALE eseguito nello
+ * stesso istante in cui il cron sta gia' processando la stessa riga.
+ *
+ * RILASCIO DEL POSTO — stessa regola di `rilasciaPostoSeLibero` in
+ * src/app/api/prenotazioni/[id]/route.ts (duplicata qui invece che importata:
+ * quel modulo non e' pensato per essere importato da automation-service, e i
+ * test unitari di entrambi i file mockano l'altro modulo per intero):
+ *  - MAI se il posto e' in MANUTENZIONE (non si annulla una manutenzione
+ *    impostata dallo staff);
+ *  - SOLO se non esiste un'ALTRA prenotazione ancora `CHECK_IN` sullo stesso
+ *    posto (in teoria impedito dal vincolo EXCLUDE del DB sulle
+ *    sovrapposizioni, ma e' una guardia difensiva quasi gratuita).
+ *
+ * TIPO DI LOGEVENTO — si riusa `CHECK_OUT` (gia' nell'enum `TipoEvento`)
+ * invece di aggiungere un valore dedicato come `CHECK_OUT_AUTO`: e' lo stesso
+ * evento di dominio di un check-out manuale (la sessione si chiude), e
+ * aggiungere un valore all'enum richiederebbe una migrazione Prisma non
+ * indispensabile qui. La distinzione "automatico vs manuale" vive in
+ * `dettagli.automatico` e `dettagli.attore` (stesso pattern di
+ * `attoreAutomazione()` usato da tutte le altre automazioni di questo file),
+ * non nel `tipo`.
+ */
+export async function completaPrenotazioniCheckInScaduto(): Promise<EsitoCompletamentoCheckIn> {
+  const now = new Date();
+
+  const righeScadute = await prisma.$queryRaw<
+    { id: string; fineFasciaIstante: Date }[]
+  >`
+    SELECT id, (("data" + "oraFine") AT TIME ZONE 'Europe/Rome') AS "fineFasciaIstante"
+    FROM "Prenotazione"
+    WHERE stato = 'CHECK_IN'
+      AND (("data" + "oraFine") AT TIME ZONE 'Europe/Rome') <= ${now}::timestamptz
+  `;
+
+  if (righeScadute.length === 0) {
+    return { completed: 0, message: "0 prenotazioni completate automaticamente" };
+  }
+
+  const fineFasciaPerId = new Map(righeScadute.map((r) => [r.id, r.fineFasciaIstante]));
+
+  const prenotazioni = await prisma.prenotazione.findMany({
+    where: { id: { in: righeScadute.map((r) => r.id) } },
+    include: {
+      posto: true,
+    },
+  });
+
+  let count = 0;
+
+  for (const prenotazione of prenotazioni) {
+    const fineFasciaIstante = fineFasciaPerId.get(prenotazione.id) ?? now;
+
+    // Guardia di idempotenza/concorrenza: vedi il commento della funzione.
+    const chiusa = await prisma.prenotazione.updateMany({
+      where: { id: prenotazione.id, stato: StatoPrenotazione.CHECK_IN },
+      data: { stato: StatoPrenotazione.COMPLETATA, checkOutAt: fineFasciaIstante },
+    });
+
+    if (chiusa.count !== 1) {
+      // Gia' chiusa nel frattempo (check-out manuale, o un'altra esecuzione
+      // del cron): nessun doppio effetto.
+      continue;
+    }
+
+    // Rilascio del posto guardato (vedi il commento della funzione).
+    if (prenotazione.posto.stato !== StatoPosto.MANUTENZIONE) {
+      const altraCheckIn = await prisma.prenotazione.findFirst({
+        where: {
+          postoId: prenotazione.postoId,
+          stato: StatoPrenotazione.CHECK_IN,
+          id: { not: prenotazione.id },
+        },
+        select: { id: true },
+      });
+
+      if (!altraCheckIn) {
+        await prisma.posto.update({
+          where: { id: prenotazione.postoId },
+          data: { stato: StatoPosto.DISPONIBILE },
+        });
+      }
+    }
+
+    await prisma.logEvento.create({
+      data: {
+        tipo: "CHECK_OUT",
+        userId: prenotazione.userId,
+        prenotazioneId: prenotazione.id,
+        descrizione: `Check-out automatico a fine fascia per posto ${prenotazione.posto.numero}`,
+        dettagli: {
+          prenotazioneId: prenotazione.id,
+          userId: prenotazione.userId,
+          postoId: prenotazione.postoId,
+          oraFine: prenotazione.oraFine,
+          checkOutAt: fineFasciaIstante,
+          automatico: true,
+          attore: attoreAutomazione(),
+        },
+      },
+    });
+
+    count++;
+  }
+
+  return {
+    completed: count,
+    message: `${count} prenotazioni completate automaticamente a fine fascia`,
+  };
+}
+
 /**
  * ⏳ FINESTRA DI CONFERMA DELLA PROMOZIONE (BIB-44 / CA-04)
  *
@@ -1435,6 +1604,11 @@ export async function runAllAutomations() {
     // conferma entro la finestra e nuove promozioni che ne sono derivate.
     // I campi preesistenti non cambiano, quindi i consumatori restano validi.
     promozioniScadute: { scadute: 0, promozioniInnescate: 0 },
+    // Campo *additivo*: completamento automatico delle prenotazioni rimaste
+    // in CHECK_IN oltre la fine della loro fascia (vedi
+    // `completaPrenotazioniCheckInScaduto` qui sopra). Anche qui i campi
+    // preesistenti restano invariati.
+    completamenti: { completed: 0 },
     errors: [] as string[],
   };
 
@@ -1482,6 +1656,21 @@ export async function runAllAutomations() {
   } catch (error) {
     console.error('❌ Errore no-shows:', error);
     results.errors.push(`No-shows: ${error}`);
+  }
+
+  try {
+    // 5. Completamento automatico delle prenotazioni CHECK_IN a fine fascia
+    //    (difetto verificato in produzione: senza questo passo nessuna
+    //    automazione chiudeva mai una prenotazione dimenticata in CHECK_IN,
+    //    vedi `completaPrenotazioniCheckInScaduto` qui sopra). Indipendente
+    //    dall'ordine rispetto ai passi 3/4 sopra: opera solo su prenotazioni
+    //    gia' `CHECK_IN`, mai su `CONFERMATA`.
+    const completamenti = await completaPrenotazioniCheckInScaduto();
+    results.completamenti = completamenti;
+    console.log('✅ Completamenti automatici:', completamenti);
+  } catch (error) {
+    console.error('❌ Errore completamenti automatici:', error);
+    results.errors.push(`Completamenti automatici: ${error}`);
   }
 
   console.log('🎯 Automazioni completate:', results);

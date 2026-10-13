@@ -39,7 +39,13 @@ const mocks = vi.hoisted(() => {
     requireUser: vi.fn(),
     assertOwnership: vi.fn(),
     prisma: {
-      prenotazione: { findUnique: vi.fn(), update: vi.fn() },
+      prenotazione: {
+        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+        findUniqueOrThrow: vi.fn(),
+      },
       posto: { update: vi.fn() },
       logEvento: { create: vi.fn() },
     },
@@ -76,7 +82,7 @@ function prenotazioneConStato(stato: string) {
     oraInizio: new Date("1970-01-01T09:00:00.000Z"),
     oraFine: new Date("1970-01-01T11:00:00.000Z"),
     stato,
-    posto: { id: "posto-1", numero: "A1", sala: { nome: "Sala Studio" } },
+    posto: { id: "posto-1", numero: "A1", stato: "OCCUPATO", sala: { nome: "Sala Studio" } },
   };
 }
 
@@ -113,6 +119,19 @@ beforeEach(() => {
       ...data,
     }),
   );
+  // Guardia di concorrenza (bloccante di revisione PR #83): PATCH e DELETE
+  // scrivono con `updateMany({ where: { id, stato } })`. Default neutro "ha
+  // avuto successo" (count: 1); i test sulla guardia stessa lo sovrascrivono.
+  mocks.prisma.prenotazione.updateMany.mockResolvedValue({ count: 1 });
+  // La PATCH rilegge la riga con `findUniqueOrThrow` per costruire la
+  // risposta dopo la scrittura guardata: questi test non ispezionano il
+  // corpo della risposta, basta un valore qualunque coerente con lo shape atteso.
+  mocks.prisma.prenotazione.findUniqueOrThrow.mockImplementation(async () =>
+    prenotazioneConStato("CONFERMATA"),
+  );
+  // Default neutro: nessuna ALTRA prenotazione ancora CHECK_IN sullo stesso
+  // posto (vedi `rilasciaPostoSeLibero` in src/app/api/prenotazioni/[id]/route.ts).
+  mocks.prisma.prenotazione.findFirst.mockResolvedValue(null);
   mocks.prisma.posto.update.mockResolvedValue({ id: "posto-1", stato: "DISPONIBILE" });
   mocks.prisma.logEvento.create.mockResolvedValue({ id: "log-1" });
   mocks.processaCodaPerPosto.mockResolvedValue({ promossa: false });
@@ -131,7 +150,8 @@ describe("DELETE /api/prenotazioni/[id] — promuove la coda dopo la cancellazio
   it("[TC-CODA-DEL-002] la promozione avviene DOPO che la prenotazione risulta gia' CANCELLATA a DB", async () => {
     await route.DELETE(requestDelete(), params);
 
-    const ordinePrenotazioneUpdate = mocks.prisma.prenotazione.update.mock.invocationCallOrder[0];
+    const ordinePrenotazioneUpdate =
+      mocks.prisma.prenotazione.updateMany.mock.invocationCallOrder[0];
     const ordineProcessaCoda = mocks.processaCodaPerPosto.mock.invocationCallOrder[0];
     expect(ordinePrenotazioneUpdate).toBeLessThan(ordineProcessaCoda);
   });
