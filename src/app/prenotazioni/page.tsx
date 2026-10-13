@@ -169,19 +169,24 @@ function PrenotazioniContent() {
     // ormai stantio).
     if (!inAttive && !inPassate) return;
 
-    if (inAttive) setTabAttiva("attive");
-    else setTabAttiva("passate");
-
     evidenziataScrollataRef.current = true;
-    // Rimanda lo scroll al prossimo tick: la card della tab appena attivata
-    // deve prima montarsi nel DOM.
-    const timeout = setTimeout(() => {
-      cardRefs.current[prenotazioneEvidenziataId]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }, 100);
-    return () => clearTimeout(timeout);
+    const tabDaAprire = inAttive ? "attive" : "passate";
+    let scrollTimeout: ReturnType<typeof setTimeout> | undefined;
+    // L'aggiornamento parte da un task asincrono, evitando un secondo render
+    // sincrono dentro l'effect. Lo scroll aspetta poi che la tab sia montata.
+    const tabTimeout = setTimeout(() => {
+      setTabAttiva(tabDaAprire);
+      scrollTimeout = setTimeout(() => {
+        cardRefs.current[prenotazioneEvidenziataId]?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+      }, 100);
+    }, 0);
+    return () => {
+      clearTimeout(tabTimeout);
+      if (scrollTimeout) clearTimeout(scrollTimeout);
+    };
   }, [prenotazioneEvidenziataId, loading, prenotazioniAttive, prenotazioniPassate]);
 
   // Check-in

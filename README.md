@@ -17,7 +17,8 @@ Applicazione pubblicata: [biblioflow-app.vercel.app](https://biblioflow-app.verc
 - check-in tramite QR code firmato e check-out;
 - ingresso e annullamento della lista d'attesa con posizione FIFO;
 - proposta di ingresso in coda quando uno slot e' occupato;
-- notifiche e aggiornamenti realtime su disponibilita' e promozioni.
+- notifiche persistenti e aggiornamento periodico del relativo badge;
+- disponibilita' ricalcolata dal server per data e fascia selezionate.
 
 ### Personale
 
@@ -35,7 +36,9 @@ Applicazione pubblicata: [biblioflow-app.vercel.app](https://biblioflow-app.verc
 - vincolo PostgreSQL contro prenotazioni attive sovrapposte;
 - coda FIFO senza duplicati attivi per utente e intervallo;
 - promozione automatica e idempotente su cancellazione, no-show e scadenza;
-- audit tramite `LogEvento`, notifiche correlate ed eventi SSE.
+- audit tramite `LogEvento` e notifiche correlate;
+- completamento automatico dei check-in a fine fascia e protezione dei posti in
+  manutenzione durante cancellazioni e automazioni.
 
 Il processo di manutenzione, l'impact analysis e le evidenze CA-01–CA-06 sono
 raccolti in [`docs/`](docs/). Il riferimento immutabile precedente alla
@@ -43,12 +46,12 @@ change request e' il tag `baseline-pre-cr-bf-01`.
 
 ## Stack
 
-- Node.js 20.19 o successivo, oppure 22.12 o successivo, e npm (minimo richiesto da Prisma 7);
+- Node.js 20.19 o successivo, oppure 22.13 o successivo, e npm;
 - Next.js 16, React 19 e TypeScript;
 - Tailwind CSS e componenti Radix/Shadcn;
 - Prisma ORM 7 e PostgreSQL 16;
 - NextAuth/Auth.js con sessioni JWT;
-- Server-Sent Events per gli aggiornamenti realtime;
+- cron protetto per promemoria, no-show, scadenze e chiusura automatica;
 - Docker Compose per PostgreSQL e Redis locali;
 - Vitest per test unitari e di integrazione.
 
@@ -56,7 +59,7 @@ change request e' il tag `baseline-pre-cr-bf-01`.
 
 ### 1. Requisiti
 
-Installare Git, Node.js 20.19 o successivo (oppure 22.12 o successivo) e Docker
+Installare Git, Node.js 20.19 o successivo (oppure 22.13 o successivo) e Docker
 Desktop con Docker Compose v2. Prisma 7 rifiuta le versioni di Node piu' vecchie.
 
 ```bash
@@ -187,9 +190,9 @@ soltanto quando questa perdita e' intenzionale.
 | `NEXTAUTH_SECRET` | si' | Sessioni; almeno 32 caratteri. |
 | `NEXT_PUBLIC_APP_NAME` | no | Nome pubblico, default `BiblioFlow`. |
 | `NEXT_PUBLIC_APP_URL` | no | URL pubblico dell'applicazione. |
-| `CRON_SECRET` | consigliata | Protegge `/api/cron/automations`; senza valore la route rifiuta le richieste. |
+| `CRON_SECRET` | si' in produzione | Protegge `/api/cron/automations`; senza valore la route rifiuta le richieste. |
 | `QR_SECRET` | consigliata | Firma i QR; in assenza deriva da `NEXTAUTH_SECRET`. |
-| `REDIS_URL` | no | Connessione Redis. |
+| `REDIS_URL` | no | Riservata a un futuro rate limiter distribuito; il limiter corrente e' in-memory per istanza. |
 | `GOOGLE_CLIENT_ID` | no | OAuth Google; richiede anche il client secret. |
 | `GOOGLE_CLIENT_SECRET` | no | OAuth Google; richiede anche il client ID. |
 | `NEXT_PUBLIC_SENTRY_DSN` | no | Invio degli errori a Sentry. |
@@ -279,7 +282,7 @@ secrets/variables e PostgreSQL 16 e' un service container.
 ```text
 src/app/                 pagine Next.js e route handler API
 src/components/          componenti UI e funzionali
-src/lib/                 auth, dominio, Prisma, automazioni e realtime
+src/lib/                 auth, dominio, Prisma, automazioni e rate limiting
 prisma/                  schema, migrazioni e seed
 tests/                   suite correnti e caratterizzazione pre-modifica
 docs/                    analisi, diagrammi e report di test
@@ -289,11 +292,14 @@ docs/                    analisi, diagrammi e report di test
 ## Documentazione
 
 - [Verifica finale](docs/test/verifica-finale-criteri-accettazione.md)
+- [Stato della consegna 2026-10-13](docs/stato-consegna-2026-10-13.md)
 - [Specifica post-modifica](docs/test/spec-post-modifica.md)
 - [Report parti modificate](docs/test/report-post-modifica.md)
 - [Report di regressione](docs/test/report-regressione.md)
 - [Diagramma componenti AS-IS](docs/diagrammi/prenotazione-componenti-as-is.md)
 - [Diagramma stati AS-IS](docs/diagrammi/prenotazione-stati-as-is.md)
+- [Diagramma componenti TO-BE](docs/diagrammi/prenotazione-componenti-to-be.md)
+- [Diagramma stati TO-BE](docs/diagrammi/prenotazione-stati-to-be.md)
 - [Regole di contribuzione](CONTRIBUTING.md)
 
 ## Contribuire

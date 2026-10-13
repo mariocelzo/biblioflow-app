@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 
 // Mappa gli errori applicativi sullo status corretto (stessa logica delle altre
 // route prestiti/prenotazioni). Un AuthError deve tornare 401/403/404.
@@ -36,6 +37,12 @@ export async function POST(
   try {
     // C-3: era pubblico. Ora serve una sessione e la proprieta' del prestito.
     const user = await requireUser();
+    const rateLimit = await criticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      user.id,
+    );
+    if (rateLimit) return rateLimit;
     const { id } = await params;
 
     // Trova il prestito

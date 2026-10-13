@@ -170,6 +170,25 @@ beforeEach(() => {
 });
 
 describe("releaseNoShowReservations — innesco promozione coda (BIB-40 / CA-04)", () => {
+  it("[TC-BIB40-000] non riapre né rioffre alla coda un posto in manutenzione", async () => {
+    configuraCandidatiNoShow([
+      prenotazioneNoShow({
+        posto: {
+          id: "posto-1",
+          numero: "A1",
+          stato: "MANUTENZIONE",
+          sala: { id: "sala-1", nome: "Sala Studio" },
+        },
+      }),
+    ]);
+
+    const result = await releaseNoShowReservations();
+
+    expect(result.released).toBe(1);
+    expect(postoUpdateMock).not.toHaveBeenCalled();
+    expect(promuoviPrimoInCodaMock).not.toHaveBeenCalled();
+  });
+
   it("[TC-BIB40-001] promuove il primo in coda per il posto liberato e ne tiene traccia", async () => {
     configuraCandidatiNoShow([prenotazioneNoShow()]);
     promuoviPrimoInCodaMock.mockResolvedValue(promozioneOk());

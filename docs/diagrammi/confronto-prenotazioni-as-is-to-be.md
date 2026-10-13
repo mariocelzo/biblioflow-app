@@ -6,7 +6,7 @@
 |---|---|---|
 | Componenti | [Diagramma componenti AS-IS](./prenotazione-componenti-as-is.md) | [Diagramma componenti TO-BE](./prenotazione-componenti-to-be.md) |
 | Stati | [Diagramma stati AS-IS](./prenotazione-stati-as-is.md) | [Diagramma stati TO-BE](./prenotazione-stati-to-be.md) |
-| Baseline | tag `baseline-pre-cr-bf-01` | `main` @ `76ecb1e` dopo Fase 6 e remediation finale |
+| Baseline | tag `baseline-pre-cr-bf-01` | candidata alla consegna del 2026-10-13, basata su `main` @ `59a0d54` e sulle PR #82/#83 |
 
 I diagrammi AS-IS restano immutati come fotografia della baseline. I documenti
 TO-BE rappresentano invece le dipendenze e le transizioni osservabili nel codice
@@ -26,7 +26,7 @@ finale; questa pagina li mette in relazione senza duplicarne il dettaglio.
 | Scadenza | `Prenotazione.SCADUTA` non raggiungibile | Promozione non confermata → scadenza e nuovo tentativo | `scadiPromozioniNonConfermate` |
 | Cron | Run periodici senza coordinamento | Advisory lock e operazioni idempotenti | route `/api/cron/automations` |
 | Audit | Eventi generici e non correlati | Eventi coda, attore e correlation ID | `LogEvento`, `eventi-coda` |
-| Realtime | Helper e consumer scollegati | Ingresso/promozione notificati via SSE | `realtime-events`, `use-sse` |
+| Aggiornamento client | Helper SSE scollegati | Notifiche persistenti e polling leggero del badge; disponibilita' riletta su data/fascia | `Notifica`, header, `/api/posti` |
 | UI | Nessuna alternativa al conflitto | Ingresso/uscita coda e posizione | mappa, griglia mobile, pagina prenota |
 | Statistiche | Ignorano la coda perché inesistente | Separano tempi e conversioni della coda | API e pagina statistiche |
 
@@ -48,7 +48,7 @@ flowchart LR
         B5["cancellazione / no-show / scadenza"] --> B6["promozione idempotente"]
         B6 --> B3
         B4 --> B6
-        B6 --> B7["audit + notifica + SSE"]
+        B6 --> B7["audit + notifica persistente"]
     end
 ```
 
@@ -61,8 +61,8 @@ flowchart LR
    promozione, senza duplicarne l'algoritmo FIFO.
 4. Cron e transizioni usano lock o guardie di stato per non duplicare promozioni,
    notifiche e log.
-5. Eventi e notifiche della coda sono aggiuntivi: i consumer preesistenti restano
-   compatibili e i payload pubblici non espongono identificativi personali.
+5. Le notifiche della coda sono persistenti e collegate alla prenotazione; il
+   badge le rileva tramite polling senza mantenere connessioni SSE serverless.
 6. Le statistiche distinguono gli eventi della coda dai conteggi storici.
 
 ## Evidenza di verifica

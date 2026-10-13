@@ -55,7 +55,7 @@ interface Suggerimento {
 }
 
 export default function LibriPage() {
-  const { data: session, status } = useSession();
+  const { status } = useSession();
   const router = useRouter();
   
   // Stati
@@ -162,13 +162,7 @@ export default function LibriPage() {
     }
   };
 
-  // Fetch libri
-  useEffect(() => {
-    fetchLibri();
-  }, []);
-
-  const fetchLibri = async () => {
-    setLoading(true);
+  async function fetchLibri() {
     try {
       const response = await fetch("/api/libri");
       if (!response.ok) throw new Error("Errore nel caricamento");
@@ -189,7 +183,13 @@ export default function LibriPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }
+
+  // Fetch libri
+  useEffect(() => {
+    const avvio = setTimeout(() => void fetchLibri(), 0);
+    return () => clearTimeout(avvio);
+  }, []);
 
   // Filtra libri
   const libriFiltrati = libri.filter((libro) => {

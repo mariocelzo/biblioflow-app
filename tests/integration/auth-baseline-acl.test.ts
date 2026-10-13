@@ -91,6 +91,8 @@ vi.mock("@/lib/prisma", () => ({ default: mocks.prisma, prisma: mocks.prisma }))
 vi.mock("@/lib/rate-limit", () => ({
   readApiRateLimiter: vi.fn(() => null),
   loanRequestRateLimiter: vi.fn(() => null),
+  apiRateLimiter: vi.fn(() => null),
+  criticalApiRateLimiter: vi.fn(() => null),
 }));
 
 type PrestitiRoute = typeof import("@/app/api/prestiti/route");

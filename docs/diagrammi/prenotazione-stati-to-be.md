@@ -81,7 +81,7 @@ sequenceDiagram
     participant A as API / Automazione
     participant D as prenotazioni-service
     participant DB as PostgreSQL
-    participant E as Notifiche / SSE
+    participant E as Notifiche persistenti
 
     U->>A: il personale cancella oppure si verifica un no-show
     A->>DB: chiude Prenotazione e libera lo slot
@@ -90,7 +90,7 @@ sequenceDiagram
     D->>DB: crea Prenotazione CONFERMATA
     D->>DB: IN_ATTESA → PROMOSSA + LogEvento
     D-->>A: promozione oppure coda vuota
-    A->>E: notifica personale + evento coda
+    A->>E: notifica personale collegata alla prenotazione
 
     alt check-in entro 15 minuti
         U->>A: check-in
@@ -108,7 +108,7 @@ sequenceDiagram
 |---|---|---|---|---|
 | `ListaAttesa` | nuovo | `IN_ATTESA` | ingresso autenticato | `CODA_INGRESSO`, notifica, posizione FIFO |
 | `ListaAttesa` | `IN_ATTESA` | `ANNULLATA` | proprietario | `CODA_ANNULLATA` |
-| `ListaAttesa` | `IN_ATTESA` | `PROMOSSA` | cancellazione, no-show o scadenza precedente | nuova `Prenotazione`, `CODA_PROMOZIONE`, notifica/SSE |
+| `ListaAttesa` | `IN_ATTESA` | `PROMOSSA` | cancellazione, no-show o scadenza precedente | nuova `Prenotazione`, `CODA_PROMOZIONE`, notifica persistente |
 | `ListaAttesa` | `PROMOSSA` | `SCADUTA` | nessun check-in entro la finestra | `CODA_SCADENZA`, rilascio e tentativo sul successivo |
 | `Prenotazione` | nuovo | `CONFERMATA` | creazione o promozione | transazione Serializable e vincolo DB |
 | `Prenotazione` | `CONFERMATA` | `CHECK_IN` | utente autorizzato/personale | posto occupato e audit |

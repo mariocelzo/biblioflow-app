@@ -90,6 +90,52 @@ export default function ProfiloPage() {
   const [statisticheError, setStatisticheError] = useState(false);
 
   // Redirect se non autenticato
+  async function fetchStatistiche(userId: string) {
+    try {
+      const [prenotazioniRes, prestitiRes] = await Promise.all([
+        fetch(`/api/prenotazioni?userId=${userId}`),
+        fetch(`/api/prestiti?userId=${userId}`),
+      ]);
+
+      if (!prenotazioniRes.ok || !prestitiRes.ok) {
+        console.error(
+          "[PROFILO] Errore fetch statistiche:",
+          prenotazioniRes.status,
+          prestitiRes.status
+        );
+        toast.error("Non è stato possibile caricare le tue statistiche di utilizzo");
+        setStatisticheError(true);
+        return;
+      }
+
+      setStatisticheError(false);
+      const [prenotazioniData, prestitiData] = await Promise.all([
+        prenotazioniRes.json(),
+        prestitiRes.json(),
+      ]);
+      const prenotazioniCompletate = (prenotazioniData.data || []).filter(
+        (p: { stato: string }) => p.stato === "COMPLETATA"
+      ).length;
+      const saleCount: Record<string, number> = {};
+      (prenotazioniData.data || []).forEach((p: { posto?: { sala?: { nome: string } } }) => {
+        const salaNome = p.posto?.sala?.nome;
+        if (salaNome) saleCount[salaNome] = (saleCount[salaNome] || 0) + 1;
+      });
+      const salaPreferita = Object.entries(saleCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
+
+      setStatistiche({
+        prenotazioniTotali: (prenotazioniData.data || []).length,
+        prestitiTotali: (prestitiData.data || []).length,
+        oreTotaliStudio: prenotazioniCompletate * 4,
+        salaPreferita,
+      });
+    } catch (error) {
+      console.error("Errore fetch statistiche:", error);
+      toast.error("Non è stato possibile caricare le tue statistiche di utilizzo");
+      setStatisticheError(true);
+    }
+  }
+
   useEffect(() => {
     if (status === "unauthenticated") {
       router.push("/login?callbackUrl=/profilo");
@@ -141,65 +187,14 @@ export default function ProfiloPage() {
       
       // Fetch statistiche utente
       if (session.user.id) {
-        fetchStatistiche(session.user.id);
+        const avvioStatistiche = setTimeout(
+          () => void fetchStatistiche(session.user.id),
+          0,
+        );
+        return () => clearTimeout(avvioStatistiche);
       }
     }
   }, [session]);
-
-  // Fetch statistiche
-  const fetchStatistiche = async (userId: string) => {
-    try {
-      // Fetch prenotazioni
-      const prenotazioniRes = await fetch(`/api/prenotazioni?userId=${userId}`);
-      // Fetch prestiti
-      const prestitiRes = await fetch(`/api/prestiti?userId=${userId}`);
-
-      // PERCHÉ: prima, se una delle due richieste falliva, si sostituiva
-      // silenziosamente il risultato con `{ data: [] }` e le statistiche
-      // finivano per mostrare 0 come se l'utente non avesse mai prenotato
-      // o preso in prestito nulla, invece di segnalare l'errore di rete.
-      if (!prenotazioniRes.ok || !prestitiRes.ok) {
-        console.error(
-          "[PROFILO] Errore fetch statistiche:",
-          prenotazioniRes.status,
-          prestitiRes.status
-        );
-        toast.error("Non è stato possibile caricare le tue statistiche di utilizzo");
-        setStatisticheError(true);
-        return;
-      }
-
-      setStatisticheError(false);
-      const prenotazioniData = await prenotazioniRes.json();
-      const prestitiData = await prestitiRes.json();
-
-      // Calcola ore studio (stima: 4h per prenotazione completata)
-      const prenotazioniCompletate = (prenotazioniData.data || []).filter(
-        (p: { stato: string }) => p.stato === "COMPLETATA"
-      ).length;
-      
-      // Trova sala più frequentata
-      const saleCount: Record<string, number> = {};
-      (prenotazioniData.data || []).forEach((p: { posto?: { sala?: { nome: string } } }) => {
-        const salaNome = p.posto?.sala?.nome;
-        if (salaNome) {
-          saleCount[salaNome] = (saleCount[salaNome] || 0) + 1;
-        }
-      });
-      const salaPreferita = Object.entries(saleCount).sort((a, b) => b[1] - a[1])[0]?.[0] || "";
-      
-      setStatistiche({
-        prenotazioniTotali: (prenotazioniData.data || []).length,
-        prestitiTotali: (prestitiData.data || []).length,
-        oreTotaliStudio: prenotazioniCompletate * 4,
-        salaPreferita,
-      });
-    } catch (error) {
-      console.error("Errore fetch statistiche:", error);
-      toast.error("Non è stato possibile caricare le tue statistiche di utilizzo");
-      setStatisticheError(true);
-    }
-  };
 
   // Salva modifiche
   const handleSave = async () => {

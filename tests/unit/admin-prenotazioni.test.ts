@@ -258,4 +258,20 @@ describe("BIB-49 · cancellazione admin e promozione dalla coda", () => {
       data: { stato: "CANCELLATA" },
     });
   });
+
+  it("[TC-BIB49-005] la cancellazione non riapre un posto in manutenzione", async () => {
+    mocks.prisma.prenotazione.findUnique.mockResolvedValue({
+      ...prenotazione,
+      stato: "CHECK_IN",
+      posto: { ...prenotazione.posto, stato: "MANUTENZIONE" },
+    });
+    mocks.promuoviPrimoInCoda.mockResolvedValue(null);
+
+    const response = await route.POST(
+      request({ azione: "ANNULLA_SINGOLA", prenotazioneId: prenotazione.id }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.prisma.posto.update).not.toHaveBeenCalled();
+  });
 });

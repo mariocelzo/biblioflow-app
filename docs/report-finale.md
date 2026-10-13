@@ -9,7 +9,7 @@
 | Task documentale | [BIB-65](https://mariospaceforuni.atlassian.net/browse/BIB-65) |
 | Corso | Ingegneria, Gestione ed Evoluzione del Software — A.A. 2025/2026 |
 | Baseline immutabile | tag `baseline-pre-cr-bf-01`, commit `e0742bfca4c5b05a0223bbca71f9756af9f42596` |
-| Versione finale analizzata | `main`, commit `76ecb1e7553a5d8a0e93d23d900a4aa44aefefea` |
+| Versione finale analizzata | candidata del 2026-10-13: `main` @ `59a0d54` + PR #82 + PR #83 + chiusura finale |
 | Esito dei criteri | 6 criteri verificati su 6 |
 
 ## 2. Sintesi della change request
@@ -24,7 +24,7 @@ La modifica introduce:
 3. creazione atomica con transazione e vincolo PostgreSQL;
 4. lista d'attesa FIFO senza duplicati attivi;
 5. promozione automatica e idempotente su cancellazione, no-show e scadenza;
-6. log, notifiche e aggiornamenti realtime correlati alle transizioni;
+6. log e notifiche persistenti correlati alle transizioni;
 7. adeguamenti di API, amministrazione, interfacce e statistiche necessari a
    evitare regressioni.
 
@@ -43,7 +43,7 @@ seguito un processo ripetibile:
    mantenuto immutabile per separare comportamento originale e TO-BE.
 2. **Inventario statico.** Sono stati esaminati schema Prisma, route handler,
    import, chiamate HTTP, accessi al database, middleware, automazioni,
-   notifiche, SSE, componenti UI e statistiche.
+   notifiche, componenti UI e statistiche.
 3. **Modellazione AS-IS.** Sono stati prodotti diagramma dei componenti,
    diagramma degli stati e matrice ruoli-operazioni.
 4. **Caratterizzazione eseguibile.** I casi pre-modifica hanno fissato i
@@ -91,7 +91,7 @@ L'analisi ha evidenziato quattro cause principali:
 | Cancellazione amministrativa | La cancellazione staff modifica lo stesso stato usato dalla coda. | Promozione dopo il rilascio e feedback esplicito; evitato un posto libero con coda ferma. |
 | Check-in e scanner | Una richiesta in attesa non equivale a una prenotazione. | Controlli su identita', ownership e stati ammessi; evitato il check-in di utenti non promossi. |
 | Notifiche e log | Nuove transizioni richiedono nuovi tipi persistiti. | Enum estesi, riferimenti correlati e rendering con fallback; conservati i tipi storici. |
-| Realtime/SSE | La disponibilita' cambia anche per coda e automazioni. | Eventi condivisi e canali isolati; evitati aggiornamenti mancanti o dati di altri utenti. |
+| Aggiornamento client | La disponibilita' cambia anche per coda e automazioni. | Rilettura autenticata delle API e polling leggero delle notifiche; rimossi helper SSE scollegati e in-memory. |
 | Mappa e vista mobile | Il conflitto non e' piu' un vicolo cieco. | Ingresso in coda da entrambe le viste e dal dialog di conflitto. |
 | Middleware e route admin | I nuovi endpoint e i dati amministrativi devono rispettare RBAC. | Protezione delle route coda e chiusura dei varchi 401/403 individuati dalla verifica finale. |
 | Statistiche | I nuovi eventi non devono alterare indicatori preesistenti. | Filtri e indicatore dedicato alla coda; conservata la distribuzione no-show. |
@@ -156,14 +156,15 @@ risorsa, ma non scegliere l'attore. Gli helper comuni distinguono:
 La configurazione NextAuth esistente non e' stata riscritta: gli helper sono
 stati aggiunti sopra il contratto corrente e riusati dalle route.
 
-### 4.5 Eventi, notifiche e realtime
+### 4.5 Log, notifiche e aggiornamento client
 
 Le transizioni di coda usano tipi espliciti (`CODA_INGRESSO`,
 `CODA_PROMOZIONE`, `CODA_SCADENZA`, `CODA_ANNULLATA`). Log e notifiche
-conservano i riferimenti a utente, posto, richiesta e prenotazione. Gli eventi
-realtime aggiornano i soli canali interessati. Il cron registra cosa ha
-processato e usa protezioni idempotenti, così una seconda esecuzione ravvicinata
-non cambia lo stato prodotto dalla prima.
+conservano i riferimenti a utente, posto, richiesta e prenotazione. La UI legge
+le notifiche dal database e aggiorna il badge periodicamente; la disponibilita'
+viene richiesta al server per data e fascia. Il cron registra cosa ha processato
+e usa protezioni idempotenti, così una seconda esecuzione ravvicinata non cambia
+lo stato prodotto dalla prima.
 
 ### 4.6 Diagrammi
 
@@ -189,7 +190,7 @@ duplica i diagrammi nel report.
 | 1 | Analisi AS-IS e test pre-modifica. | Baseline osservabile e difetti caratterizzati. |
 | 2 | Schema, vincoli, autenticazione e servizio di dominio. | Fondamenta condivise per tutte le route. |
 | 3 | API di prenotazione sicure e atomiche. | Esposizione HTTP del dominio senza identita' client autorevole. |
-| 4 | Automazioni, notifiche e realtime. | Promozione su no-show/scadenza e tracciabilita'. |
+| 4 | Automazioni, notifiche e tracciabilita'. | Promozione su no-show/scadenza e audit persistente. |
 | 5 | Amministrazione, middleware, UI e statistiche. | Chiusura dei ripple effect verso operatori e utenti. |
 | 6 | Specifica post-modifica, esecuzione e regressione. | Verifica esplicita di CA-01–CA-06. |
 | 7 | Diagrammi TO-BE e report finale. | Consolidamento dei deliverable del corso. |
@@ -223,6 +224,10 @@ ricostruiscono il percorso della CR:
 | `071d28a`, `bba0882`, `f4e8d82`, `e88977f` | Fase 6 — specifica, report post-modifica, regressione e verifica finale. |
 | `daa090a` | Chiusura dei varchi CA-01 emersi durante la verifica finale. |
 | `76ecb1e` | Hardening successivo all'audit API, dichiarato fuori dal perimetro funzionale CR-BF-01. |
+| `59a0d54` | Rimozione della catena SSE mai collegata e correzioni finali su disponibilita' e rate limiter. |
+| PR #82 | Collegamento dei rate limiter alle route critiche residue. |
+| PR #83 | Chiusura automatica dei `CHECK_IN` scaduti e disponibilita' per fascia. |
+| candidata 2026-10-13 | Aggiornamento dipendenze di sicurezza, copertura delle restanti scritture, guardie `MANUTENZIONE`, documentazione e pacchetto. |
 
 Gli interventi di dipendenze, RLS e distribuzione delle migrazioni sono rimasti
 in commit separati per non confondere l'evoluzione funzionale con hardening e
@@ -236,7 +241,7 @@ infrastruttura.
 | CA-02 — Concorrenza | PASS | Vincolo DB, transazioni `Serializable` e test concorrenti PostgreSQL ripetuti. |
 | CA-03 — Lista d'attesa | PASS | Unicita' attiva, FIFO deterministico e flussi UI mappa/mobile. |
 | CA-04 — Riassegnazione | PASS | Promozione su cancellazione/no-show/scadenza, lock e idempotenza. |
-| CA-05 — Tracciabilita' | PASS | Log, notifiche, correlazione e realtime delle transizioni di coda. |
+| CA-05 — Tracciabilita' | PASS | Log, notifiche persistenti e correlazione delle transizioni di coda. |
 | CA-06 — Regressione | PASS | 20/20 casi invariati con esito identico alla baseline. |
 
 La decisione e le prove dettagliate sono in
@@ -263,8 +268,8 @@ la successiva correzione, senza riscrivere retroattivamente l'evidenza.
   invariati e nessun caso eliminato alla prima esecuzione di Fase 6.
 - Il report delle parti modificate ha prodotto 179 pass e 2 target di sicurezza
   inizialmente attesi come fallimenti.
-- BIB-68 ha corretto i tre percorsi admin coinvolti; la suite finale ha prodotto
-  **187 test passati e 0 expected fail**.
+- La candidata 2026-10-13 supera **758/758 test** in 102 file, inclusi i casi
+  PostgreSQL, oltre a lint, typecheck e build di produzione.
 - Il report di regressione ha prodotto **20/20 PASS**, senza differenze rispetto
   alla baseline per i casi invariati.
 - La verifica focalizzata di concorrenza ha ripetuto cinque volte i due scenari
@@ -288,9 +293,12 @@ modificati, non come regressioni.
 4. I test di caratterizzazione pre-modifica sono intenzionalmente separati dalla
    suite corrente: eseguirli indiscriminatamente sul codice TO-BE confonderebbe
    differenze volute e regressioni.
-5. I diagrammi TO-BE sono ancora nella PR correlata #49 al commit finale qui
-   analizzato; il merge e' necessario affinche' i collegamenti relativi TO-BE
-   diventino parte di `main`.
+5. Il rate limiter e' in memoria per singola istanza serverless: riduce gli
+   abusi evidenti ma non e' un limite globale. `REDIS_URL` resta predisposta
+   per una futura implementazione distribuita.
+6. L'audit di produzione (`npm audit --omit=dev`) e' pulito; rimane un advisory
+   high nella sola catena ESLint (`fast-glob`/`micromatch`/`braces`) senza fix
+   compatibile pubblicato. Non entra nel bundle di produzione.
 
 ## 9. Valutazione finale
 
@@ -299,7 +307,7 @@ soluzione non affida la correttezza a un singolo livello: sessione e ownership
 proteggono l'accesso, il dominio centralizza le regole, le transazioni coordinano
 le scritture e il database garantisce l'assenza di sovrapposizioni anche nel
 caso limite. La lista d'attesa completa il flusso utente e i ripple effect sono
-coperti da automazioni, amministrazione, notifiche, realtime, UI e statistiche.
+coperti da automazioni, amministrazione, notifiche, UI e statistiche.
 
 Il processo lascia una catena di tracciabilita' completa:
 

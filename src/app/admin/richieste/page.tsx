@@ -16,12 +16,7 @@ import { toast } from "sonner";
 import {
     Loader2,
     Package,
-    CheckCircle,
-    XCircle,
-    Clock,
-    ArrowRight,
     RefreshCw,
-    BoxSelect
 } from "lucide-react";
 
 interface Richiesta {
@@ -51,7 +46,6 @@ export default function AdminRichiestePage() {
     const [processingId, setProcessingId] = useState<string | null>(null);
 
     const fetchRichieste = async () => {
-        setLoading(true);
         try {
             const res = await fetch("/api/admin/richieste");
             if (res.ok) {
@@ -69,7 +63,8 @@ export default function AdminRichiestePage() {
     };
 
     useEffect(() => {
-        fetchRichieste();
+        const avvio = setTimeout(() => void fetchRichieste(), 0);
+        return () => clearTimeout(avvio);
     }, []);
 
     const updateStato = async (id: string, nuovoStato: string) => {
@@ -87,7 +82,7 @@ export default function AdminRichiestePage() {
             } else {
                 toast.error("Errore aggiornamento stato");
             }
-        } catch (error) {
+        } catch {
             toast.error("Errore di connessione");
         } finally {
             setProcessingId(null);

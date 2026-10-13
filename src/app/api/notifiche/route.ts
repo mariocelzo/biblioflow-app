@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { apiRateLimiter } from "@/lib/rate-limit";
 import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 // Mappa gli errori applicativi sullo status corretto (stessa logica di
@@ -29,7 +30,6 @@ export async function GET(request: NextRequest) {
     // (IDOR: si potevano leggere le notifiche di chiunque). Ora il destinatario
     // e' SEMPRE l'utente di sessione e il parametro ?userId= viene ignorato.
     const user = await requireUser();
-
     const { searchParams } = new URL(request.url);
 
     const letta = searchParams.get("letta"); // "true" | "false" | null (tutte)
@@ -79,6 +79,8 @@ export async function POST(request: NextRequest) {
     // C-4: la creazione di notifiche verso un utente arbitrario e' riservata
     // allo staff (BIBLIOTECARIO/ADMIN). Prima l'endpoint era completamente aperto.
     const user = await requireUser();
+    const rateLimit = await apiRateLimiter(request, "verifica-e-conta", user.id);
+    if (rateLimit) return rateLimit;
     if (!isStaff(user.ruolo)) {
       throw new AuthError(
         403,
@@ -151,6 +153,8 @@ export async function PATCH(request: NextRequest) {
     // notifiche di altri utenti (IDOR). Ora si opera SEMPRE e solo sulle
     // notifiche possedute dall'utente di sessione.
     const user = await requireUser();
+    const rateLimit = await apiRateLimiter(request, "verifica-e-conta", user.id);
+    if (rateLimit) return rateLimit;
 
     const body = await request.json();
     const { ids, segnaLetta, segnaTutteLette } = body;
@@ -201,6 +205,8 @@ export async function DELETE(request: NextRequest) {
   try {
     // C-4: l'endpoint eliminava per id senza verificare la proprieta' (IDOR).
     const user = await requireUser();
+    const rateLimit = await apiRateLimiter(request, "verifica-e-conta", user.id);
+    if (rateLimit) return rateLimit;
 
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
