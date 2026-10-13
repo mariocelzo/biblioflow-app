@@ -478,6 +478,9 @@ export function MappaBiblioteca({
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-success" /><span>Disponibile</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-amber-500" /><span>Prenotato</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-red-500" /><span>Occupato</span></div>
+            {/* Stesso grigio (#6B7280) con cui la mappa disegna i posti in MANUTENZIONE:
+                senza questa voce un posto grigio non aveva spiegazione in legenda. */}
+            <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-gray-500" /><span>Manutenzione</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">+</div><span>{ETICHETTE_CODA.legenda}</span></div>
             <div className="flex items-center gap-2"><div className="w-4 h-4 rounded-full bg-blue-500" /><span>Selezionato</span></div>
             <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full bg-amber-400 border border-amber-600" /><span>Presa elettrica</span></div>
