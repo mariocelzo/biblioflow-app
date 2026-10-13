@@ -266,7 +266,7 @@ export default async function AdminPostiPage({
                   <TableCell>{posto.sala.nome}</TableCell>
                   <TableCell className="hidden md:table-cell">Piano {posto.sala.piano}</TableCell>
                   <TableCell>{getStatoBadge(posto.stato)}</TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <div className="flex gap-1">
                       {posto.haPresaElettrica && (
                         <Badge variant="outline" className="text-xs gap-1">
@@ -288,7 +288,7 @@ export default async function AdminPostiPage({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <span className="text-sm text-muted-foreground">
                       {posto._count.prenotazioni} totali
                     </span>
