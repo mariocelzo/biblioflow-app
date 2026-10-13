@@ -102,6 +102,10 @@ export default async function AdminPostiPage({
     take: 100,
   });
 
+  // Quanti posti corrispondono ai filtri: serve a dichiarare in tabella che
+  // l'elenco e' troncato a 100 righe, invece di far credere che sia completo.
+  const postiCorrispondenti = await db.posto.count({ where });
+
   // Statistiche rapide: sempre calcolate su TUTTI i posti (non sul
   // risultato filtrato), cosi' le card in alto restano stabili mentre si
   // cerca/filtra la tabella sotto.
@@ -223,8 +227,15 @@ export default async function AdminPostiPage({
       {/* Tabella Posti */}
       <Card>
         <CardHeader>
-          <CardTitle>Elenco Posti ({posti.length})</CardTitle>
-          <CardDescription>Tutti i posti studio della biblioteca</CardDescription>
+          <CardTitle>
+            Elenco Posti ({posti.length}
+            {postiCorrispondenti > posti.length ? ` di ${postiCorrispondenti}` : ""})
+          </CardTitle>
+          <CardDescription>
+            {postiCorrispondenti > posti.length
+              ? `Mostrati i primi ${posti.length} posti: usa i filtri per sala, stato o numero per vedere gli altri.`
+              : "Tutti i posti studio della biblioteca"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
