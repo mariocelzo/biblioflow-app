@@ -54,6 +54,46 @@ fixture di un altro file durante una corsa parallela.
 3. Le credenziali staff create dal seed remoto risultavano inattive durante la
    verifica: per una demo pubblica vanno usati account esplicitamente attivati,
    senza modificare silenziosamente gli account di produzione.
+
+## Verifica indipendente prima del merge
+
+Ripetuta il 13 ottobre 2026 sul commit `066f198` della PR #84, su una macchina
+Windows 11 con Node 22.12, Docker 29.1 e il servizio `postgres-test`
+(PostgreSQL 16, `127.0.0.1:5433`), senza riutilizzare l'ambiente della prima
+verifica.
+
+| Controllo | Esito |
+| --- | :---: |
+| `npm run test:db:prepare` | PASS — 8/8 migrazioni; `prisma db push` non rileva differenze dallo schema |
+| `npm test` (suite ufficiale) | PASS — 102/102 file, 758/758 test |
+| `npm run lint` | PASS — 0 errori, 0 warning |
+| `npx tsc --noEmit` | PASS |
+| `npm audit --omit=dev --audit-level=high` | PASS — 0 vulnerabilita' |
+| CI GitHub sul commit `066f198` | PASS — lint, typecheck, build, test, audit, GitGuardian |
+| Foglio del corso | Completo nei fogli `progetto` e `partecipanti`; SHA-256 coincidente con il manifest |
+
+I test di caratterizzazione `tests/pre-modifica/**`, eseguiti a parte sul
+codice TO-BE, terminano con 12 casi superati, 12 falliti e 6 saltati su 30. E'
+l'esito atteso e gia' motivato nel report di regressione: quei casi descrivono
+il comportamento della baseline, sono esclusi da `npm test` e i fallimenti
+corrispondono ai casi classificati MODIFICATI, non a regressioni.
+
+Rispetto alle linee guida del corso i documenti richiesti sono tutti presenti:
+
+| Richiesta del corso | Documento di consegna |
+| --- | --- |
+| Report di analisi, progettazione e realizzazione con processo di impact analysis e diagrammi | `01 - Report finale CR-BF-01` (diagrammi AS-IS e TO-BE nelle Appendici A e B) |
+| Specifica dei casi di test prima della modifica | `02 - Specifica dei casi di test pre-modifica` |
+| Report di esecuzione dei test prima della modifica | `03 - Report di esecuzione dei test pre-modifica` |
+| Specifica dei casi di test dopo la modifica, con casi aggiunti, eliminati, modificati e invariati | `04 - Specifica dei casi di test post-modifica` |
+| Esecuzione dei test sulle parti aggiunte o modificate | `05 - Report dei test sulle parti modificate` |
+| Esecuzione dei test sulle parti non modificate (regressione) | `06 - Report dei test di regressione` |
+| File Excel con informazioni su progetto e partecipanti | `02.Informazioni progetto ISTA - BiblioFlow.xlsx` |
+
+I sei documenti sono generati dai sorgenti in `docs/` con
+`scripts/consegna/genera_documenti.py` e versionati in PDF e Word nella cartella
+`deliverables/BiblioFlow-CR-BF-01-consegna-2026-10-13/documenti/`.
+
 ## Passi di pubblicazione
 
 1. pubblicare il branch di consegna e ottenere la revisione richiesta dalla

@@ -170,19 +170,18 @@ jobs:
 
       - name: Applica lo schema al DB di test
         # Le migrazioni applicano anche i vincoli SQL custom (per esempio
-        # l'exclusion constraint anti-sovrapposizione). Lo storico iniziale,
-        # però, non copre tutte le colonne legacy già presenti nello schema
-        # Prisma: su questo DB effimero completiamo quindi il riallineamento
-        # prima di eseguire i test di integrazione.
+        # l'exclusion constraint anti-sovrapposizione). Dalla migrazione
+        # 20260924120000 lo storico ricostruisce l'intero schema Prisma: il
+        # successivo db push resta come rete di sicurezza su questo DB effimero
+        # e, in condizioni normali, non trova differenze da applicare.
         run: |
           npx prisma migrate deploy
           npx prisma db push --accept-data-loss
 
       - name: Test
-        # Il framework di test non è ancora configurato (card Fase 0 di Renato):
-        # finché non esiste lo script "test" in package.json, "--if-present"
-        # fa uscire il job con esito 0 senza eseguire nulla. Il job resta
-        # comunque già predisposto con il servizio PostgreSQL.
+        # Vitest (BIB-11) esegue suite unitaria e di integrazione contro il
+        # PostgreSQL del service; "npm test" esclude i test di caratterizzazione
+        # tests/pre-modifica/**, che descrivono il comportamento della baseline.
         run: npm test --if-present
 
   # --------------------------------------------------------------------------

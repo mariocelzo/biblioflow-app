@@ -58,7 +58,9 @@ seguito un processo ripetibile:
 
 ### 3.2 Evidenze AS-IS
 
-I documenti di analisi originali restano separati dal presente report:
+I documenti di analisi originali restano separati dal presente report; nella
+versione impaginata (PDF e Word) diagrammi e matrice sono riprodotti
+integralmente nell'Appendice A.
 
 - [diagramma componenti AS-IS](diagrammi/prenotazione-componenti-as-is.md);
 - [diagramma stati Prenotazione AS-IS](diagrammi/prenotazione-stati-as-is.md);
@@ -169,16 +171,21 @@ lo stato prodotto dalla prima.
 ### 4.6 Diagrammi
 
 La fotografia AS-IS e' disponibile nei documenti indicati nella sezione 3.2.
-I diagrammi TO-BE e il confronto affiancato sono prodotti dalla task correlata
-[BIB-64, PR #49](https://github.com/mariocelzo/biblioflow-app/pull/49):
+I diagrammi TO-BE e il confronto affiancato sono stati prodotti dalla task
+correlata [BIB-64, PR #49](https://github.com/mariocelzo/biblioflow-app/pull/49),
+integrata in `main`:
 
-- diagramma dei componenti con servizio di dominio e lista d'attesa;
-- diagramma delle transizioni di `Prenotazione` e `ListaAttesa`;
-- confronto AS-IS/TO-BE e sintesi dei ripple effect.
+- [diagramma dei componenti TO-BE](diagrammi/prenotazione-componenti-to-be.md),
+  con servizio di dominio e lista d'attesa;
+- [diagramma delle transizioni TO-BE](diagrammi/prenotazione-stati-to-be.md)
+  di `Prenotazione` e `ListaAttesa`;
+- [confronto AS-IS/TO-BE](diagrammi/confronto-prenotazioni-as-is-to-be.md) e
+  sintesi dei ripple effect.
 
-Il collegamento alla PR e' intenzionale: al commit analizzato BIB-64 non e'
-ancora integrata in `main`, pertanto BIB-65 non ne usa il branch come base e non
-duplica i diagrammi nel report.
+Nella versione impaginata del report (PDF e Word) i diagrammi TO-BE e il
+confronto sono riprodotti integralmente nell'Appendice B, accanto a quelli
+AS-IS dell'Appendice A, cosi' che l'impact analysis sia leggibile senza aprire
+il repository.
 
 ## 5. Realizzazione incrementale
 
@@ -199,14 +206,20 @@ duplica i diagrammi nel report.
 
 | Migrazione | Scopo |
 | --- | --- |
+| `20260102185756_migration1` | Schema iniziale della baseline (precedente alla CR). |
+| `20260105115616_add_automation_types` | Tipi di automazione della baseline (precedente alla CR). |
 | `20260829102939_lista_attesa` | Introduce entita', stato e indici della lista d'attesa. |
 | `20260829131500_vincolo_anti_sovrapposizione_prenotazioni` | Impone la non sovrapposizione delle prenotazioni attive a livello PostgreSQL. |
 | `20260829133500_estensione_enum_coda` | Estende, senza rinominare o rimuovere, gli enum di notifiche ed eventi. |
 | `20260902113000_enable_rls_public_tables` | Abilita RLS sulle tabelle pubbliche come hardening della persistenza. |
+| `20260902133000_test_pipeline_migrate_prod` | Smoke test della pipeline di deploy delle migrazioni (solo commento SQL). |
+| `20260924120000_allinea_schema_richieste_preparazione` | Aggiunge allo storico oggetti presenti nello schema ma mai migrati: enum `StatoRichiesta`, preferenze di accessibilita' di `User`, tabella `RichiestaPreparazione`. |
 
 Le migrazioni sono versionate e la pipeline di deploy usa Prisma in modo
 separato dalla build applicativa. I dati storici con stati terminali restano
-compatibili con i nuovi vincoli.
+compatibili con i nuovi vincoli. Nella verifica del 13 ottobre 2026 le otto
+migrazioni, applicate a un PostgreSQL 16 vuoto, ricostruiscono uno schema gia'
+identico a `prisma/schema.prisma` (`prisma db push` non rileva differenze).
 
 ### 5.3 Cronologia Git sintetica
 
