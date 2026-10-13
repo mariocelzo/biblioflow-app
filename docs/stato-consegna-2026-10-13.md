@@ -54,11 +54,6 @@ fixture di un altro file durante una corsa parallela.
 3. Le credenziali staff create dal seed remoto risultavano inattive durante la
    verifica: per una demo pubblica vanno usati account esplicitamente attivati,
    senza modificare silenziosamente gli account di produzione.
-4. Nel foglio partecipanti del modello di corso mancano, nelle fonti disponibili,
-   matricola ed email istituzionale di Alfonso Maria Ferrara. Le due celle sono
-   marcate `DA CONFERMARE` nel file Excel e devono essere completate con dati
-   forniti dal diretto interessato.
-
 ## Passi di pubblicazione
 
 1. pubblicare il branch di consegna e ottenere la revisione richiesta dalla
@@ -66,5 +61,6 @@ fixture di un altro file durante una corsa parallela.
 2. unire la candidata e attendere CI e deploy Vercel verdi;
 3. verificare il successivo cron: le due prenotazioni `CHECK_IN` storiche devono
    passare a `COMPLETATA` senza riaprire posti in manutenzione;
-4. allegare il pacchetto finale e il foglio Excel del corso;
+4. allegare il pacchetto finale, che include il foglio Excel del corso con i dati
+   verificati di tutti e tre i partecipanti;
 5. chiudere BIB-67 e l'epic BIB-8 solo dopo il controllo degli allegati.

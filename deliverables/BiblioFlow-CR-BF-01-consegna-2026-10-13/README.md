@@ -16,9 +16,7 @@ La candidata è stata verificata con 758 test, lint, controllo TypeScript, build
 di produzione e audit delle dipendenze di produzione. I dettagli e i limiti
 residui sono riportati in `docs/stato-consegna-2026-10-13.md`.
 
-## Dato da completare
+## Dati del gruppo
 
-Nel foglio `partecipanti`, matricola ed email istituzionale di Alfonso Maria
-Ferrara sono marcate `DA CONFERMARE`: il dato non compare nelle fonti di progetto
-disponibili e deve essere fornito dal diretto interessato prima dell'invio al
-docente.
+Il foglio `partecipanti` contiene i dati completi e verificati dei tre membri del
+gruppo: Mario Celzo, Renato Mancino e Alfonso Maria Ferrara.
