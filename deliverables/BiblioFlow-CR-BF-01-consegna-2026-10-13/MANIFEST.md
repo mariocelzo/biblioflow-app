@@ -19,12 +19,12 @@ SHA-256 dei PDF:
 
 | File | SHA-256 |
 | --- | --- |
-| `01 - Report finale CR-BF-01.pdf` | `c06ee3c0bd13adb7f2a09ad900990001db72781d5034dc70b1d4fccb750421fe` |
-| `02 - Specifica dei casi di test pre-modifica.pdf` | `cce39a6ef5fe5a12d31a9fca23ed15a03c21e0c745faa990d2f59a7e507fc474` |
-| `03 - Report di esecuzione dei test pre-modifica.pdf` | `0954d48c0acea6b6188fcc257b44fde44c6519e6d405861abffa86e44c9a8350` |
-| `04 - Specifica dei casi di test post-modifica.pdf` | `d5a93f60ad6916889d2580a277e523972e79ad90c2deefc826a1f32af03490f5` |
-| `05 - Report dei test sulle parti modificate.pdf` | `7b96456b1c78838154a4c5c99fffb03c059f75ec01e245ed53954d307e3215c0` |
-| `06 - Report dei test di regressione.pdf` | `ec047afd87573f64930fa4c486e985686c6dc8ef6b6e072c07dace86ffcbc2eb` |
+| `01 - Report finale CR-BF-01.pdf` | `c1ad93449d4f77878e9526ba6ee9294c90061695688268cd23c863ce0324bb0a` |
+| `02 - Specifica dei casi di test pre-modifica.pdf` | `dab86e443c55c3b7768754324eb3fe7164f083dd3eb136a2f437cb45991a44f5` |
+| `03 - Report di esecuzione dei test pre-modifica.pdf` | `6c8df38333b34451f449a0054f5dbbe3bf916da8386e507abe3d560e7f3c24ef` |
+| `04 - Specifica dei casi di test post-modifica.pdf` | `1303dcd855c558c910208ca4c593b3504a15776cd0651e26497a399852cbcdf2` |
+| `05 - Report dei test sulle parti modificate.pdf` | `524a5a9d9c77dfd817c7c37379a1fc0e6bf20c2660145640fe5183f3b0e5c0e1` |
+| `06 - Report dei test di regressione.pdf` | `3b19799ece384fde9519caac5e646ae621d2b595ca36c449939f030ab565919d` |
 
 ## Sorgenti nella repository
 
