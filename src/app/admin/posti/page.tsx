@@ -102,6 +102,14 @@ export default async function AdminPostiPage({
     take: 100,
   });
 
+  // Ordine naturale dei numeri (G2 prima di G10): il database ordina come
+  // testo e produceva G1, G10, G11 ... G19, G2.
+  posti.sort(
+    (a, b) =>
+      a.sala.nome.localeCompare(b.sala.nome, "it") ||
+      a.numero.localeCompare(b.numero, "it", { numeric: true }),
+  );
+
   // Quanti posti corrispondono ai filtri: serve a dichiarare in tabella che
   // l'elenco e' troncato a 100 righe, invece di far credere che sia completo.
   const postiCorrispondenti = await db.posto.count({ where });

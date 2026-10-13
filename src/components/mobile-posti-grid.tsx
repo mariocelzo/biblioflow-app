@@ -122,11 +122,16 @@ export function MobilePostiGrid({
                     <div className="w-3 h-3 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center">+</div>
                     <span className="text-muted-foreground">{ETICHETTE_CODA.legenda}</span>
                 </div>
+                <div className="flex items-center gap-1">
+                    <div className="w-3 h-3 rounded-full bg-gray-500" />
+                    <span className="text-muted-foreground">Manutenzione</span>
+                </div>
             </div>
 
             {/* Seats Grid */}
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {posti.map((posto) => {
+                {/* Ordine naturale: G2 prima di G10 (l'ordine alfabetico mostrava G1, G10, G11 ... G19, G2). */}
+                {[...posti].sort((a, b) => a.numero.localeCompare(b.numero, 'it', { numeric: true })).map((posto) => {
                     const isSelected = posto.id === postoSelezionato;
                     // Un posto occupato/prenotato non è più "disabled": diventa un
                     // bottone accodabile come nella mappa. Solo MANUTENZIONE resta
