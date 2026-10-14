@@ -14,6 +14,11 @@ export type PrenotazioneErrorCode =
   | "POSTO_NON_TROVATO"
   | "POSTO_NON_ATTIVO"
   | "POSTO_IN_MANUTENZIONE"
+  // POSTO_RISERVATO: lo staff ha riservato/bloccato il posto (es. per un
+  // evento). È uno stato "assoluto" come MANUTENZIONE, va rifiutato qui
+  // altrimenti /api/prenotazioni e /api/prenotazioni/coda lo accettano
+  // comunque nonostante /api/posti lo mostri come non disponibile.
+  | "POSTO_RISERVATO"
   | "SALA_NON_ATTIVA"
   | "CONFIGURAZIONE_SALA_NON_VALIDA"
   | "FUORI_ORARIO_SALA"

@@ -144,19 +144,49 @@ export async function GET(request: NextRequest) {
           // I campi TIME in PostgreSQL vengono restituiti come Date con data 1970-01-01
           const prenInizio = pren.oraInizio.getUTCHours() * 60 + pren.oraInizio.getUTCMinutes();
           const prenFine = pren.oraFine.getUTCHours() * 60 + pren.oraFine.getUTCMinutes();
-          
+
           console.log(`[API POSTI] Posto ${posto.numero}: prenotazione ${prenInizio}-${prenFine} vs richiesta ${oraInizioMinuti}-${oraFineMinuti}`);
-          
+
           // Verifica sovrapposizione: due intervalli si sovrappongono se non sono completamente separati
           const overlaps = !(oraFineMinuti <= prenInizio || oraInizioMinuti >= prenFine);
           console.log(`[API POSTI] Posto ${posto.numero}: overlaps=${overlaps}`);
           return overlaps;
         });
-        
+
+        // 🐞→✅ DIFETTO VERIFICATO IN PRODUZIONE: `disponibile` (e lo `stato`
+        // restituito) dipendevano anche da `posto.stato === "DISPONIBILE"`,
+        // cioe' dallo stato GLOBALE del posto — "occupato ADESSO", non
+        // "occupato nella fascia richiesta". Un posto con check-in ancora
+        // aperto (`Posto.stato = OCCUPATO`, es. perche' nessuno ha mai fatto
+        // check-out) risultava quindi non prenotabile per QUALUNQUE
+        // data/fascia futura, anche a mesi di distanza dalla prenotazione che
+        // lo occupava (prova: prenotazioni seed `cmk465flx003z9syqorot22uf` /
+        // `cmk465fm200489syqd5ezucdh`, posto A1 bloccato da gennaio 2026).
+        //
+        // CORREZIONE: lo stato globale conta SOLO per i due valori che
+        // rendono il posto fisicamente inutilizzabile "in assoluto",
+        // indipendentemente da quale fascia si stia chiedendo — impostati a
+        // mano dallo staff (vedi PATCH /api/admin/posti/[id]):
+        //  - MANUTENZIONE (il posto e' fuori servizio);
+        //  - RISERVATO (lo staff lo ha riservato/bloccato, es. per un evento).
+        // In tutti gli altri casi — incluso lo stato globale OCCUPATO, che
+        // descrive solo "chi ha fatto check-in adesso" — la disponibilita'
+        // per LA FASCIA richiesta dipende SOLO da `isOccupato` qui sopra,
+        // cioe' dalle prenotazioni CONFERMATA/CHECK_IN che si sovrappongono
+        // a quella fascia (query poco sopra).
+        const statoAssolutoBloccante =
+          posto.stato === "MANUTENZIONE" || posto.stato === "RISERVATO";
+
+        const statoPerFascia = statoAssolutoBloccante
+          ? posto.stato
+          : isOccupato
+            ? "OCCUPATO"
+            : "DISPONIBILE";
+
         return {
           ...posto,
-          stato: isOccupato ? "OCCUPATO" : posto.stato,
-          disponibile: !isOccupato && posto.stato === "DISPONIBILE",
+          stato: statoPerFascia,
+          disponibile: !statoAssolutoBloccante && !isOccupato,
         };
       });
       
