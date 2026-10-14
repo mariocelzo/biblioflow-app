@@ -200,8 +200,8 @@ export function RowActionButton({
 
       if (response.ok) {
         toast.success(data.message);
-        // Ricarica la pagina per aggiornare i conteggi
-        window.location.reload();
+        if (onSuccess) onSuccess();
+        else window.location.reload();
       } else {
         toast.error("Errore", { description: data.error });
       }

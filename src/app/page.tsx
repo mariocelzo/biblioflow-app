@@ -26,13 +26,6 @@
 // nessun round-trip client, nessun problema di autorizzazione: i dati sono
 // gia' nell'HTML della prima risposta, calcolati al momento della richiesta.
 import { prisma } from "@/lib/prisma";
-import { auth } from "@/lib/auth";
-import {
-  caricaLibriConsigliati,
-  caricaPostiPreferiti,
-  type LibroConsigliato,
-  type PostoPreferito,
-} from "@/lib/home-dati";
 import { HomeClient } from "./home-client";
 
 // La home e' descritta come "in tempo reale": senza questa direttiva Next.js
@@ -71,9 +64,10 @@ async function caricaStatisticheBiblioteca(): Promise<{
     // "Totali" = posti effettivamente in servizio. Un posto disattivato
     // (`attivo: false`, es. rimosso o dismesso) non e' capacita' reale della
     // biblioteca, quindi non deve contare ne' al totale ne' ai disponibili.
-    const [postiTotali, postiDisponibili, utentiAttivi] = await Promise.all([
+    const [postiTotali, postiDisponibili, postiManutenzione, utentiAttivi] = await Promise.all([
       prisma.posto.count({ where: { attivo: true } }),
       prisma.posto.count({ where: { attivo: true, stato: "DISPONIBILE" } }),
+      prisma.posto.count({ where: { attivo: true, stato: "MANUTENZIONE" } }),
       // "Utenti attivi in questo momento" = prenotazioni con check-in gia'
       // effettuato: e' l'unico stato che rappresenta una presenza fisica
       // reale adesso, a differenza di "CONFERMATA" (prenotazione futura/
@@ -81,11 +75,14 @@ async function caricaStatisticheBiblioteca(): Promise<{
       prisma.prenotazione.count({ where: { stato: "CHECK_IN" } }),
     ]);
 
-    // Occupazione = tutto cio' che non e' liberamente prenotabile ora
-    // (OCCUPATO, RISERVATO, MANUTENZIONE), sui soli posti attivi.
-    const postiOccupati = Math.max(0, postiTotali - postiDisponibili);
+    // Occupazione = posti OCCUPATI o RISERVATI sul totale dei posti UTILIZZABILI.
+    // Un posto in MANUTENZIONE e' fuori servizio, non occupato: contarlo come
+    // occupato faceva comparire un'occupazione del 2% con la biblioteca vuota
+    // e due soli posti guasti.
+    const postiUtilizzabili = Math.max(0, postiTotali - postiManutenzione);
+    const postiOccupati = Math.max(0, postiUtilizzabili - postiDisponibili);
     const percentualeOccupazione =
-      postiTotali > 0 ? Math.round((postiOccupati / postiTotali) * 100) : 0;
+      postiUtilizzabili > 0 ? Math.round((postiOccupati / postiUtilizzabili) * 100) : 0;
 
     return {
       statistiche: { postiTotali, postiDisponibili, utentiAttivi, percentualeOccupazione },
@@ -100,44 +97,10 @@ async function caricaStatisticheBiblioteca(): Promise<{
   }
 }
 
-/**
- * Sezioni "Potrebbe Interessarti": libri e posti REALI, mai segnaposto.
- * Prima erano array scritti a mano nel client (id '1','2','3' inesistenti nel
- * DB, quindi /libri/1 rispondeva "Libro non trovato"). Un errore qui non deve
- * mai rompere la home: si degrada a liste vuote, che la UI mostra come tali.
- */
-async function caricaSuggerimenti(): Promise<{
-  libriConsigliati: LibroConsigliato[];
-  postiPreferiti: PostoPreferito[];
-}> {
-  try {
-    const session = await auth();
-    const userId = session?.user?.id;
-    // Il catalogo e i posti preferiti sono riservati agli utenti loggati
-    // (la sezione e' mostrata solo con sessione): niente query per gli ospiti.
-    if (!userId) return { libriConsigliati: [], postiPreferiti: [] };
-
-    const [libriConsigliati, postiPreferiti] = await Promise.all([
-      caricaLibriConsigliati(),
-      caricaPostiPreferiti(userId),
-    ]);
-    return { libriConsigliati, postiPreferiti };
-  } catch (error) {
-    console.error("Errore nel caricamento dei suggerimenti della home:", error);
-    return { libriConsigliati: [], postiPreferiti: [] };
-  }
-}
-
 export default async function HomePage() {
-  const [{ statistiche, disponibili }, { libriConsigliati, postiPreferiti }] =
-    await Promise.all([caricaStatisticheBiblioteca(), caricaSuggerimenti()]);
+  const { statistiche, disponibili } = await caricaStatisticheBiblioteca();
 
   return (
-    <HomeClient
-      statistiche={statistiche}
-      statisticheDisponibili={disponibili}
-      libriConsigliati={libriConsigliati}
-      postiPreferiti={postiPreferiti}
-    />
+    <HomeClient statistiche={statistiche} statisticheDisponibili={disponibili} />
   );
 }

@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 import confetti from "canvas-confetti";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, CheckCircle2, X, PartyPopper } from "lucide-react";
+import { Loader2, X, PartyPopper } from "lucide-react";
 import { toast } from "sonner";
 
 interface QRCodeCheckInProps {
@@ -53,10 +53,9 @@ export function QRCodeCheckIn({
     // la risposta arriva dopo che il dialog è già stato richiuso.
     let annullata = false;
 
-    setLoading(true);
-    setQrCodeUrl("");
-
-    (async () => {
+    const avvio = setTimeout(async () => {
+      setLoading(true);
+      setQrCodeUrl("");
       try {
         const risposta = await fetch(`/api/prenotazioni/${prenotazioneId}/qr`);
         const dati = await risposta.json();
@@ -89,10 +88,11 @@ export function QRCodeCheckIn({
       } finally {
         if (!annullata) setLoading(false);
       }
-    })();
+    }, 0);
 
     return () => {
       annullata = true;
+      clearTimeout(avvio);
     };
   }, [open, prenotazioneId]);
 

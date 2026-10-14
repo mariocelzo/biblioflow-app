@@ -23,7 +23,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { QRCodeCheckIn } from "@/components/qrcode-checkin";
 import { TOLLERANZA_CHECK_IN_MINUTI } from "@/lib/prenotazioni-regole";
-import type { LibroConsigliato, PostoPreferito } from "@/lib/home-dati";
 import {
   Calendar,
   BookOpen,
@@ -38,7 +37,6 @@ import {
   Clock,
   QrCode,
   Navigation,
-  Star,
   Sparkles,
   ArrowRight,
   X,
@@ -70,18 +68,9 @@ interface HomeClientProps {
   // irraggiungibile), qui arriva `false`: la UI deve dirlo esplicitamente
   // invece di mostrare zeri che sembrerebbero dati veri.
   statisticheDisponibili: boolean;
-  // Libri e posti letti dal DB lato server (vedi `src/lib/home-dati.ts`):
-  // sostituiscono gli elenchi scritti a mano che puntavano a id inesistenti.
-  libriConsigliati: LibroConsigliato[];
-  postiPreferiti: PostoPreferito[];
 }
 
-export function HomeClient({
-  statistiche,
-  statisticheDisponibili,
-  libriConsigliati,
-  postiPreferiti,
-}: HomeClientProps) {
+export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [showQRCheckIn, setShowQRCheckIn] = useState(false);
@@ -99,6 +88,32 @@ export function HomeClient({
 
   const isAuthenticated = status === "authenticated";
   const userName = session?.user?.nome || "Ospite";
+
+  // Libri consigliati: primi titoli del catalogo reale (prima erano tre libri
+  // scritti nel codice, uno dei quali assente dal catalogo, con link a id
+  // inesistenti).
+  const [libriConsigliati, setLibriConsigliati] = useState<
+    { id: string; titolo: string; autore: string; categoria: string | null; disponibile: boolean }[]
+  >([]);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let annullato = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/libri?limit=3");
+        if (!res.ok) return;
+        const corpo = await res.json();
+        if (!annullato && corpo?.success && Array.isArray(corpo.data)) {
+          setLibriConsigliati(corpo.data);
+        }
+      } catch {
+        // Sezione accessoria: se il catalogo non risponde resta vuota.
+      }
+    })();
+    return () => {
+      annullato = true;
+    };
+  }, [isAuthenticated]);
 
   // Carica prenotazione attiva dell'utente
   useEffect(() => {
@@ -710,7 +725,7 @@ export function HomeClient({
                           <p className="text-sm text-muted-foreground truncate">{libro.autore}</p>
                           <div className="flex items-center gap-2 mt-2">
                             <Badge variant="secondary" className="text-xs">
-                              {libro.categoria}
+                              {libro.categoria ?? 'Libro'}
                             </Badge>
                             <Badge
                               // variant "success" (non bg-green-500 scritto a mano): testo bianco su
@@ -726,77 +741,6 @@ export function HomeClient({
                     </CardContent>
                   </Card>
                 ))}
-                {libriConsigliati.length === 0 && (
-                  <p className="text-sm text-muted-foreground col-span-full">
-                    Nessun libro da mostrare al momento. Sfoglia il catalogo per cercarne uno.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Posti Preferiti */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
-                  <Star className="h-5 w-5 text-amber-500" />
-                  I Tuoi Posti Preferiti
-                </h3>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-primary"
-                  onClick={() => router.push('/prenota')}
-                >
-                  Prenota ora
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {postiPreferiti.map((posto) => (
-                  <Card
-                    key={posto.id}
-                    className={`cursor-pointer transition-all duration-300 hover:-translate-y-1 border-0 shadow-md ${
-                      posto.disponibile ? 'hover:shadow-lg' : 'opacity-60'
-                    }`}
-                    onClick={() => posto.disponibile && router.push(`/prenota?sala=${encodeURIComponent(posto.sala)}`)}
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xl font-bold text-foreground">{posto.numero}</span>
-                            <Badge
-                              // variant "success" (non bg-green-500 scritto a mano): testo bianco su
-                              // quel verde misurava 2.1:1, sotto la soglia AA 4.5:1. Vedi badge.tsx.
-                              variant={posto.disponibile ? "success" : "secondary"}
-                              className="text-xs"
-                            >
-                              {posto.disponibile ? 'Libero' : 'Occupato'}
-                            </Badge>
-                          </div>
-                          <p className="text-sm text-muted-foreground flex items-center gap-1">
-                            <MapPin className="h-3 w-3" />
-                            {posto.sala} - Piano {posto.piano}
-                          </p>
-                        </div>
-                        <Star className="h-5 w-5 text-amber-500 fill-amber-500" />
-                      </div>
-                      <div className="flex gap-1 mt-3 flex-wrap">
-                        {posto.caratteristiche.map((car, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs">
-                            {car}
-                          </Badge>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-                {postiPreferiti.length === 0 && (
-                  <p className="text-sm text-muted-foreground col-span-full">
-                    Non hai ancora prenotato nessun posto: i posti che usi di più compariranno qui.
-                  </p>
-                )}
               </div>
             </div>
           </section>

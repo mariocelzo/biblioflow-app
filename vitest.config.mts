@@ -14,6 +14,12 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts", "tests/**/*.spec.ts"],
     passWithNoTests: true,
+    // I test di integrazione condividono intenzionalmente lo stesso PostgreSQL
+    // locale. Eseguire file diversi in parallelo permette a un'automazione
+    // globale (per esempio il rilascio no-show) di processare la fixture di un
+    // altro file e rende il conteggio non deterministico. La sequenzialita'
+    // tra file elimina questa corsa senza cambiare il parallelismo interno al DB.
+    fileParallelism: false,
     clearMocks: true,
     restoreMocks: true,
     server: {

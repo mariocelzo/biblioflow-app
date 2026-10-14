@@ -102,6 +102,18 @@ export default async function AdminPostiPage({
     take: 100,
   });
 
+  // Ordine naturale dei numeri (G2 prima di G10): il database ordina come
+  // testo e produceva G1, G10, G11 ... G19, G2.
+  posti.sort(
+    (a, b) =>
+      a.sala.nome.localeCompare(b.sala.nome, "it") ||
+      a.numero.localeCompare(b.numero, "it", { numeric: true }),
+  );
+
+  // Quanti posti corrispondono ai filtri: serve a dichiarare in tabella che
+  // l'elenco e' troncato a 100 righe, invece di far credere che sia completo.
+  const postiCorrispondenti = await db.posto.count({ where });
+
   // Statistiche rapide: sempre calcolate su TUTTI i posti (non sul
   // risultato filtrato), cosi' le card in alto restano stabili mentre si
   // cerca/filtra la tabella sotto.
@@ -223,19 +235,28 @@ export default async function AdminPostiPage({
       {/* Tabella Posti */}
       <Card>
         <CardHeader>
-          <CardTitle>Elenco Posti ({posti.length})</CardTitle>
-          <CardDescription>Tutti i posti studio della biblioteca</CardDescription>
+          <CardTitle>
+            Elenco Posti ({posti.length}
+            {postiCorrispondenti > posti.length ? ` di ${postiCorrispondenti}` : ""})
+          </CardTitle>
+          <CardDescription>
+            {postiCorrispondenti > posti.length
+              ? `Mostrati i primi ${posti.length} posti: usa i filtri per sala, stato o numero per vedere gli altri.`
+              : "Tutti i posti studio della biblioteca"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Numero</TableHead>
-                <TableHead>Sala</TableHead>
-                <TableHead>Piano</TableHead>
+                <TableHead className="hidden sm:table-cell">Sala</TableHead>
+                {/* Su telefono Piano, Caratteristiche e Prenotazioni sono nascoste:
+                    senza questo la colonna Azioni finiva fuori schermo. */}
+                <TableHead className="hidden md:table-cell">Piano</TableHead>
                 <TableHead>Stato</TableHead>
-                <TableHead>Caratteristiche</TableHead>
-                <TableHead>Prenotazioni</TableHead>
+                <TableHead className="hidden md:table-cell">Caratteristiche</TableHead>
+                <TableHead className="hidden md:table-cell">Prenotazioni</TableHead>
                 <TableHead className="text-right">Azioni</TableHead>
               </TableRow>
             </TableHeader>
@@ -250,10 +271,10 @@ export default async function AdminPostiPage({
               posti.map((posto) => (
                 <TableRow key={posto.id}>
                   <TableCell className="font-medium">{posto.numero}</TableCell>
-                  <TableCell>{posto.sala.nome}</TableCell>
-                  <TableCell>Piano {posto.sala.piano}</TableCell>
+                  <TableCell className="hidden sm:table-cell">{posto.sala.nome}</TableCell>
+                  <TableCell className="hidden md:table-cell">Piano {posto.sala.piano}</TableCell>
                   <TableCell>{getStatoBadge(posto.stato)}</TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <div className="flex gap-1">
                       {posto.haPresaElettrica && (
                         <Badge variant="outline" className="text-xs gap-1">
@@ -275,7 +296,7 @@ export default async function AdminPostiPage({
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden md:table-cell">
                     <span className="text-sm text-muted-foreground">
                       {posto._count.prenotazioni} totali
                     </span>

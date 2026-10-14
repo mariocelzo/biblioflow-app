@@ -67,8 +67,6 @@ export default function StatisticheCharts() {
   const [errore, setErrore] = useState(false);
 
   const fetchData = useCallback(async () => {
-    setLoading(true);
-    setErrore(false);
     try {
       // Tipi minimi delle risposte attese dall'API statistiche: ci basta
       // sapere che ognuna espone un campo `data` con la forma del grafico
@@ -107,8 +105,15 @@ export default function StatisticheCharts() {
   }, []);
 
   useEffect(() => {
-    fetchData();
+    const avvio = setTimeout(() => void fetchData(), 0);
+    return () => clearTimeout(avvio);
   }, [fetchData]);
+
+  const handleRetry = () => {
+    setLoading(true);
+    setErrore(false);
+    void fetchData();
+  };
 
   if (loading) {
     return (
@@ -128,7 +133,7 @@ export default function StatisticheCharts() {
           <p className="font-medium text-foreground">Impossibile caricare le statistiche</p>
           <p className="text-sm text-muted-foreground">Riprova tra qualche istante.</p>
         </div>
-        <Button variant="outline" onClick={fetchData}>
+        <Button variant="outline" onClick={handleRetry}>
           Riprova
         </Button>
       </div>

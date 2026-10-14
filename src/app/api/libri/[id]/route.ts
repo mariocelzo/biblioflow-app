@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { arricchisciLibro } from "@/lib/catalogo-libri";
 
 // GET /api/libri/[id] - Dettaglio singolo libro
 export async function GET(
@@ -46,7 +47,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        ...libro,
+        ...arricchisciLibro(libro),
         prestitiAttivi,
         prestitiTotali,
       },

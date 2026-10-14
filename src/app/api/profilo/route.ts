@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { apiRateLimiter } from "@/lib/rate-limit";
 
 // ============================================================================
 // API PROFILO UTENTE — BiblioFlow
@@ -79,6 +80,9 @@ export async function PATCH(request: NextRequest) {
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Non autenticato" }, { status: 401 });
     }
+
+    const rateLimit = await apiRateLimiter(request, "verifica-e-conta", session.user.id);
+    if (rateLimit) return rateLimit;
 
     // Il body puo' contenere dati di accessibilita': lo si legge ma NON lo si
     // logga (B-3). Solo i campi in whitelist vengono considerati.

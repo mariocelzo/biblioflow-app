@@ -19,7 +19,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { normalizzaLibro } from "@/lib/catalogo-libri";
 import {
   Book,
   BookOpen,
@@ -94,7 +93,7 @@ export default function DettaglioLibroPage({ params }: { params: Promise<{ id: s
         const libroRes = await fetch(`/api/libri/${resolvedParams.id}`);
         if (libroRes.ok) {
           const libroData = await libroRes.json();
-          setLibro(normalizzaLibro(libroData.data));
+          setLibro(libroData.data);
         } else {
           toast.error("Libro non trovato");
           router.push("/libri");

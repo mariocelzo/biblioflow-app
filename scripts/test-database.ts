@@ -85,8 +85,9 @@ function prepareDatabase(): void {
   };
 
   // migrate deploy applica anche le migrazioni SQL custom (es. exclusion
-  // constraint), che db push non ricrea. Il successivo db push colma invece
-  // le tabelle legacy ancora non rappresentate dalle migrazioni storiche.
+  // constraint), che db push non ricrea. Il successivo db push e' una rete di
+  // sicurezza: dalla migrazione 20260924120000 lo storico copre l'intero schema
+  // e il comando segnala soltanto che il database e' gia' allineato.
   run(localExecutable("prisma"), ["migrate", "deploy"], testEnv);
   run(localExecutable("prisma"), ["db", "push"], testEnv);
   run(localExecutable("tsx"), ["tests/fixtures/seed.ts"], testEnv);

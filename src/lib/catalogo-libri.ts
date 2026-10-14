@@ -45,52 +45,35 @@ export function estraiLibriDaRisposta<T = unknown>(
   return corpo.data as T[];
 }
 
-/**
- * Posizione leggibile dello scaffale ("INF-A · Piano 1"), o `null` se il libro
- * non ha ne' scaffale ne' piano. Sostituisce il campo `posizione`, che le
- * pagine /libri leggevano ma che nel DB non esiste (ci sono `scaffale` e
- * `piano`): in catalogo la posizione risultava sempre vuota.
- */
-export function formattaPosizioneLibro(
-  scaffale: string | null | undefined,
-  piano: number | null | undefined,
-): string | null {
-  const parti: string[] = [];
-  if (scaffale) parti.push(scaffale);
-  if (typeof piano === "number") parti.push(`Piano ${piano}`);
-  return parti.length > 0 ? parti.join(" · ") : null;
-}
-
-/** Campi del Libro cosi' come li restituisce Prisma / GET /api/libri. */
-export interface LibroDaApi {
-  anno?: number | null;
-  scaffale?: string | null;
-  piano?: number | null;
-  copertina?: string | null;
-  copieTotali: number;
+/** Campi del modello Prisma `Libro` che servono a costruire la risposta del catalogo. */
+export interface LibroDb {
+  anno: number | null;
+  scaffale: string | null;
+  piano: number | null;
   copieDisponibili: number;
 }
 
 /**
- * Aggiunge al libro i campi derivati che la UI mostra (`annoPubblicazione`,
- * `posizione`, `disponibile`) a partire da quelli reali del DB, senza togliere
- * nulla. `copieDisponibili` e' limitato a 0..copieTotali: un contatore
- * fuori scala (negativo o sopra il totale) non deve mai comparire a schermo.
+ * Aggiunge ai campi del database i nomi che le pagine `/libri` e `/libri/[id]`
+ * leggono davvero: `disponibile`, `annoPubblicazione`, `posizione`.
+ *
+ * PERCHE': le API restituivano il modello Prisma cosi' com'e' (`anno`,
+ * `scaffale`, `piano`), mentre le pagine leggono `disponibile`,
+ * `annoPubblicazione` e `posizione`, che non esistevano: tutti i libri
+ * risultavano "Non disponibile" anche con copie libere, e anno e posizione
+ * restavano vuoti. I campi originali restano nella risposta (nessuna
+ * regressione per chi li usa).
  */
-export function normalizzaLibro<T extends LibroDaApi>(libro: T): T & {
-  annoPubblicazione: number | null;
-  posizione: string | null;
-  disponibile: boolean;
-} {
-  const copieDisponibili = Math.min(
-    Math.max(libro.copieDisponibili, 0),
-    Math.max(libro.copieTotali, 0),
-  );
+export function arricchisciLibro<T extends LibroDb>(libro: T) {
+  const parti: string[] = [];
+  if (libro.piano !== null && libro.piano !== undefined) {
+    parti.push(`Piano ${libro.piano}`);
+  }
+  if (libro.scaffale) parti.push(`Scaffale ${libro.scaffale}`);
   return {
     ...libro,
-    copieDisponibili,
-    annoPubblicazione: libro.anno ?? null,
-    posizione: formattaPosizioneLibro(libro.scaffale, libro.piano),
-    disponibile: copieDisponibili > 0,
+    disponibile: libro.copieDisponibili > 0,
+    annoPubblicazione: libro.anno,
+    posizione: parti.length > 0 ? parti.join(" - ") : null,
   };
 }
