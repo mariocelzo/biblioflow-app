@@ -64,9 +64,10 @@ async function caricaStatisticheBiblioteca(): Promise<{
     // "Totali" = posti effettivamente in servizio. Un posto disattivato
     // (`attivo: false`, es. rimosso o dismesso) non e' capacita' reale della
     // biblioteca, quindi non deve contare ne' al totale ne' ai disponibili.
-    const [postiTotali, postiDisponibili, utentiAttivi] = await Promise.all([
+    const [postiTotali, postiDisponibili, postiManutenzione, utentiAttivi] = await Promise.all([
       prisma.posto.count({ where: { attivo: true } }),
       prisma.posto.count({ where: { attivo: true, stato: "DISPONIBILE" } }),
+      prisma.posto.count({ where: { attivo: true, stato: "MANUTENZIONE" } }),
       // "Utenti attivi in questo momento" = prenotazioni con check-in gia'
       // effettuato: e' l'unico stato che rappresenta una presenza fisica
       // reale adesso, a differenza di "CONFERMATA" (prenotazione futura/
@@ -74,11 +75,14 @@ async function caricaStatisticheBiblioteca(): Promise<{
       prisma.prenotazione.count({ where: { stato: "CHECK_IN" } }),
     ]);
 
-    // Occupazione = tutto cio' che non e' liberamente prenotabile ora
-    // (OCCUPATO, RISERVATO, MANUTENZIONE), sui soli posti attivi.
-    const postiOccupati = Math.max(0, postiTotali - postiDisponibili);
+    // Occupazione = posti OCCUPATI o RISERVATI sul totale dei posti UTILIZZABILI.
+    // Un posto in MANUTENZIONE e' fuori servizio, non occupato: contarlo come
+    // occupato faceva comparire un'occupazione del 2% con la biblioteca vuota
+    // e due soli posti guasti.
+    const postiUtilizzabili = Math.max(0, postiTotali - postiManutenzione);
+    const postiOccupati = Math.max(0, postiUtilizzabili - postiDisponibili);
     const percentualeOccupazione =
-      postiTotali > 0 ? Math.round((postiOccupati / postiTotali) * 100) : 0;
+      postiUtilizzabili > 0 ? Math.round((postiOccupati / postiUtilizzabili) * 100) : 0;
 
     return {
       statistiche: { postiTotali, postiDisponibili, utentiAttivi, percentualeOccupazione },

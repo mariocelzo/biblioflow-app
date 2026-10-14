@@ -104,3 +104,23 @@ I sei documenti sono generati dai sorgenti in `docs/` con
 4. allegare il pacchetto finale, che include il foglio Excel del corso con i dati
    verificati di tutti e tre i partecipanti;
 5. chiudere BIB-67 e l'epic BIB-8 solo dopo il controllo degli allegati.
+
+## Verifica dal vivo e correzioni successive
+
+La verifica manuale dell'applicazione pubblicata e di un'istanza locale con
+dati fittizi (PostgreSQL in Docker, seed del repository) ha confermato:
+wizard di prenotazione (fasce gia' iniziate e sale fuori orario disabilitate
+con motivo), mappa con indicazione della coda, notifiche, storico, cron delle
+automazioni (9 no-show liberati, 2 prenotazioni completate), messa in
+manutenzione di due posti dal pannello admin (esclusi da disponibilita' e
+contatori), prenotazione, lista d'attesa (posizione 1) e promozione automatica
+con notifiche `CODA_INGRESSO` e `CODA_PROMOZIONE` dopo l'annullo del titolare.
+
+Sono stati rilevati e corretti nella PR #85 sette difetti di front-end o di
+risposta API, tutti preesistenti e indipendenti dalla CR-BF-01 (elenco nel
+report finale, sezione 8, voce 7; Jira BIB-69). La PR #85 e' separata dalla
+#84 per non alterare la candidata gia' verificata; va mergiata dopo la #84.
+
+Punto ancora da riverificare: dopo il login dal form con `callbackUrl`
+(ritorno a una pagina protetta) la pagina e' rimasta su "Accedi" una volta,
+pur con sessione creata.

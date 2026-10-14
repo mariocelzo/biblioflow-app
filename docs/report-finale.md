@@ -312,6 +312,31 @@ modificati, non come regressioni.
 6. L'audit di produzione (`npm audit --omit=dev`) e' pulito; rimane un advisory
    high nella sola catena ESLint (`fast-glob`/`micromatch`/`braces`) senza fix
    compatibile pubblicato. Non entra nel bundle di produzione.
+7. La verifica dal vivo dell'applicazione (13 ottobre 2026) ha rilevato
+   difetti preesistenti e indipendenti dalla CR, che non toccano prenotazioni,
+   lista d'attesa e concorrenza. Tutti sono corretti dalla PR #85, tenuta
+   separata dalla PR #84 gia' verificata (tracciati in BIB-69):
+
+   - catalogo `/libri`: tutti i libri "Non disponibile" e anno/posizione vuoti,
+     perche' `GET /api/libri` restituiva il modello Prisma grezzo (`anno`,
+     `scaffale`, `piano`) mentre la pagina legge `disponibile`,
+     `annoPubblicazione`, `posizione` (`arricchisciLibro`, 5 test CAT-001..005);
+   - home: "Libri consigliati" e "Posti preferiti" erano dati scritti nel
+     codice (un libro assente dal catalogo, sale inesistenti, link a id non
+     validi); ora i libri vengono dal catalogo reale e i posti finti sono
+     stati rimossi;
+   - home: i posti in manutenzione contavano come occupati (2% di occupazione
+     con la biblioteca vuota); ora sono esclusi dal denominatore;
+   - mappa e griglia mobile: mancava la voce "Manutenzione" in legenda e i
+     posti erano ordinati come testo (G1, G10 ... G19, G2); ora ordine
+     naturale;
+   - admin posti: l'elenco era troncato a 100 righe senza avviso (122 posti
+     totali) e su telefono la colonna Azioni usciva dallo schermo.
+
+   Il flusso principale e' stato riprovato in locale con dati fittizi: messa in
+   manutenzione di due posti (esclusi dalla disponibilita' della sala e dai
+   contatori), prenotazione, ingresso in lista d'attesa, annullo del
+   proprietario e promozione automatica con le notifiche corrispondenti.
 
 ## 9. Valutazione finale
 
