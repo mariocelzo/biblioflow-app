@@ -372,7 +372,8 @@ export const readApiRateLimiter = createRateLimiter({
  * COLLEGATO A: PATCH/DELETE `/api/prenotazioni/[id]`, POST/DELETE
  * `/api/prenotazioni/coda`, POST `/api/prenotazioni/[id]/check-in`, POST
  * `/api/prenotazioni/[id]/estendi`, POST `/api/richieste`, PATCH
- * `/api/prestiti/[id]` e POST `/api/prestiti/[id]/rinnova`. In precedenza era dichiarato ma non
+ * `/api/prestiti/[id]` e POST `/api/prestiti/[id]/rinnova`. In precedenza era
+ * dichiarato ma non
  * collegato a nessuna route: uno studente poteva cancellare/modificare senza
  * alcun limite.
  *
