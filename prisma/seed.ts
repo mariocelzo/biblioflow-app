@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import pg from "pg";
 import { hashPassword } from "../src/lib/password";
 import { riallineaCopieDisponibili } from "../src/lib/copie-libri";
@@ -25,7 +25,10 @@ async function main() {
   await prisma.listaAttesa.deleteMany();
   await prisma.prenotazione.deleteMany();
   await prisma.posto.deleteMany();
-  await prisma.libro.deleteMany();
+  // I libri NON si cancellano piu': si fa upsert per ISBN (vedi `creaLibro`), cosi'
+  // l'id di ogni libro resta lo stesso a ogni seed. Cancellandoli, ogni seed
+  // generava id nuovi e i link /libri/<id> gia' aperti, salvati o in cronologia
+  // rispondevano "Libro non trovato". I prestiti sono gia' cancellati sopra.
   await prisma.sala.deleteMany();
   // AuthToken ha una FK verso User (`AuthToken_userId_fkey`) e NON un
   // `onDelete: Cascade` a livello di schema (prisma/schema.prisma, model
@@ -315,9 +318,12 @@ async function main() {
   // ============================================
   console.log("📚 Creazione catalogo libri...");
 
+  const creaLibro = ({ data }: { data: Prisma.LibroCreateInput }) =>
+    prisma.libro.upsert({ where: { isbn: data.isbn }, update: data, create: data });
+
   const libri = await Promise.all([
     // Informatica
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-0-13-468599-1",
         titolo: "Clean Code",
@@ -331,7 +337,7 @@ async function main() {
         piano: 1,
       },
     }),
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-0-201-63361-0",
         titolo: "Design Patterns",
@@ -345,7 +351,7 @@ async function main() {
         piano: 1,
       },
     }),
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-0-596-51774-8",
         titolo: "JavaScript: The Good Parts",
@@ -359,7 +365,7 @@ async function main() {
         piano: 1,
       },
     }),
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-1-491-95035-4",
         titolo: "Fluent Python",
@@ -375,7 +381,7 @@ async function main() {
     }),
 
     // HCI / Design
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-0-465-05065-9",
         titolo: "The Design of Everyday Things",
@@ -389,7 +395,7 @@ async function main() {
         piano: 2,
       },
     }),
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-0-321-76533-0",
         titolo: "Don't Make Me Think",
@@ -405,7 +411,7 @@ async function main() {
     }),
 
     // Matematica
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-88-08-06485-1",
         titolo: "Analisi Matematica 1",
@@ -419,7 +425,7 @@ async function main() {
         piano: 1,
       },
     }),
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-88-08-06486-8",
         titolo: "Analisi Matematica 2",
@@ -435,7 +441,7 @@ async function main() {
     }),
 
     // Fisica
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-88-08-18220-3",
         titolo: "Fisica Generale - Meccanica",
@@ -449,7 +455,7 @@ async function main() {
         piano: 2,
       },
     }),
-    prisma.libro.create({
+    creaLibro({
       data: {
         isbn: "978-88-08-18221-0",
         titolo: "Fisica Generale - Elettromagnetismo",
