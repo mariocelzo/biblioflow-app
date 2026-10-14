@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 import { isSafeInternalPath } from "@/lib/safe-redirect";
 
 // POST - Invia notifica/sollecito a utente
@@ -19,6 +20,26 @@ export async function POST(
     if (session.user.ruolo !== "BIBLIOTECARIO" && session.user.ruolo !== "ADMIN") {
       return NextResponse.json({ error: "Accesso negato" }, { status: 403 });
     }
+
+    // Rate limiting DOPO l'autorizzazione: un anonimo o uno studente vengono
+    // gia' fermati dai due controlli qui sopra, quindi non ha senso far loro
+    // consumare quota. Il limite protegge da un abuso dell'account staff:
+    // senza, un account BIBLIOTECARIO/ADMIN compromesso (o uno script che ne
+    // riusi la sessione) potrebbe inondare di notifiche la casella di uno
+    // studente, e ogni invio scrive anche una riga di `LogEvento`.
+    //
+    // Chiave per UTENTE (`session.user.id`), non per IP: stesso motivo dello
+    // scanner (src/app/api/admin/scanner/validate/route.ts). Nota: come per
+    // tutti i limitatori del progetto la chiave include il pathname, che qui
+    // contiene l'id del DESTINATARIO: la soglia vale per coppia
+    // staff/destinatario, non per il totale degli invii dello staff.
+    // Vedi il commento su `chiaveUtente` in src/lib/rate-limit.ts.
+    const rateLimitResult = await staffCriticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      session.user.id,
+    );
+    if (rateLimitResult) return rateLimitResult;
 
     const body = await request.json();
     const { tipo, titolo, messaggio, actionUrl, actionLabel } = body;
