@@ -31,16 +31,17 @@ import {
   Loader2
 } from "lucide-react";
 import { toast } from "sonner";
+import { normalizzaLibro } from "@/lib/catalogo-libri";
 
 interface Libro {
   id: string;
   titolo: string;
   autore: string;
   isbn: string;
-  editore: string;
-  annoPubblicazione: number;
-  categoria: string;
-  posizione: string;
+  editore: string | null;
+  annoPubblicazione: number | null;
+  categoria: string | null;
+  posizione: string | null;
   disponibile: boolean;
   copieTotali: number;
   copieDisponibili: number;
@@ -87,7 +88,10 @@ export default function LibriPage() {
   ];
 
   // Posizioni uniche estratte dai libri
-  const posizioni = ["TUTTE", ...Array.from(new Set(libri.map(l => l.posizione).filter(Boolean)))];
+  const posizioni: string[] = [
+    "TUTTE",
+    ...Array.from(new Set(libri.map(l => l.posizione).filter((p): p is string => Boolean(p)))),
+  ];
 
   // Chiudi suggerimenti quando si clicca fuori
   useEffect(() => {
@@ -170,15 +174,18 @@ export default function LibriPage() {
   const fetchLibri = async () => {
     setLoading(true);
     try {
-      const response = await fetch("/api/libri");
+      // limit=100 (massimo ammesso): il default dell'API e' 20, e i filtri di
+      // questa pagina lavorano lato client, quindi oltre i primi 20 libri il
+      // catalogo risultava incompleto.
+      const response = await fetch("/api/libri?limit=100");
       if (!response.ok) throw new Error("Errore nel caricamento");
       
       const result = await response.json();
       console.log("Dati ricevuti da API:", result);
       
       // L'API restituisce { success, data, pagination }
-      if (result.success && result.data) {
-        setLibri(result.data);
+      if (result.success && Array.isArray(result.data)) {
+        setLibri(result.data.map(normalizzaLibro));
       } else {
         setLibri([]);
       }
@@ -464,17 +471,17 @@ export default function LibriPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Editore:</span>
-                      <span>{libro.editore}</span>
+                      <span>{libro.editore ?? "—"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Anno:</span>
-                      <span>{libro.annoPubblicazione}</span>
+                      <span>{libro.annoPubblicazione ?? "—"}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-muted-foreground">Posizione:</span>
                       <span className="flex items-center gap-1 font-medium text-primary">
                         <MapPin className="h-4 w-4" />
-                        {libro.posizione}
+                        {libro.posizione ?? "—"}
                       </span>
                     </div>
                     <div className="flex justify-between">

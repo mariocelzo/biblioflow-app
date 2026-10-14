@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { QRCodeCheckIn } from "@/components/qrcode-checkin";
 import { TOLLERANZA_CHECK_IN_MINUTI } from "@/lib/prenotazioni-regole";
+import type { LibroConsigliato, PostoPreferito } from "@/lib/home-dati";
 import {
   Calendar,
   BookOpen,
@@ -69,9 +70,18 @@ interface HomeClientProps {
   // irraggiungibile), qui arriva `false`: la UI deve dirlo esplicitamente
   // invece di mostrare zeri che sembrerebbero dati veri.
   statisticheDisponibili: boolean;
+  // Libri e posti letti dal DB lato server (vedi `src/lib/home-dati.ts`):
+  // sostituiscono gli elenchi scritti a mano che puntavano a id inesistenti.
+  libriConsigliati: LibroConsigliato[];
+  postiPreferiti: PostoPreferito[];
 }
 
-export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientProps) {
+export function HomeClient({
+  statistiche,
+  statisticheDisponibili,
+  libriConsigliati,
+  postiPreferiti,
+}: HomeClientProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [showQRCheckIn, setShowQRCheckIn] = useState(false);
@@ -684,11 +694,7 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  { id: '1', titolo: 'Clean Code', autore: 'Robert C. Martin', categoria: 'Informatica', disponibile: true },
-                  { id: '2', titolo: 'Design Patterns', autore: 'Gang of Four', categoria: 'Informatica', disponibile: true },
-                  { id: '3', titolo: 'The Pragmatic Programmer', autore: 'David Thomas', categoria: 'Informatica', disponibile: false },
-                ].map((libro) => (
+                {libriConsigliati.map((libro) => (
                   <Card
                     key={libro.id}
                     className="cursor-pointer hover:shadow-lg transition-all duration-300 hover:-translate-y-1 border-0 shadow-md"
@@ -720,6 +726,11 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
                     </CardContent>
                   </Card>
                 ))}
+                {libriConsigliati.length === 0 && (
+                  <p className="text-sm text-muted-foreground col-span-full">
+                    Nessun libro da mostrare al momento. Sfoglia il catalogo per cercarne uno.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -742,11 +753,7 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  { id: '1', numero: 'A12', sala: 'Sala Studio Silenziosa', piano: 2, caratteristiche: ['Presa elettrica', 'Vicino finestra'], disponibile: true },
-                  { id: '2', numero: 'B05', sala: 'Sala Gruppi', piano: 1, caratteristiche: ['Tavolo grande', 'Lavagna'], disponibile: false },
-                  { id: '3', numero: 'C18', sala: 'Sala Lettura', piano: 1, caratteristiche: ['Silenzioso', 'Buona luce'], disponibile: true },
-                ].map((posto) => (
+                {postiPreferiti.map((posto) => (
                   <Card
                     key={posto.id}
                     className={`cursor-pointer transition-all duration-300 hover:-translate-y-1 border-0 shadow-md ${
@@ -785,6 +792,11 @@ export function HomeClient({ statistiche, statisticheDisponibili }: HomeClientPr
                     </CardContent>
                   </Card>
                 ))}
+                {postiPreferiti.length === 0 && (
+                  <p className="text-sm text-muted-foreground col-span-full">
+                    Non hai ancora prenotato nessun posto: i posti che usi di più compariranno qui.
+                  </p>
+                )}
               </div>
             </div>
           </section>

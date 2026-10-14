@@ -3,6 +3,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import pg from "pg";
 import { hashPassword } from "../src/lib/password";
+import { riallineaCopieDisponibili } from "../src/lib/copie-libri";
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const adapter = new PrismaPg(pool);
@@ -695,6 +696,12 @@ async function main() {
   ]);
 
   console.log(`   ✓ ${prestiti.length} prestiti creati`);
+
+  // I contatori `copieDisponibili` dei libri sono scritti a mano piu' sopra e
+  // non tenevano conto dei prestiti appena creati (es. Clean Code 3/5 con un
+  // solo prestito attivo): si derivano dai prestiti reali.
+  const correzioniCopie = await riallineaCopieDisponibili(prisma, { applica: true });
+  console.log(`   ✓ copie disponibili riallineate ai prestiti (${correzioniCopie.length} libri corretti)`);
 
   // ============================================
   // 8. NOTIFICHE

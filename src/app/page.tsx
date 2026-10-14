@@ -26,6 +26,13 @@
 // nessun round-trip client, nessun problema di autorizzazione: i dati sono
 // gia' nell'HTML della prima risposta, calcolati al momento della richiesta.
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
+import {
+  caricaLibriConsigliati,
+  caricaPostiPreferiti,
+  type LibroConsigliato,
+  type PostoPreferito,
+} from "@/lib/home-dati";
 import { HomeClient } from "./home-client";
 
 // La home e' descritta come "in tempo reale": senza questa direttiva Next.js
@@ -93,10 +100,44 @@ async function caricaStatisticheBiblioteca(): Promise<{
   }
 }
 
+/**
+ * Sezioni "Potrebbe Interessarti": libri e posti REALI, mai segnaposto.
+ * Prima erano array scritti a mano nel client (id '1','2','3' inesistenti nel
+ * DB, quindi /libri/1 rispondeva "Libro non trovato"). Un errore qui non deve
+ * mai rompere la home: si degrada a liste vuote, che la UI mostra come tali.
+ */
+async function caricaSuggerimenti(): Promise<{
+  libriConsigliati: LibroConsigliato[];
+  postiPreferiti: PostoPreferito[];
+}> {
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+    // Il catalogo e i posti preferiti sono riservati agli utenti loggati
+    // (la sezione e' mostrata solo con sessione): niente query per gli ospiti.
+    if (!userId) return { libriConsigliati: [], postiPreferiti: [] };
+
+    const [libriConsigliati, postiPreferiti] = await Promise.all([
+      caricaLibriConsigliati(),
+      caricaPostiPreferiti(userId),
+    ]);
+    return { libriConsigliati, postiPreferiti };
+  } catch (error) {
+    console.error("Errore nel caricamento dei suggerimenti della home:", error);
+    return { libriConsigliati: [], postiPreferiti: [] };
+  }
+}
+
 export default async function HomePage() {
-  const { statistiche, disponibili } = await caricaStatisticheBiblioteca();
+  const [{ statistiche, disponibili }, { libriConsigliati, postiPreferiti }] =
+    await Promise.all([caricaStatisticheBiblioteca(), caricaSuggerimenti()]);
 
   return (
-    <HomeClient statistiche={statistiche} statisticheDisponibili={disponibili} />
+    <HomeClient
+      statistiche={statistiche}
+      statisticheDisponibili={disponibili}
+      libriConsigliati={libriConsigliati}
+      postiPreferiti={postiPreferiti}
+    />
   );
 }
