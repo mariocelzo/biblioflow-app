@@ -335,15 +335,12 @@ export const passwordResetRateLimiter = createRateLimiter({
  * pensato: estendono una prenotazione, effettuano un check-in, agiscono in
  * blocco su prenotazioni/notifiche, notificano un utente.
  *
- * Lo stesso grep (`grep -rl "export async function \(POST\|PATCH\|DELETE\)"
- * src/app/api --include="route.ts" | xargs grep -L "RateLimiter("`) elenca
- * ancora, a settembre 2026, route di scrittura senza limitatore rimaste FUORI
- * dal perimetro di quella PR: `/api/notifiche` (POST/PATCH/DELETE),
- * `POST /api/richieste`, `PATCH /api/profilo`, `PATCH /api/prestiti/[id]`,
- * `POST /api/prestiti/[id]/rinnova` e `/api/cron/automations` (quest'ultima
- * protetta da `CRON_SECRET`, non da un limitatore). Vanno valutate una per
- * una prima di decidere se qualcuna sia il caso "non critico" di questo
- * limitatore.
+ * La verifica finale di ottobre 2026 ha chiuso anche le route rimaste fuori:
+ * `/api/notifiche` e `PATCH /api/profilo` usano questo limite generico per
+ * utente; `POST /api/richieste`, `PATCH /api/prestiti/[id]` e
+ * `POST /api/prestiti/[id]/rinnova` usano `criticalApiRateLimiter` per utente.
+ * `/api/cron/automations` resta correttamente protetta da `CRON_SECRET`: non è
+ * una route interattiva e non condivide il modello di abuso delle API utente.
  *
  * Non lo si rimuove perché resta la scelta corretta per un futuro endpoint di
  * scrittura "non critico" (che cioè non cancella né modifica dati sensibili):
@@ -374,7 +371,9 @@ export const readApiRateLimiter = createRateLimiter({
  *
  * COLLEGATO A: PATCH/DELETE `/api/prenotazioni/[id]`, POST/DELETE
  * `/api/prenotazioni/coda`, POST `/api/prenotazioni/[id]/check-in`, POST
- * `/api/prenotazioni/[id]/estendi`. In precedenza era dichiarato ma non
+ * `/api/prenotazioni/[id]/estendi`, POST `/api/richieste`, PATCH
+ * `/api/prestiti/[id]` e POST `/api/prestiti/[id]/rinnova`. In precedenza era
+ * dichiarato ma non
  * collegato a nessuna route: uno studente poteva cancellare/modificare senza
  * alcun limite.
  *

@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 
 import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { criticalApiRateLimiter } from "@/lib/rate-limit";
 
 // Lunghezza massima ammessa per la nota utente allegata alla richiesta.
 // PERCHE': il campo e' testo libero proveniente dal client; senza un limite si
@@ -30,6 +31,12 @@ export async function POST(request: NextRequest) {
     // veniva preso dal body (chiunque poteva creare richieste per conto di
     // altri). Ora serve una sessione e l'intestatario e' SEMPRE user.id.
     const user = await requireUser();
+    const rateLimit = await criticalApiRateLimiter(
+      request,
+      "verifica-e-conta",
+      user.id,
+    );
+    if (rateLimit) return rateLimit;
 
     const body = await request.json();
     const { libroId, note } = body;

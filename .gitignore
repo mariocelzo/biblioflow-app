@@ -42,3 +42,6 @@ next-env.d.ts
 
 /src/generated/prisma
 .env*.local
+
+# local artifact authoring scratch space
+/.artifact-work/

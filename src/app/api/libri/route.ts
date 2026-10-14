@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { arricchisciLibro } from "@/lib/catalogo-libri";
 
 /**
  * Traduce l'esito di `requireUser()` nella risposta HTTP corretta.
@@ -127,7 +128,7 @@ export async function GET(request: NextRequest) {
     
     return NextResponse.json({
       success: true,
-      data: libri,
+      data: libri.map(arricchisciLibro),
       pagination: {
         page,
         limit,

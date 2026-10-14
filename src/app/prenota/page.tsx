@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -68,9 +68,7 @@ import {
   Coffee,
   Train,
   Bell,
-  List,
   Map,
-  PartyPopper,
 } from "lucide-react";
 
 // Tipi
@@ -185,13 +183,6 @@ function salaCoprente(sala: Sala, oraInizio: string, oraFine: string): boolean {
   );
 }
 
-// Cache disponibilità per data
-interface DisponibilitaGiorno {
-  data: string;
-  postiDisponibili: number;
-  postiTotali: number;
-}
-
 /**
  * Wrapper client su `isGiornoChiusoBiblioteca` (calendario-biblioteca.ts):
  * quella funzione lavora su un `Date` di calendario (mezzanotte UTC), qui
@@ -299,8 +290,11 @@ export default function PrenotaPage() {
   const router = useRouter();
 
   const [currentStep, setCurrentStep] = useState(1);
-  const [dataPrenotazione, setDataPrenotazione] = useState<string>("");
-  const [dataError, setDataError] = useState<string>("");
+  const [dataPrenotazione, setDataPrenotazione] = useState<string>(getDataMinima);
+  const [dataError, setDataError] = useState<string>(() => {
+    const check = isGiornoChiuso(getDataMinima());
+    return check.chiuso ? check.motivo : "";
+  });
   const [tipoDurata, setTipoDurata] = useState<TipoDurata | "">("");
   const [slot2OreSelezionato, setSlot2OreSelezionato] = useState<string>("");
   const [sale, setSale] = useState<Sala[]>([]);
@@ -359,13 +353,6 @@ export default function PrenotaPage() {
     };
     fetchProfilo();
   }, [status]);
-
-  useEffect(() => {
-    const oggi = getDataMinima();
-    setDataPrenotazione(oggi);
-    const check = isGiornoChiuso(oggi);
-    if (check.chiuso) setDataError(check.motivo);
-  }, []);
 
   useEffect(() => {
     const fetchSale = async () => {
@@ -470,19 +457,29 @@ export default function PrenotaPage() {
   // scelta puo' "scadere". Qui la annulliamo e avvisiamo, invece di lasciare
   // che l'utente scopra il problema solo al passo di conferma finale.
   useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
     if (tipoDurata === "2h" && slot2OreSelezionato) {
       const slot = slots2Ore.find((s) => s.id === slot2OreSelezionato);
       if (slot && isSlotOggiPassato(slot.oraInizio)) {
-        setSlot2OreSelezionato("");
-        toast.error("La fascia oraria scelta è nel frattempo iniziata: selezionane un'altra.");
+        timeout = setTimeout(() => {
+          setSlot2OreSelezionato("");
+          toast.error("La fascia oraria scelta è nel frattempo iniziata: selezionane un'altra.");
+        }, 0);
       }
     } else if (tipoDurata && tipoDurata !== "2h") {
       const opzione = opzioniDurata.find((o) => o.id === tipoDurata);
       if (opzione && isSlotOggiPassato(opzione.oraInizio)) {
-        setTipoDurata("");
-        toast.error("La durata scelta è nel frattempo iniziata: selezionane un'altra.");
+        timeout = setTimeout(() => {
+          setTipoDurata("");
+          toast.error("La durata scelta è nel frattempo iniziata: selezionane un'altra.");
+        }, 0);
       }
     }
+
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
   }, [adesso, tipoDurata, slot2OreSelezionato, slots2Ore, opzioniDurata, isSlotOggiPassato]);
 
   useEffect(() => {

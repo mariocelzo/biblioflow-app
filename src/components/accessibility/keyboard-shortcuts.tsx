@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
@@ -28,7 +28,8 @@ export function KeyboardShortcuts() {
   const isAdmin = session?.user?.ruolo === "ADMIN" || session?.user?.ruolo === "BIBLIOTECARIO";
 
   // Definizione shortcuts
-  const shortcuts: Shortcut[] = [
+  const shortcuts = useMemo<Shortcut[]>(() => {
+    const elenco: Shortcut[] = [
     // Navigazione
     {
       keys: ["Alt", "H"],
@@ -111,17 +112,19 @@ export function KeyboardShortcuts() {
       },
       category: "accessibility",
     },
-  ];
+    ];
 
-  // Aggiungi shortcuts admin se utente è admin
-  if (isAdmin) {
-    shortcuts.push({
-      keys: ["Alt", "A"],
-      description: "Dashboard Admin",
-      action: () => router.push("/admin"),
-      category: "navigation",
-    });
-  }
+    if (isAdmin) {
+      elenco.push({
+        keys: ["Alt", "A"],
+        description: "Dashboard Admin",
+        action: () => router.push("/admin"),
+        category: "navigation",
+      });
+    }
+
+    return elenco;
+  }, [isAdmin, router]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {

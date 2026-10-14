@@ -13,6 +13,7 @@ type PrenotazioneCancellata = {
   oraFine: Date;
   posto: {
     numero: string;
+    stato?: string;
   };
 };
 
@@ -268,7 +269,7 @@ export async function POST(req: NextRequest) {
           // liberava anche un posto occupato da UN'ALTRA prenotazione (es. un
           // check-in successivo sullo stesso posto in una fascia diversa),
           // stessa logica gia' usata da PATCH /api/prenotazioni/[id].
-          if (pren.stato === "CHECK_IN") {
+          if (pren.stato === "CHECK_IN" && pren.posto.stato !== "MANUTENZIONE") {
             await prisma.posto.update({
               where: { id: pren.postoId },
               data: { stato: "DISPONIBILE" }
@@ -376,7 +377,7 @@ export async function POST(req: NextRequest) {
           data: { stato: "CANCELLATA" }
         });
 
-        if (occupavaIlPosto) {
+        if (occupavaIlPosto && prenotazione.posto.stato !== "MANUTENZIONE") {
           await prisma.posto.update({
             where: { id: prenotazione.postoId },
             data: { stato: "DISPONIBILE" }

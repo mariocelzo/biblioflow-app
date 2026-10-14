@@ -827,13 +827,18 @@ export async function releaseNoShowReservations() {
       },
     });
 
-    // Libera il posto
-    await prisma.posto.update({
-      where: { id: prenotazione.postoId },
-      data: {
-        stato: StatoPosto.DISPONIBILE,
-      },
-    });
+    // Non sovrascrive una manutenzione impostata nel frattempo dallo staff.
+    // La prenotazione diventa comunque NO_SHOW, ma il posto resta escluso dal
+    // catalogo e non viene riofferto alla coda finché la manutenzione è attiva.
+    const postoLiberato = prenotazione.posto.stato !== StatoPosto.MANUTENZIONE;
+    if (postoLiberato) {
+      await prisma.posto.update({
+        where: { id: prenotazione.postoId },
+        data: {
+          stato: StatoPosto.DISPONIBILE,
+        },
+      });
+    }
 
     // Notifica utente
     // MARGINE PENDOLARE: il numero di minuti nel messaggio riflette la
@@ -879,7 +884,7 @@ export async function releaseNoShowReservations() {
     // Si innesca l'elaborazione della lista d'attesa invocando la funzione di
     // dominio tramite l'helper riusabile (nessun errore se la coda è vuota).
     // BIB-46 / CA-05: passa il correlationId per propagarlo nella catena.
-    const esitoCoda = await processaCodaPerPosto(
+    const esitoCoda = postoLiberato ? await processaCodaPerPosto(
       {
         postoId: prenotazione.postoId,
         data: prenotazione.data,
@@ -887,7 +892,7 @@ export async function releaseNoShowReservations() {
         oraFine: prenotazione.oraFine,
       },
       correlationId,
-    );
+    ) : { promossa: false };
     if (esitoCoda.promossa) {
       promoted++;
 
@@ -1153,7 +1158,7 @@ type RichiestaPromossa = {
   oraInizio: Date;
   oraFine: Date;
   updatedAt: Date;
-  posto: { numero: string; sala: { nome: string } };
+  posto: { numero: string; stato?: StatoPosto; sala: { nome: string } };
 };
 
 /** Esito di `scadiPromozioniNonConfermate`. */
@@ -1364,10 +1369,12 @@ export async function scadiPromozioniNonConfermate(): Promise<EsitoScadenzaPromo
 
             // Il posto torna disponibile solo se c'era davvero una prenotazione
             // nostra da chiudere: senza di essa non sappiamo chi lo occupa.
-            await tx.posto.update({
-              where: { id: richiesta.postoId },
-              data: { stato: StatoPosto.DISPONIBILE },
-            });
+            if (richiesta.posto.stato !== StatoPosto.MANUTENZIONE) {
+              await tx.posto.update({
+                where: { id: richiesta.postoId },
+                data: { stato: StatoPosto.DISPONIBILE },
+              });
+            }
           }
 
           // Audit della decadenza (BIB-46 / CA-05: attore + correlationId).
@@ -1416,7 +1423,8 @@ export async function scadiPromozioniNonConfermate(): Promise<EsitoScadenzaPromo
       // 5️⃣ Fuori dalla transazione — come fa `releaseNoShowReservations` — si
       //    rioffre lo slot al successivo in coda. `processaCodaPerPosto`
       //    assorbe da sé sia la coda vuota sia gli errori del dominio.
-      const esitoCoda = await processaCodaPerPosto(
+      const esitoCoda = richiesta.posto.stato !== StatoPosto.MANUTENZIONE
+        ? await processaCodaPerPosto(
         {
           postoId: richiesta.postoId,
           data: richiesta.data,
@@ -1424,7 +1432,8 @@ export async function scadiPromozioniNonConfermate(): Promise<EsitoScadenzaPromo
           oraFine: richiesta.oraFine,
         },
         correlationId,
-      );
+      )
+        : { promossa: false };
 
       if (esitoCoda.promossa) {
         promozioniInnescate++;

@@ -16,8 +16,6 @@ interface DashboardAnomalieCardProps {
 
 export function DashboardAnomalieCard({ noShowRecenti, postiManutenzione, prestitiInScadenza }: DashboardAnomalieCardProps) {
   const router = useRouter();
-  const [loadingGestisci, setLoadingGestisci] = useState(false);
-  const [loadingControlla, setLoadingControlla] = useState(false);
   const [loadingAlert, setLoadingAlert] = useState(false);
 
   const handleGestisciNoShow = () => router.push("/admin/anomalie");
@@ -81,8 +79,8 @@ export function DashboardAnomalieCard({ noShowRecenti, postiManutenzione, presti
                 <p className="text-sm font-medium text-red-900 dark:text-red-100">{noShowRecenti} No-Show</p>
                 <p className="text-xs text-red-700 dark:text-red-300">Da verificare</p>
               </div>
-              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-100" onClick={handleGestisciNoShow} disabled={loadingGestisci}>
-                {loadingGestisci ? <Loader2 className="h-4 w-4 animate-spin" /> : "Gestisci"}
+              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-100" onClick={handleGestisciNoShow}>
+                Gestisci
               </Button>
             </div>
           )}
@@ -93,8 +91,8 @@ export function DashboardAnomalieCard({ noShowRecenti, postiManutenzione, presti
                 <p className="text-sm font-medium text-orange-900 dark:text-orange-100">{postiManutenzione} Posti Out</p>
                 <p className="text-xs text-orange-700 dark:text-orange-300">In Manutenzione</p>
               </div>
-              <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-100" onClick={handleControllaPosti} disabled={loadingControlla}>
-                {loadingControlla ? <Loader2 className="h-4 w-4 animate-spin" /> : "Controlla"}
+              <Button size="sm" variant="outline" className="text-orange-600 border-orange-200 hover:bg-orange-100" onClick={handleControllaPosti}>
+                Controlla
               </Button>
             </div>
           )}
