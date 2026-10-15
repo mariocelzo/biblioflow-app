@@ -9,6 +9,32 @@ import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 // disallineino di nuovo (vedi commento sul case "RINNOVA" piu' sotto).
 import { prestitoInCorso } from "@/lib/prestiti-scaduti";
 
+const FINESTRA_ANTI_DUPLICATO_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Prestiti gia' sollecitati nelle ultime 24 ore, singolarmente o in blocco.
+ *
+ * Legge il LogEvento scritto dai solleciti stessi (`dettagli.prestitoId` +
+ * `dettagli.azione`). Accetta anche il tipo storico PRESTITO_RESTITUITO, con
+ * cui i solleciti venivano registrati prima del tipo dedicato: cosi' la
+ * finestra anti-duplicato resta valida anche a cavallo dell'aggiornamento.
+ */
+async function sollecitiRecenti(userIds: string[], adesso: Date): Promise<Set<string | undefined>> {
+  const eventi = await prisma.logEvento.findMany({
+    where: {
+      tipo: { in: ["PRESTITO_SOLLECITATO", "PRESTITO_RESTITUITO"] },
+      userId: { in: userIds },
+      createdAt: { gte: new Date(adesso.getTime() - FINESTRA_ANTI_DUPLICATO_MS) },
+    },
+  });
+  return new Set(
+    eventi
+      .map((evento) => evento.dettagli as { prestitoId?: string; azione?: string } | null)
+      .filter((dettagli) => dettagli?.azione === "sollecito" || dettagli?.azione === "sollecito_batch")
+      .map((dettagli) => dettagli!.prestitoId),
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await auth();
@@ -244,10 +270,11 @@ export async function POST(req: NextRequest) {
           }
         });
 
-        // Log evento
+        // Log evento: tipo dedicato. Con PRESTITO_CREATO la dashboard
+        // mostrava ogni rinnovo come "ha preso un libro in prestito".
         await prisma.logEvento.create({
           data: {
-            tipo: "PRESTITO_CREATO",
+            tipo: "PRESTITO_RINNOVATO",
             userId: prestito.user.id,
             dettagli: {
               prestitoId: prestito.id,
@@ -297,9 +324,37 @@ export async function POST(req: NextRequest) {
           );
         }
 
+        // Stessi controlli del sollecito multiplo, applicati anche qui lato
+        // server: la UI mostra il pulsante solo per prestiti in corso e
+        // scaduti, ma una chiamata diretta poteva sollecitare un libro gia'
+        // restituito o non ancora scaduto ("scaduto -3 giorni fa").
+        if (!prestitoInCorso(prestito.stato)) {
+          return NextResponse.json(
+            { error: "Il prestito non è in corso: nessun sollecito da inviare" },
+            { status: 400 }
+          );
+        }
+
         const oggi = new Date();
         const scadenza = new Date(prestito.dataScadenza);
         const giorniRitardo = Math.floor((oggi.getTime() - scadenza.getTime()) / (1000 * 60 * 60 * 24));
+
+        if (giorniRitardo <= 0) {
+          return NextResponse.json(
+            { error: "Il prestito non è ancora scaduto" },
+            { status: 400 }
+          );
+        }
+
+        // Anti-duplicato: stessa finestra di 24 ore del sollecito multiplo.
+        // Un doppio click o un secondo operatore non devono mandare allo
+        // studente due solleciti identici per lo stesso libro.
+        if (await sollecitiRecenti([prestito.user.id], oggi).then((ids) => ids.has(prestito.id))) {
+          return NextResponse.json(
+            { error: "Sollecito già inviato nelle ultime 24 ore" },
+            { status: 409 }
+          );
+        }
 
         // Crea notifica di sollecito
         await prisma.notifica.create({
@@ -311,10 +366,11 @@ export async function POST(req: NextRequest) {
           }
         });
 
-        // Log evento
+        // Log evento: tipo dedicato. Con PRESTITO_RESTITUITO la dashboard
+        // mostrava ogni sollecito come "ha restituito un libro".
         await prisma.logEvento.create({
           data: {
-            tipo: "PRESTITO_RESTITUITO",
+            tipo: "PRESTITO_SOLLECITATO",
             userId: prestito.user.id,
             dettagli: {
               prestitoId: prestito.id,
@@ -359,19 +415,9 @@ export async function POST(req: NextRequest) {
         // riferimento diretto al prestito). Una query sola PRIMA del ciclo
         // (invece di N query dentro il ciclo) tiene il costo O(1) invece di
         // O(prestiti).
-        const FINESTRA_ANTI_DUPLICATO_MS = 24 * 60 * 60 * 1000;
-        const eventiSollecitoRecenti = await prisma.logEvento.findMany({
-          where: {
-            tipo: "PRESTITO_RESTITUITO",
-            userId: { in: prestiti.map((p) => p.user.id) },
-            createdAt: { gte: new Date(oggi.getTime() - FINESTRA_ANTI_DUPLICATO_MS) },
-          },
-        });
-        const prestitiGiaSollecitatiDiRecente = new Set(
-          eventiSollecitoRecenti
-            .map((evento) => evento.dettagli as { prestitoId?: string; azione?: string } | null)
-            .filter((dettagli) => dettagli?.azione === "sollecito" || dettagli?.azione === "sollecito_batch")
-            .map((dettagli) => dettagli!.prestitoId),
+        const prestitiGiaSollecitatiDiRecente = await sollecitiRecenti(
+          prestiti.map((p) => p.user.id),
+          oggi,
         );
 
         let count = 0;
@@ -400,7 +446,7 @@ export async function POST(req: NextRequest) {
             // Log evento
             await prisma.logEvento.create({
               data: {
-                tipo: "PRESTITO_RESTITUITO",
+                tipo: "PRESTITO_SOLLECITATO",
                 userId: prestito.user.id,
                 dettagli: {
                   prestitoId: prestito.id,

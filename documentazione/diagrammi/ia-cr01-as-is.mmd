@@ -1,0 +1,58 @@
+flowchart LR
+    subgraph UI["Pagine e componenti"]
+        P_PREN["prenota/page.tsx"]
+        P_LIST["prenotazioni/page.tsx"]
+        P_EST["prenotazioni/[id]/estendi/page.tsx"]
+        QR["components/qrcode-checkin.tsx"]
+    end
+    MW["middleware.ts"]
+    subgraph API["Route handler"]
+        A_COLL["api/prenotazioni"]
+        A_ITEM["api/prenotazioni/[id]"]
+        A_CHECK["api/prenotazioni/[id]/check-in"]
+        A_EXT["api/prenotazioni/[id]/estendi"]
+        A_POSTO["api/admin/posti/[id]"]
+        A_RICH["api/admin/richieste"]
+        A_SCAN["api/admin/scanner/validate"]
+    end
+    subgraph LIB["Librerie di servizio"]
+        AUTH["lib/auth.ts"]
+        PRISMA["lib/prisma.ts"]
+    end
+    SCHEMA[("prisma/schema.prisma")]
+
+    P_PREN --> A_COLL
+    P_LIST --> A_COLL
+    P_LIST --> A_ITEM
+    P_EST --> A_EXT
+    QR --> A_CHECK
+    MW --> A_COLL
+    MW --> A_ITEM
+    MW --> A_CHECK
+    MW --> A_EXT
+    MW --> A_POSTO
+    MW --> A_RICH
+    MW --> A_SCAN
+    A_CHECK --> AUTH
+    A_POSTO --> AUTH
+    A_SCAN --> AUTH
+    A_COLL --> PRISMA
+    A_ITEM --> PRISMA
+    A_CHECK --> PRISMA
+    A_EXT --> PRISMA
+    A_POSTO --> PRISMA
+    A_RICH --> PRISMA
+    A_SCAN --> PRISMA
+    AUTH --> PRISMA
+    PRISMA --> SCHEMA
+
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#172554
+    class P_PREN,P_LIST,P_EST,QR ui
+    classDef mw fill:#ede9fe,stroke:#7c3aed,color:#2e1065
+    class MW mw
+    classDef api fill:#fef3c7,stroke:#d97706,color:#451a03
+    class A_COLL,A_ITEM,A_CHECK,A_EXT,A_POSTO,A_RICH,A_SCAN api
+    classDef lib fill:#dcfce7,stroke:#16a34a,color:#052e16
+    class AUTH,PRISMA lib
+    classDef dati fill:#f3f4f6,stroke:#6b7280,color:#111827
+    class SCHEMA dati

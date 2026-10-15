@@ -1,0 +1,26 @@
+flowchart LR
+    subgraph PREN["Prenotazione e check-in"]
+        MAPPA["MappaBiblioteca"] --> GRIGLIA["MobilePostiGrid<br/>(sotto 768 px)"]
+        QR["QRCodeCheckIn"]
+    end
+    subgraph ADM["admin"]
+        AZ["prenotazioni-actions · posti-actions<br/>prestiti-actions · utenti-actions<br/>anomalie-actions"]
+        CHART["statistiche-charts"]
+        ALTRI["filtri e card della dashboard"]
+    end
+    subgraph LAY["layout e providers"]
+        HEAD["Header · AdminSidebar"]
+        PROV["SessionProvider · ThemeProvider<br/>PWAProvider"]
+    end
+    TRASV["accessibility · pwa · ui<br/>(primitive Radix)"]
+    API["Route handler /api"]
+
+    QR -- "POST check-in" --> API
+    AZ -- "POST / PATCH admin" --> API
+    CHART -- "GET statistiche" --> API
+    HEAD -- "notifiche non lette" --> API
+
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef api fill:#fef3c7,stroke:#d97706,color:#451a03
+    class MAPPA,GRIGLIA,QR,AZ,CHART,ALTRI,HEAD,PROV,TRASV ui
+    class API api

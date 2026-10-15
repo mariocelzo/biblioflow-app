@@ -251,7 +251,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         await Promise.all([
           tx.logEvento.create({
             data: {
-              tipo: "PRENOTAZIONE_CREATA",
+              // Tipo dedicato: un'estensione non e' una nuova prenotazione e
+              // non deve comparire come tale nello storico e nella dashboard.
+              tipo: "PRENOTAZIONE_ESTESA",
               descrizione: `Prenotazione estesa fino alle ${nuovaOraFine} per posto ${prenotazione.posto.numero}`,
               userId: user.id,
               prenotazioneId: prenotazione.id,

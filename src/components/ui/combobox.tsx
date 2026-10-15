@@ -476,7 +476,9 @@ export function Combobox({
         {aperto
           ? opzioni.length === 0
             ? messaggioVuoto
-            : `${opzioni.length} risultati disponibili`
+            : opzioni.length === 1
+              ? "1 risultato disponibile"
+              : `${opzioni.length} risultati disponibili`
           : ""}
       </span>
     </div>

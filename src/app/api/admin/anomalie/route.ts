@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { filtroTipoNoShow } from "@/lib/eventi-no-show";
 import { releaseNoShowReservations } from "@/lib/automation-service";
 import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
@@ -49,42 +50,42 @@ export async function POST(request: NextRequest) {
 
     switch (azione) {
       case "RISOLVI_TUTTE_NOSHOW": {
-        // Trova eventi NO_SHOW recenti non ancora risolti
+        // Tutti gli eventi no-show recenti, manuali e automatici.
+        //
+        // PERCHE' NON `distinct: ["userId"]`: la versione precedente leggeva un
+        // solo evento per utente e marcava come risolto soltanto quello. Chi
+        // aveva due o piu' no-show restava in pagina Anomalie anche dopo
+        // "Risolvi tutte". Ora si leggono tutti gli eventi, si manda UN avviso
+        // per utente e si chiudono TUTTI i suoi eventi aperti.
         const noShowEvents = await db.logEvento.findMany({
           where: {
-            tipo: "NO_SHOW",
+            tipo: filtroTipoNoShow(),
             createdAt: { gte: setteGiorniFa },
           },
-          include: {
-            user: true,
-          },
-          distinct: ["userId"],
         });
 
-        // Filtra solo eventi non risolti
-        const eventiNonRisolti = noShowEvents.filter((evento) => {
+        const eventiPerUtente = new Map<string, typeof noShowEvents>();
+        for (const evento of noShowEvents) {
           const dettagli = evento.dettagli as { risolto?: boolean } | null;
-          return !dettagli?.risolto;
-        });
+          if (!evento.userId || dettagli?.risolto) continue;
+          const eventi = eventiPerUtente.get(evento.userId) ?? [];
+          eventi.push(evento);
+          eventiPerUtente.set(evento.userId, eventi);
+        }
 
-        const notificheCreate = [];
-        const eventiAggiornati = [];
-        
-        for (const evento of eventiNonRisolti) {
-          if (evento.userId) {
-            // Crea notifica
-            const notifica = await db.notifica.create({
-              data: {
-                userId: evento.userId,
-                tipo: "SISTEMA",
-                titolo: "Avviso No-Show",
-                messaggio:
-                  "Abbiamo registrato delle mancate presentazioni alle tue prenotazioni. Ti ricordiamo di cancellare le prenotazioni che non puoi rispettare per permettere ad altri studenti di usufruire dei posti.",
-              },
-            });
-            notificheCreate.push(notifica);
+        let eventiRisolti = 0;
+        for (const [userId, eventi] of eventiPerUtente) {
+          await db.notifica.create({
+            data: {
+              userId,
+              tipo: "SISTEMA",
+              titolo: "Avviso No-Show",
+              messaggio:
+                "Abbiamo registrato delle mancate presentazioni alle tue prenotazioni. Ti ricordiamo di cancellare le prenotazioni che non puoi rispettare per permettere ad altri studenti di usufruire dei posti.",
+            },
+          });
 
-            // Marca l'evento come risolto
+          for (const evento of eventi) {
             await db.logEvento.update({
               where: { id: evento.id },
               data: {
@@ -96,14 +97,15 @@ export async function POST(request: NextRequest) {
                 },
               },
             });
-            eventiAggiornati.push(evento);
+            eventiRisolti++;
           }
         }
 
         risultato = {
           success: true,
-          message: `Inviate ${notificheCreate.length} notifiche di avviso`,
-          count: notificheCreate.length,
+          message: `Inviate ${eventiPerUtente.size} notifiche di avviso, ${eventiRisolti} no-show risolti`,
+          count: eventiPerUtente.size,
+          eventiRisolti,
         };
         break;
       }
@@ -121,7 +123,7 @@ export async function POST(request: NextRequest) {
         // Trova tutti gli eventi NO_SHOW dell'utente non ancora risolti
         const eventiUtente = await db.logEvento.findMany({
           where: {
-            tipo: "NO_SHOW",
+            tipo: filtroTipoNoShow(),
             userId: userId,
             createdAt: { gte: setteGiorniFa },
           },

@@ -633,7 +633,7 @@ export default function PrenotaPage() {
               : `Posto ${postoSelezionato.numero}`,
         });
         setConflittoAperto(false);
-        router.push("/prenotazioni");
+        router.push("/prenotazioni?scheda=coda");
       } else {
         toast.error(payload.error || "Errore");
       }

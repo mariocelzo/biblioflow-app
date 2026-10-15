@@ -1,0 +1,159 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Documento Change Requests}
+\renewcommand{\sottotitolodocumento}{Change Requests}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+\listoftables
+
+\mainmatter
+\chapter{Introduzione}
+
+\section{Introduzione}
+
+BiblioFlow è un'applicazione web progressiva (PWA) per la biblioteca di ateneo:
+permette agli studenti di prenotare un posto studio, di fare il check-in
+all'arrivo, di consultare il catalogo e chiedere libri in prestito, e al
+personale della biblioteca di gestire posti, prenotazioni, prestiti e utenti.
+L'obiettivo principale del sistema è rendere prevedibile l'accesso ai posti
+studio, in particolare per gli studenti pendolari e per chi ha esigenze di
+accessibilità, e dare al personale una visione aggiornata di occupazione e
+anomalie.
+
+Attualmente, l'architettura di BiblioFlow si articola in tre componenti
+principali:
+\begin{itemize}
+  \item un'\textbf{area studente}, installabile come PWA, per la prenotazione
+        guidata dei posti sulla mappa della biblioteca, il check-in con QR code,
+        il catalogo, i prestiti e le notifiche;
+  \item un'\textbf{area staff} per bibliotecari e amministratori: gestione di
+        prenotazioni, posti, prestiti, richieste e utenti, anomalie, statistiche
+        e scanner dei QR code;
+  \item un \textbf{backend} di route handler Next.js che accede a PostgreSQL
+        tramite Prisma, affiancato da automazioni periodiche (promemoria di
+        check-in, avvisi di scadenza dei prestiti, rilascio dei posti non
+        occupati).
+\end{itemize}
+
+Questo documento definisce le Change Requests (CR) utili all'evoluzione di
+BiblioFlow. Le modifiche hanno l'obiettivo di rendere affidabile la
+prenotazione dei posti e di non lasciare vuoti i posti che si liberano.
+
+Nello specifico, le richieste di cambiamento sono:
+\begin{itemize}
+  \item \textbf{Prenotazione sicura e atomica dei posti studio (CR01):} si
+        richiede che l'identità di chi prenota sia sempre quella della sessione
+        autenticata e che due studenti non possano mai ottenere lo stesso posto
+        nella stessa fascia oraria, nemmeno con richieste simultanee. Le regole
+        sugli orari devono essere uniche per creazione ed estensione, così da
+        eliminare gli intervalli incoerenti accettati oggi.
+  \item \textbf{Lista d'attesa con riassegnazione automatica (CR02):} a
+        supporto della garanzia introdotta dalla CR01, si richiede che lo
+        studente che trova il posto occupato possa mettersi in coda per quel
+        posto e quella fascia. Quando il posto si libera, per cancellazione o
+        perché il titolare non si presenta, il primo in coda deve ottenerlo
+        automaticamente ed esserne avvisato.
+\end{itemize}
+
+\chapter{Change Requests}
+
+\section{Change Request n.1}
+
+{\small
+\begin{xltabular}{\linewidth}{SY}
+  \toprule
+  Change Request ID & CR01 \\
+  Titolo & Prenotazione sicura e atomica dei posti studio \\
+  Data di Identificazione & 27 agosto 2026 \\
+  Richiesta da & Mario Celzo, Renato Mancino, Alfonso Maria Ferrara \\
+  Categoria & Corrective, Preventive \\
+  Priorità & Alta \\
+  \midrule
+  \multicolumn{2}{l}{\textbf{Descrizione}} \\
+  Situazione Iniziale &
+  La creazione di una prenotazione prende l'identificativo dell'utente dal
+  corpo della richiesta inviato dal browser, e le operazioni sulla singola
+  prenotazione (lettura, cancellazione, estensione) non verificano che appartenga
+  a chi le richiede. Il controllo di disponibilità e la scrittura sono due
+  operazioni separate: due richieste quasi simultanee possono superare entrambe
+  il controllo e prenotare lo stesso posto nella stessa fascia, e il database
+  non impedisce le sovrapposizioni. Le regole sugli orari sono duplicate tra
+  creazione ed estensione: un intervallo con la fine precedente all'inizio viene
+  accettato, mentre check-in ed estensione confrontano date e orari salvati in
+  rappresentazioni diverse e rifiutano richieste valide. \\
+  Situazione desiderata &
+  Identità e titolarità ricavate sempre dalla sessione autenticata, sia nelle
+  operazioni dello studente sia nelle route dello staff, con risposte coerenti
+  (401 senza sessione, 403 per il ruolo non ammesso, 404 per la risorsa
+  altrui). Un unico servizio di dominio che valida gli intervalli
+  per creazione ed estensione. Creazione atomica: verifica e scrittura nella
+  stessa transazione e un vincolo del database che renda impossibili due
+  prenotazioni attive sovrapposte sullo stesso posto. In caso di conflitto lo
+  studente riceve una risposta comprensibile (409), mai un errore interno. \\
+  Impatti o Rischi &
+  La modifica tocca lo schema del database (nuovo vincolo da applicare ai dati
+  già presenti), l'autenticazione, tutte le route di prenotazione e le route
+  dello staff che le leggono o le modificano. Un rischio è l'aumento dei
+  rifiuti per conflitto di serializzazione sotto carico, che vanno tradotti in
+  messaggi chiari; un altro è la regressione dei flussi di check-in e di
+  amministrazione. \\
+  Fuori ambito &
+  La lista d'attesa e la riassegnazione dei posti liberati (gestite nella
+  CR02); catalogo e prestiti dei libri. \\
+  \bottomrule
+  \caption{Change Request CR01}\label{tab:cr01}\\
+\end{xltabular}}
+
+
+\clearpage
+\section{Change Request n.2}
+
+{\small
+\begin{xltabular}{\linewidth}{SY}
+  \toprule
+  Change Request ID & CR02 \\
+  Titolo & Lista d'attesa con riassegnazione automatica dei posti \\
+  Data di Identificazione & 27 agosto 2026 \\
+  Richiesta da & Mario Celzo, Renato Mancino, Alfonso Maria Ferrara \\
+  Categoria & Perfective \\
+  Priorità & Media \\
+  \midrule
+  \multicolumn{2}{l}{\textbf{Descrizione}} \\
+  Situazione Iniziale &
+  Quando il posto scelto è già prenotato nella fascia richiesta, lo studente
+  riceve soltanto un errore e deve riprovare più tardi. Se il titolare annulla
+  la prenotazione o non si presenta (il no-show viene rilevato
+  dall'automazione periodica), il posto torna disponibile senza che nessuno ne
+  sia informato e spesso resta vuoto, anche se altri studenti lo avevano
+  cercato. \\
+  Situazione desiderata &
+  Dal conflitto, sulla mappa, sulla griglia per dispositivi mobili o nel
+  messaggio di posto non più disponibile, lo studente può entrare in una lista
+  d'attesa per quel posto e quella fascia, ordinata per ordine di arrivo e senza
+  richieste duplicate. Quando il posto si libera (cancellazione dello studente
+  o dello staff, no-show, promozione non confermata) il primo in coda viene
+  promosso automaticamente a una prenotazione confermata e riceve una notifica;
+  se non conferma con il check-in entro il tempo previsto, la promozione scade
+  e il posto passa al successivo. Ogni passaggio resta tracciato e lo staff vede
+  l'esito della promozione. \\
+  Impatti o Rischi &
+  La modifica richiede una nuova entità nel modello dati e l'aggiornamento
+  delle automazioni periodiche, delle cancellazioni, delle notifiche, della
+  mappa dei posti e delle schermate dello staff. I rischi principali sono le
+  doppie promozioni quando il cron e una cancellazione agiscono nello stesso
+  momento, le notifiche duplicate e l'alterazione delle statistiche esistenti
+  da parte dei nuovi eventi. \\
+  Fuori ambito &
+  Priorità diverse dall'ordine di arrivo e code generiche per sala o per
+  fascia; la CR riguarda solo la coda sul singolo posto e intervallo. Nessuna
+  modifica al flusso dei prestiti. \\
+  \bottomrule
+  \caption{Change Request CR02}\label{tab:cr02}\\
+\end{xltabular}}
+
+
+\end{document}

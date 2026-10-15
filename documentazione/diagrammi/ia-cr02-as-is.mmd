@@ -1,0 +1,54 @@
+flowchart LR
+    subgraph UI["Pagine e componenti"]
+        P_PREN["prenota/page.tsx"]
+        MAPPA["components/mappa-biblioteca.tsx"]
+        GRIGLIA["components/mobile-posti-grid.tsx"]
+        P_ADMIN["admin/page.tsx"]
+        P_STAT["admin/statistiche/page.tsx"]
+        USE_SSE["hooks/use-sse.ts"]
+    end
+    subgraph API["Route handler"]
+        A_COLL["api/prenotazioni"]
+        A_ITEM["api/prenotazioni/[id]"]
+        A_ADMIN["api/admin/prenotazioni"]
+        A_ANOM["api/admin/anomalie"]
+        A_SCAN["api/admin/scanner/validate"]
+        A_STAT["api/admin/statistiche"]
+        A_DISP["api/disponibilita-giorni"]
+        A_CRON["api/cron/automations"]
+        A_SSE["api/sse/posti"]
+    end
+    subgraph LIB["Librerie di servizio"]
+        AUTO["lib/automation-service.ts"]
+        RT["lib/realtime-events.ts"]
+        SSE["lib/sse-emitter.ts"]
+    end
+    SCHEMA[("prisma/schema.prisma")]
+
+    P_PREN --> MAPPA
+    MAPPA --> GRIGLIA
+    P_PREN --> A_COLL
+    P_STAT --> A_STAT
+    P_ADMIN --> SCHEMA
+    USE_SSE --> A_SSE
+    A_SSE --> SSE
+    RT --> SSE
+    RT --> SCHEMA
+    A_CRON --> AUTO
+    AUTO --> SCHEMA
+    A_COLL --> SCHEMA
+    A_ITEM --> SCHEMA
+    A_ADMIN --> SCHEMA
+    A_ANOM --> SCHEMA
+    A_SCAN --> SCHEMA
+    A_STAT --> SCHEMA
+    A_DISP --> SCHEMA
+
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#172554
+    class P_PREN,MAPPA,GRIGLIA,P_ADMIN,P_STAT,USE_SSE ui
+    classDef api fill:#fef3c7,stroke:#d97706,color:#451a03
+    class A_COLL,A_ITEM,A_ADMIN,A_ANOM,A_SCAN,A_STAT,A_DISP,A_CRON,A_SSE api
+    classDef lib fill:#dcfce7,stroke:#16a34a,color:#052e16
+    class AUTO,RT,SSE lib
+    classDef dati fill:#f3f4f6,stroke:#6b7280,color:#111827
+    class SCHEMA dati

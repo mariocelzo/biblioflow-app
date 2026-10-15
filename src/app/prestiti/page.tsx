@@ -351,7 +351,9 @@ export default function PrestitiPage() {
               <p className="text-sm text-muted-foreground">{libro.autore}</p>
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant={disponibile ? "default" : "secondary"}>
-                  {disponibile ? `${libro.copieDisponibili} disponibili` : "Non disponibile"}
+                  {disponibile
+                    ? `${libro.copieDisponibili} ${libro.copieDisponibili === 1 ? "disponibile" : "disponibili"}`
+                    : "Non disponibile"}
                 </Badge>
                 {posizione && (
                   <span className="text-xs text-muted-foreground">

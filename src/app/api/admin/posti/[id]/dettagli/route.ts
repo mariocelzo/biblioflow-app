@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { dataCorrenteBiblioteca } from "@/lib/prenotazioni-regole";
 
 export async function GET(
   request: NextRequest,
@@ -68,10 +69,15 @@ export async function GET(
       take: 10,
     });
 
-    // Prenotazione attuale (se presente)
-    const now = new Date();
-    const oggi = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
+    // Prenotazione attuale (se presente).
+    // "Oggi" va calcolato nel fuso della biblioteca: `new Date(anno, mese,
+    // giorno)` usava il fuso del server (UTC su Vercel), quindi tra mezzanotte
+    // e le 02:00 di Roma la colonna `@db.Date` non corrispondeva e la
+    // prenotazione in corso spariva dal dettaglio. Stessa funzione usata da
+    // scanner e automazioni.
+    const oggi = dataCorrenteBiblioteca(new Date());
+
+
     const prenotazioneAttuale = await db.prenotazione.findFirst({
       where: {
         postoId: postoId,

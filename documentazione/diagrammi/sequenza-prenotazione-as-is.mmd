@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    actor S as Studente
+    participant P as /prenota
+    participant A as POST /api/prenotazioni
+    participant DB as PostgreSQL
+
+    S->>P: data, durata, sala
+    P->>P: GET /api/sale, /api/posti
+    S->>P: sceglie il posto sulla mappa e conferma
+    P->>A: { userId, postoId, data, oraInizio, oraFine, marginePendolare }
+    A->>A: campi obbligatori
+    A->>DB: legge User, Posto e Sala
+    A->>A: orari di apertura della sala
+    A->>DB: prenotazioni attive sovrapposte (posto e utente)
+    DB-->>A: nessuna
+    A->>DB: crea Prenotazione CONFERMATA
+    A->>DB: LogEvento PRENOTAZIONE_CREATA, Notifica
+    A-->>P: 201
+    P-->>S: riepilogo della prenotazione

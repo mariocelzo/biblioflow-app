@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    actor S as Studente
+    participant H as Home (QRCodeCheckIn)
+    participant C as POST /api/prenotazioni/[id]/check-in
+    participant DB as PostgreSQL
+
+    S->>H: apre la prenotazione del giorno
+    H->>H: genera il QR della prenotazione
+    S->>H: conferma la presenza
+    H->>C: { timestamp }
+    C->>C: verifica sessione e titolarità
+    C->>DB: legge Prenotazione (data, oraInizio @db.Time)
+    C->>C: finestra di check-in (15 minuti)
+    alt dentro la finestra
+        C->>DB: Prenotazione CHECK_IN, Posto OCCUPATO
+        C-->>H: 200
+    else fuori finestra
+        C-->>H: 400 "periodo di check-in scaduto"
+    end

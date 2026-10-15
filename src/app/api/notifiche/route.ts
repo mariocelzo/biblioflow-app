@@ -1,3 +1,4 @@
+import { TipoNotifica } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { assertOwnership, AuthError, isStaff, requireUser } from "@/lib/auth";
@@ -96,6 +97,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Campi obbligatori: userId, tipo, titolo, messaggio" },
         { status: 400 }
+      );
+    }
+
+    // Un tipo fuori enum arrivava a Prisma e diventava un 500: 422 esplicito,
+    // come per gli altri filtri e campi enum delle API.
+    if (!Object.values(TipoNotifica).includes(tipo as TipoNotifica)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `tipo non valido. Valori ammessi: ${Object.values(TipoNotifica).join(", ")}`,
+        },
+        { status: 422 }
       );
     }
 

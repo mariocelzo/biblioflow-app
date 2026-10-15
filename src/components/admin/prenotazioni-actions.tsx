@@ -204,16 +204,25 @@ export default function PrenotazioniActions({ prenotazione }: Props) {
     }
   };
 
+  // Stessi stati ammessi dal server (STATI_PRENOTAZIONE_MODIFICABILI in
+  // src/app/api/admin/prenotazioni/route.ts): prima il menu offriva di
+  // annullare o modificare anche prenotazioni NO_SHOW o SCADUTE, che il server
+  // rifiuta come "gia' concluse". Un'azione proposta deve poter riuscire.
+  const prenotazioneAperta = prenotazione.stato === "CONFERMATA" || prenotazione.stato === "CHECK_IN";
   const canCheckIn = prenotazione.stato === "CONFERMATA";
-  const canModifica = prenotazione.stato !== "COMPLETATA" && prenotazione.stato !== "CANCELLATA";
-  const canAnnulla = prenotazione.stato !== "COMPLETATA" && prenotazione.stato !== "CANCELLATA";
+  const canModifica = prenotazioneAperta;
+  const canAnnulla = prenotazioneAperta;
 
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon">
-            <MoreHorizontal className="h-4 w-4" />
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={`Azioni per la prenotazione di ${prenotazione.user.nome} ${prenotazione.user.cognome}, posto ${prenotazione.posto.numero}`}
+          >
+            <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

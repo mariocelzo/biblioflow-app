@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
+import { isConflittoConcorrenza, promuoviPrimoInCoda } from "@/lib/prenotazioni-service";
 import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 import { actionUrlPrenotazione } from "@/lib/prenotazioni-regole";
 
@@ -621,27 +621,41 @@ export async function POST(req: NextRequest) {
           updateData.postoId !== prenotazione.postoId &&
           prenotazione.stato === "CHECK_IN";
 
-        if (cambioPostoConCheckIn) {
-          await prisma.$transaction([
-            prisma.prenotazione.update({
+        try {
+          if (cambioPostoConCheckIn) {
+            await prisma.$transaction([
+              prisma.prenotazione.update({
+                where: { id: prenotazioneId },
+                data: updateData,
+              }),
+              prisma.posto.update({
+                where: { id: prenotazione.postoId },
+                data: { stato: "DISPONIBILE" },
+              }),
+              prisma.posto.update({
+                where: { id: updateData.postoId },
+                data: { stato: "OCCUPATO" },
+              }),
+            ]);
+          } else {
+            // Update prenotazione
+            await prisma.prenotazione.update({
               where: { id: prenotazioneId },
-              data: updateData,
-            }),
-            prisma.posto.update({
-              where: { id: prenotazione.postoId },
-              data: { stato: "DISPONIBILE" },
-            }),
-            prisma.posto.update({
-              where: { id: updateData.postoId },
-              data: { stato: "OCCUPATO" },
-            }),
-          ]);
-        } else {
-          // Update prenotazione
-          await prisma.prenotazione.update({
-            where: { id: prenotazioneId },
-            data: updateData
-          });
+              data: updateData
+            });
+          }
+        } catch (errore) {
+          // Il vincolo di esclusione del database (CR01) rifiuta una modifica
+          // che sovrapporrebbe la prenotazione a un'altra attiva sullo stesso
+          // posto. E' un conflitto prevedibile, non un guasto: lo staff deve
+          // leggere cosa e' successo, non "Errore interno del server".
+          if (isConflittoConcorrenza(errore)) {
+            return NextResponse.json(
+              { error: "Il posto è già prenotato in quella fascia: scegli un altro orario o un altro posto" },
+              { status: 409 }
+            );
+          }
+          throw errore;
         }
 
         // Log evento

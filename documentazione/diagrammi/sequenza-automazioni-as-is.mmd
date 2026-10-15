@@ -1,0 +1,17 @@
+sequenceDiagram
+    autonumber
+    participant VC as Vercel Cron
+    participant C as GET /api/cron/automations
+    participant AS as automation-service
+    participant DB as PostgreSQL
+
+    VC->>C: Authorization: Bearer CRON_SECRET
+    C->>C: confronta il token con CRON_SECRET
+    C->>AS: runAllAutomations()
+    AS->>DB: sendCheckInReminders(): promemoria 15-20 min prima
+    AS->>DB: sendLoanExpiryAlerts(): prestiti in scadenza
+    AS->>DB: releaseNoShowReservations(): CONFERMATA oltre il margine
+    AS->>DB: Prenotazione NO_SHOW, Posto DISPONIBILE
+    AS->>DB: Notifica ALERT e LogEvento NO_SHOW_AUTO
+    AS-->>C: riepilogo delle esecuzioni
+    C-->>VC: 200 con il riepilogo

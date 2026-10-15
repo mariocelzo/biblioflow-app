@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report
+/test-results
 
 # next.js
 /.next/
@@ -45,3 +47,6 @@ next-env.d.ts
 
 # local artifact authoring scratch space
 /.artifact-work/
+
+# LaTeX (documentazione): file intermedi di compilazione
+/documentazione/build/

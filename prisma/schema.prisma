@@ -74,6 +74,10 @@ enum TipoEvento {
   CODA_PROMOZIONE
   CODA_SCADENZA
   CODA_ANNULLATA
+  UTENTE_REGISTRATO   // Nuovo account creato dalla registrazione
+  PRENOTAZIONE_ESTESA // Orario di fine di una prenotazione esteso
+  PRESTITO_SOLLECITATO // Sollecito di restituzione inviato dallo staff
+  PRESTITO_RINNOVATO   // Rinnovo registrato dallo staff
 }
 
 enum StatoRichiesta {

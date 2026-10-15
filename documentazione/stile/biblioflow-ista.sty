@@ -1,0 +1,166 @@
+% Stile comune dei documenti di progetto BiblioFlow (corso ISTA, UniSa).
+% Ogni documento imposta \titolodocumento, \sottotitolodocumento e
+% \sigladocumento prima di \begin{document}, poi chiama \copertina.
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{biblioflow-ista}[2026/10/15 Documentazione BiblioFlow]
+
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+\RequirePackage[italian]{babel}
+\RequirePackage{tgpagella}
+\RequirePackage[scale=0.92]{tgheros}
+\renewcommand{\ttdefault}{lmtt}
+\RequirePackage{microtype}
+\RequirePackage[a4paper,top=3cm,bottom=3cm,inner=3cm,outer=2.6cm,headheight=15pt]{geometry}
+\RequirePackage[table]{xcolor}
+\RequirePackage{graphicx}
+\RequirePackage{tabularx}
+\RequirePackage{longtable}
+\RequirePackage{xltabular}
+\RequirePackage{booktabs}
+\RequirePackage{multirow}
+\RequirePackage{makecell}
+\RequirePackage{array}
+\RequirePackage{float}
+\RequirePackage{enumitem}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{titlesec}
+\RequirePackage{fancyhdr}
+\RequirePackage{caption}
+\RequirePackage{listings}
+\RequirePackage{tikz}
+\RequirePackage{csquotes}
+\RequirePackage[hidelinks,unicode]{hyperref}
+
+% ---------------------------------------------------------------- colori
+\definecolor{unisablu}{HTML}{003366}
+\definecolor{grigiotesto}{HTML}{4A4A4A}
+\definecolor{rigatabella}{HTML}{EEF2F7}
+\definecolor{intestazionetabella}{HTML}{DCE4EE}
+\definecolor{verdeok}{HTML}{1B7F3B}
+\definecolor{rossoko}{HTML}{B3261E}
+\definecolor{giallowarn}{HTML}{A15C00}
+\definecolor{viola}{HTML}{6B3FA0}
+
+% ---------------------------------------------------------------- dati comuni
+\newcommand{\progetto}{BiblioFlow}
+\newcommand{\universita}{UNIVERSITÀ DEGLI STUDI DI SALERNO}
+\newcommand{\dipartimento}{Dipartimento di Informatica}
+\newcommand{\corsodilaurea}{Corso di Laurea Magistrale in Informatica}
+\newcommand{\insegnamento}{Ingegneria del Software: Tecniche Avanzate}
+\newcommand{\annoaccademico}{Anno Accademico 2025-2026}
+\newcommand{\repository}{https://github.com/mariocelzo/biblioflow-app}
+\newcommand{\applicazione}{https://biblioflow-app.vercel.app}
+
+\newcommand{\titolodocumento}{}
+\newcommand{\sottotitolodocumento}{}
+\newcommand{\sigladocumento}{}
+\newcommand{\versionedocumento}{1.0}
+\newcommand{\datadocumento}{15 ottobre 2026}
+
+% Loghi: se il file esiste in immagini/loghi/ (logo-unisa.png, logo-sesa.png,
+% anche in PDF) viene usato, altrimenti non compare nulla.
+\graphicspath{{immagini/}{immagini/loghi/}{diagrammi/pdf/}}
+\newcommand{\logo}[3]{%
+  \IfFileExists{immagini/loghi/#1.pdf}{\includegraphics[height=#2]{#1.pdf}}{%
+  \IfFileExists{immagini/loghi/#1.png}{\includegraphics[height=#2]{#1.png}}{}}}
+
+\newcommand{\copertina}{%
+  \begin{titlepage}
+    \centering
+    \logo{logo-unisa}{3.2cm}{}\par\vspace{0.8cm}
+    {\large\bfseries\universita\par}
+    \vspace{0.25cm}
+    {\normalsize\dipartimento\par}
+    {\normalsize\corsodilaurea\par}
+    \vspace{2.4cm}
+    {\color{unisablu}\rule{\linewidth}{0.8pt}\par}
+    \vspace{0.5cm}
+    {\Huge\bfseries\color{unisablu}\MakeUppercase{\titolodocumento}\par}
+    \vspace{0.4cm}
+    {\large\itshape\insegnamento\ -- \sottotitolodocumento\par}
+    \vspace{0.5cm}
+    {\color{unisablu}\rule{\linewidth}{0.8pt}\par}
+    \vspace{2.2cm}
+    \begin{tabular}{l@{\hspace{1.4cm}}l}
+      Mario Celzo & Matricola: NF22500193\\[2pt]
+      Renato Mancino & Matricola: NF22500242\\[2pt]
+      Alfonso Maria Ferrara & Matricola: NF22500210\\
+    \end{tabular}\par
+    \vspace{1.2cm}
+    {\small Repository: \url{\repository}\par}
+    \vfill
+    {\normalsize\annoaccademico\par}
+    \vspace{0.6cm}
+    \logo{logo-sesa}{1.7cm}{}\par
+  \end{titlepage}
+  \hypersetup{pdftitle={\progetto\ -- \titolodocumento},
+    pdfauthor={Mario Celzo, Renato Mancino, Alfonso Maria Ferrara},
+    pdfsubject={\insegnamento}}
+}
+
+% ---------------------------------------------------------------- capitoli
+\titleformat{\chapter}[display]
+  {\normalfont\color{unisablu}}
+  {\large\sffamily\bfseries\MakeUppercase{\chaptertitlename}\,\thechapter}
+  {6pt}
+  {\Huge\bfseries}
+  [\vspace{2pt}{\color{unisablu}\titlerule[0.8pt]}]
+\titlespacing*{\chapter}{0pt}{0pt}{28pt}
+\titleformat{\section}{\normalfont\Large\bfseries\color{unisablu}}{\thesection}{0.8em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.8em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries\itshape}{\thesubsubsection}{0.8em}{}
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{2}
+
+% ---------------------------------------------------------------- intestazioni
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\chaptermark}[1]{\markboth{\thechapter\ -- #1}{}}
+\renewcommand{\sectionmark}[1]{\markright{\thesection\ -- #1}}
+\fancyhead[R]{\small\thepage}
+\fancyhead[L]{\small\itshape\nouppercase{\rightmark}}
+\renewcommand{\headrulewidth}{0.4pt}
+\fancypagestyle{plain}{\fancyhf{}\fancyfoot[C]{\small\thepage}\renewcommand{\headrulewidth}{0pt}}
+
+% ---------------------------------------------------------------- tabelle e testo
+\renewcommand{\arraystretch}{1.25}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+\setlist{itemsep=0.2em,topsep=0.3em}
+\captionsetup{font=small,labelfont=bf,skip=6pt}
+\captionsetup[table]{position=bottom}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\newcommand{\tb}[1]{\textbf{#1}}
+\newcommand{\intestazione}{\rowcolor{intestazionetabella}}
+% Percorsi, nomi di file e chiamate HTTP: possono andare a capo dopo / . - _
+\urlstyle{tt}
+\newcommand{\file}[1]{{\small\nolinkurl{#1}}}
+\setlength{\emergencystretch}{3em}
+\tolerance=2000
+\newcommand{\ok}{\textcolor{verdeok}{\textbf{PASS}}}
+\newcommand{\ko}{\textcolor{rossoko}{\textbf{FAIL}}}
+\newcommand{\nuovo}{\textit{(nuovo)}}
+
+% Scheda a due colonne (stile "Change Request" e incidenti).
+% Prima colonna delle schede (Change Request, incidenti): etichette in
+% grassetto. Uso: \begin{xltabular}{\linewidth}{SY} ... \end{xltabular};
+% xltabular permette alla scheda di attraversare il cambio pagina.
+\newcolumntype{S}{>{\bfseries}L{3.6cm}}
+
+\lstset{basicstyle=\ttfamily\small,breaklines=true,columns=fullflexible,
+  frame=single,rulecolor=\color{gray!50},backgroundcolor=\color{gray!6},
+  showstringspaces=false,keepspaces=true,upquote=true,
+  literate={à}{{\`a}}1 {è}{{\`e}}1 {é}{{\'e}}1 {ì}{{\`i}}1 {ò}{{\`o}}1 {ù}{{\`u}}1}
+
+% Figura da diagramma Mermaid compilato in diagrammi/pdf/.
+\newcommand{\diagramma}[3][0.95\linewidth]{%
+  \begin{figure}[htbp]\centering
+    \IfFileExists{diagrammi/pdf/#2.pdf}
+      {\includegraphics[width=#1,height=0.8\textheight,keepaspectratio]{#2.pdf}}
+      {\fbox{\parbox{0.8\linewidth}{\centering Diagramma \texttt{#2} non compilato}}}
+    \caption{#3}\label{fig:#2}
+  \end{figure}}

@@ -1,0 +1,22 @@
+sequenceDiagram
+    autonumber
+    actor B as Bibliotecario
+    participant SC as /admin/scanner
+    participant V as POST /api/admin/scanner/validate
+    participant AP as POST /api/admin/prenotazioni
+    participant DB as PostgreSQL
+
+    B->>SC: inquadra il QR dello studente
+    SC->>V: { qrCode }
+    V->>V: sessione e ruolo staff, firma e scadenza del QR
+    V->>DB: legge Prenotazione, User, Posto
+    V->>DB: Prenotazione CHECK_IN, Posto OCCUPATO
+    V->>DB: LogEvento CHECK_IN, Notifica allo studente
+    V-->>SC: dati dello studente e del posto
+
+    B->>AP: azione ANNULLA_SINGOLA
+    AP->>AP: sessione e ruolo staff
+    AP->>DB: Prenotazione CANCELLATA
+    AP->>DB: Posto DISPONIBILE se era OCCUPATO
+    AP->>DB: LogEvento PRENOTAZIONE_CANCELLATA, Notifica SISTEMA
+    AP-->>B: esito

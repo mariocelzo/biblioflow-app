@@ -1,0 +1,267 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Test Incident Report}
+\renewcommand{\sottotitolodocumento}{Test Incident Report}
+
+% Intestazione di un incidente: componente, severità, data.
+\newcommand{\datiincidente}[3]{%
+  \textbf{Componente:} #1\par
+  \textbf{Severità:} #2\par
+  \textbf{Data:} #3\par\medskip}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+
+\mainmatter
+\chapter{Introduzione}
+
+Il presente documento costituisce l'Incident Report del progetto BiblioFlow.
+In questo documento vengono analizzate le problematiche identificate durante
+l'esecuzione della suite di test che caratterizza la versione di partenza e
+durante la sua riesecuzione come suite di regressione. Nell'ambito di questa
+analisi vengono pertanto presi in esame tutti i livelli di testing coinvolti.
+
+\section{Obiettivi del Documento}
+
+L'obiettivo primario è fornire una mappatura chiara delle criticità
+individuate nella suite di test, distinguendo i difetti del sistema da quelli
+dei test stessi. Questa attività di revisione e correzione è propedeutica al
+miglioramento della qualità complessiva del sistema e all'aumento
+dell'affidabilità della suite di test, garantendo una base solida per gli
+sviluppi futuri.
+
+\chapter{Incident Report}
+
+In questa sezione vengono dettagliati gli incidenti specifici affrontati
+durante la fase di validazione. Per ogni anomalia viene riportata la
+descrizione dell'errore, l'analisi delle cause e l'intervento correttivo
+applicato.
+
+\section{Test Incident n.1}
+
+\datiincidente{Test di Sistema -- esecuzione della suite pre-modifica sul tag
+\texttt{baseline-pre-cr-bf-01}}{Minore (bloccante per l'esecuzione)}{28 agosto 2026}
+
+\subsection{Descrizione del Problema}
+
+La prima esecuzione della suite di caratterizzazione è stata tentata
+direttamente sul tag che congela la versione di partenza. Il comando non è
+neppure partito:
+
+\begin{lstlisting}
+$ git checkout baseline-pre-cr-bf-01
+$ npm test
+npm error Missing script: "test"
+\end{lstlisting}
+
+La versione di partenza non conteneva alcuna infrastruttura di test: niente
+Vitest, niente script \texttt{test}, nessun database di test né fixture. Il
+tag, che per definizione non può essere modificato, non era quindi
+eseguibile come riferimento dei test.
+
+\subsection{Risoluzione Tecnica}
+
+Invece di modificare il tag, l'infrastruttura di test è stata aggiunta in un
+commit dedicato (\texttt{7469969}) che non tocca i flussi da caratterizzare.
+Il confronto con la baseline lo dimostra: nelle cartelle \file{src} e
+\file{prisma} cambiano soltanto quattro file, e solo per correzioni
+richieste dal linter (un tipo esplicito al posto di \texttt{any}, due
+apostrofi trasformati in entità HTML e un commento per il linter).
+
+\begin{lstlisting}
+$ git diff --stat baseline-pre-cr-bf-01 7469969 -- src prisma
+ src/app/api/admin/richieste/route.ts            | 8 +++++++-
+ src/app/libri/[id]/page.tsx                     | 2 +-
+ src/app/prenota/page.tsx                        | 2 +-
+ src/components/accessibility/live-announcer.tsx | 5 +++++
+ 4 files changed, 14 insertions(+), 3 deletions(-)
+\end{lstlisting}
+
+Il commit aggiunge gli script \texttt{test} e
+\texttt{test:db:prepare}, che crea un PostgreSQL effimero e rifiuta qualunque
+indirizzo che non identifichi esplicitamente un database di test.
+
+\subsection{Esito}
+
+La suite è stata eseguita sul commit \texttt{7469969}: 5 file e 34 casi su 34
+conformi all'oracolo. Nei documenti di test il riferimento di esecuzione è
+indicato esplicitamente accanto al tag, così che chiunque possa riprodurre il
+risultato.
+
+\section{Test Incident n.2}
+
+\datiincidente{Test di Integrazione --
+\file{tests/pre-modifica/automation-notifications.test.ts}}{Minore
+(ambiente di esecuzione)}{4 settembre 2026}
+
+\subsection{Descrizione del Problema}
+
+Durante la riesecuzione dei casi invariati come regressione, la suite delle
+automazioni e delle notifiche non riusciva a preparare il database. Prima di
+ogni esecuzione il setup sincronizza lo schema del database di test lanciando
+la CLI di Prisma:
+
+\begin{lstlisting}
+const result = spawnSync(executable, ["db", "push"], {
+  cwd: process.cwd(),
+  env: { ...process.env, DATABASE_URL: databaseUrl },
+  encoding: "utf8",
+  shell: process.platform === "win32",
+});
+\end{lstlisting}
+
+Su Windows il file eseguibile è \texttt{prisma.cmd} e viene lanciato
+attraverso la shell. La cartella di lavoro conteneva uno spazio nel percorso:
+la shell spezzava il percorso dell'eseguibile in due parole e il comando non
+veniva trovato. Il fallimento non dipendeva né dai test né dal sistema.
+
+\subsection{Risoluzione Tecnica}
+
+Per non alterare né i test né l'applicazione durante una verifica di
+regressione, la stessa copia di lavoro è stata esposta tramite un collegamento
+(junction) a un percorso senza spazi e i cinque casi interessati sono stati
+rieseguiti da lì, filtrandoli per identificativo:
+
+\begin{lstlisting}
+npx vitest run tests/pre-modifica/automation-notifications.test.ts \
+  -t "PRE-AUT-00[124]|PRE-NOT-00[12]"
+\end{lstlisting}
+
+\subsection{Esito}
+
+I cinque casi sono risultati conformi alla baseline. L'incidente è stato
+classificato come problema dell'ambiente: la pipeline di integrazione
+continua, che gira su Linux, non ne è affetta.
+
+\section{Test Incident n.3}
+
+\datiincidente{Test di Integrazione --
+\file{tests/pre-modifica/automation-notifications.test.ts}}{Maggiore (falso
+esito positivo)}{12 settembre 2026}
+
+\subsection{Descrizione del Problema}
+
+Durante la correzione del middleware, che da quel momento verifica davvero il
+token di sessione tramite Auth.js, è emerso che l'intera suite delle
+automazioni e delle notifiche non veniva più eseguita da tempo. Il modulo
+\file{lib/auth.ts}, importato a cascata dalle route sotto test, carica
+\texttt{next-auth}; questo importa \texttt{next/server}, e il resolver ESM di
+Node non riesce a risolverlo perché il pacchetto di Next non dichiara il campo
+\texttt{exports}:
+
+\begin{lstlisting}
+Error: Cannot find module '.../node_modules/next/server'
+Did you mean to import "next/server.js"?
+\end{lstlisting}
+
+L'errore avveniva al caricamento del file: Vitest segnava i sei casi come
+\emph{skipped}, non come falliti. Il riepilogo della suite restava verde e
+nessuno se ne era accorto.
+
+\subsection{Risoluzione Tecnica}
+
+\textbf{Codice Errato:} la configurazione lasciava a Node il caricamento dei
+pacchetti di Auth.js.
+
+\begin{lstlisting}
+test: {
+  environment: "node",
+  include: ["tests/**/*.test.ts", "tests/**/*.spec.ts"],
+  passWithNoTests: true,
+  ...
+},
+\end{lstlisting}
+
+\textbf{Codice Corretto:} i due pacchetti passano dalla trasformazione di
+Vite, che risolve correttamente l'estensione del modulo. Non cambia ciò che
+viene testato, solo come viene caricato.
+
+\begin{lstlisting}
+test: {
+  environment: "node",
+  ...
+  server: {
+    deps: {
+      inline: [/next-auth/, /@auth\/core/],
+    },
+  },
+},
+\end{lstlisting}
+
+Una volta eseguita davvero, la suite ha rivelato che il caso PRE-NOT-002
+chiamava l'elenco delle notifiche senza sessione: nel frattempo la route era
+stata corretta di proposito per usare sempre l'utente autenticato invece di
+un parametro \texttt{userId} preso dall'indirizzo. Al test è stato aggiunto il
+mock della sessione, così che continui a verificare ciò che gli interessa:
+filtro, paginazione e conteggi.
+
+\subsection{Esito}
+
+La suite torna a essere eseguita: sei casi su sei passano. L'incidente ha
+mostrato che un riepilogo verde non basta: va controllato anche il numero di
+casi effettivamente eseguiti, perché un file che non si carica produce casi
+saltati e non falliti.
+
+\section{Test Incident n.4}
+
+\datiincidente{Test di Sistema -- \texttt{TC-PRE-016}
+(\file{tests/pre-modifica/admin-ui.test.ts})}{Minore}{12 settembre 2026}
+
+\subsection{Descrizione del Problema}
+
+Il caso TC-PRE-016 era stato scritto per fotografare il comportamento della
+baseline: con un cookie di sessione presente, il middleware lascia proseguire
+la richiesta verso \texttt{/prenota}. Il test usava però un valore
+\emph{inventato} (\texttt{token-baseline}) e si aspettava che passasse.
+
+Quando il middleware è stato corretto per verificare firma e scadenza del
+token, il test è fallito: la verifica del token è asincrona e un valore
+inventato porta ora al login, mentre il test chiamava il middleware in modo
+sincrono e pretendeva che la richiesta proseguisse.
+
+Il fallimento non indicava una regressione. Il test non descriveva un
+requisito ma il difetto stesso: in produzione bastava inviare un cookie
+qualsiasi (\texttt{authjs.session-token=x}) per ottenere dati reali. Un test
+scritto così avrebbe fatto apparire la correzione come una regressione.
+
+\subsection{Risoluzione Tecnica}
+
+\textbf{Codice Errato:} il test accettava un cookie inventato e verificava una
+chiamata sincrona.
+
+\begin{lstlisting}
+it("[TC-PRE-016] lascia proseguire la UI prenotazione con cookie di sessione", () => {
+  const response = appMiddleware.middleware(
+    request("http://localhost/prenota", "GET", undefined,
+      "authjs.session-token=token-baseline"));
+  expect(response.status).toBe(200);
+});
+\end{lstlisting}
+
+\textbf{Codice Corretto:} il caso è stato capovolto e reso asincrono, come la
+verifica reale del token; un nuovo caso usa un token firmato davvero, perché
+senza il caso \enquote{utente autenticato} anche un middleware che rifiuta
+tutti sembrerebbe corretto.
+
+\begin{lstlisting}
+it("[TC-PRE-016] un cookie di sessione inventato non apre piu' la UI prenotazione", async () => {
+  const response = await appMiddleware.middleware(
+    request("http://localhost/prenota", "GET", undefined,
+      "authjs.session-token=token-baseline"));
+  expect(response.status).toBe(307);
+  const destinazione = new URL(response.headers.get("location") as string);
+  expect(destinazione.pathname).toBe("/login");
+});
+\end{lstlisting}
+
+\subsection{Esito}
+
+Il caso è classificato come \textbf{modificato} rispetto alla baseline, con
+la motivazione documentata nel test stesso. La correzione ha confermato che i
+test di caratterizzazione vanno riletti quando il difetto che fotografano
+viene corretto: altrimenti diventano un vincolo che protegge il difetto.
+
+\end{document}

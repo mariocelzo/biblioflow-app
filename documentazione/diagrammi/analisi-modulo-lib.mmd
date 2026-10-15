@@ -1,0 +1,55 @@
+classDiagram
+    direction LR
+    class auth {
+        +handlers, signIn, signOut, auth
+        +hasRole(ruolo, ruoli) bool
+        +isStaff(ruolo) bool
+    }
+    class prisma {
+        +PrismaClient con adapter pg
+    }
+    class password {
+        +hashPassword(password)
+        +verifyPassword(password, hash)
+        +validatePassword(password)
+    }
+    class automation_service {
+        +sendCheckInReminders()
+        +sendLoanExpiryAlerts()
+        +releaseNoShowReservations()
+        +notifyAvailableSeat(prenotazione)
+        +runAllAutomations()
+    }
+    class realtime_events {
+        +emitPostoUpdate(...)
+        +emitOccupazioneUpdate(salaId)
+        +emitOccupazioneCompleta()
+        +emitNotificaRealtime(...)
+        +broadcastMessage(...)
+    }
+    class sse_emitter {
+        +sseEmitter : SSEEmitter
+        +createSSEStream(channel) ReadableStream
+    }
+    class qr_signature {
+        +signQRCode(payload)
+        +verifyQRCode(payload, firma)
+        +generateSignedQR(prenotazioneId, userId)
+        +validateScannedQR(qr)
+    }
+    class rate_limit {
+        +createRateLimiter(config)
+        +loginRateLimiter, bookingRateLimiter, ...
+    }
+    class env {
+        +env : variabili validate all'avvio
+    }
+    class utils {
+        +cn(...classi)
+    }
+    auth ..> prisma
+    auth ..> password
+    automation_service ..> prisma
+    realtime_events ..> sse_emitter
+    realtime_events ..> prisma
+    qr_signature ..> env

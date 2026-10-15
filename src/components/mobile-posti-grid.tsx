@@ -98,7 +98,9 @@ export function MobilePostiGrid({
             <div className="bg-muted/50 rounded-lg p-3 text-sm">
                 <div className="flex items-center justify-between">
                     <span className="font-medium">{sala}</span>
-                    <Badge variant="secondary">{postiDisponibili.length} disponibili</Badge>
+                    <Badge variant="secondary">
+                        {postiDisponibili.length} {postiDisponibili.length === 1 ? "disponibile" : "disponibili"}
+                    </Badge>
                 </div>
             </div>
 

@@ -1,0 +1,152 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Master Test Plan}
+\renewcommand{\sottotitolodocumento}{Master Test Plan}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+
+\mainmatter
+\chapter{Introduzione}
+
+Questo documento definisce le strategie pianificate per il testing di
+BiblioFlow. Il piano definisce i diversi livelli di test: test di unità, di
+integrazione, di sistema ed E2E, con l'obiettivo di garantire la qualità del
+software considerando anche le nuove funzionalità descritte nel documento
+Change Requests.
+
+Verranno escluse dal perimetro di testing le integrazioni con servizi esterni
+che il progetto usa ma non realizza: il recapito effettivo delle email, il
+fornitore di accesso Google e gli strumenti di monitoraggio.
+
+\chapter{Strategie di Testing}
+
+\section{Testing di unità}
+
+La fase di testing di unità è finalizzata alla verifica dei singoli componenti
+di BiblioFlow, con l'intento di isolare e validare il comportamento dei moduli
+critici: servizio di dominio delle prenotazioni, autenticazione, automazioni e
+route handler. La metodologia adottata è di tipo white-box, focalizzata sui
+criteri di statement coverage e branch coverage misurati con Vitest. Le
+dipendenze esterne, cioè il client Prisma e la sessione di Auth.js, sono
+sostituite da mock, così che ogni test verifichi solo la logica del modulo.
+
+Allo stesso livello appartengono i test dei componenti React coinvolti dalle
+Change Request (mappa dei posti, griglia mobile, lista d'attesa, azioni dello
+staff), eseguiti in un DOM simulato con Testing Library e interrogati come li
+userebbe una persona: per ruolo e nome accessibile.
+
+\section{Testing di integrazione}
+
+La fase di testing di integrazione ha lo scopo di verificare la comunicazione
+tra i sottosistemi di BiblioFlow. L'attività si concentra sulla catena
+completa che va dal route handler al servizio di dominio fino a PostgreSQL,
+eseguita contro un database reale e isolato, il cui nome deve dichiarare di
+essere di test. Nello specifico verranno esaminati il vincolo
+anti-sovrapposizione, le transazioni concorrenti sullo stesso posto, il ciclo
+di vita della lista d'attesa e la promozione eseguita dalle automazioni, con
+la verifica di notifiche ed eventi prodotti.
+
+\section{Testing di sistema}
+
+Il testing di sistema verrà eseguito secondo un approccio black-box, usando
+come confine del sistema le API HTTP esposte dai route handler. La metodologia
+di riferimento per la progettazione dei casi di test è il Category Partition
+Method, che permette di individuare e definire sistematicamente le
+combinazioni di input. I casi progettati sulla versione di partenza ne
+fissano il comportamento prima di ogni modifica; la strategia dovrà poi
+coprire i cambiamenti apportati al sistema dalle Change Requests.
+
+\section{Testing E2E per la WebApp}
+
+Il testing End-to-End (E2E) ha il compito di validare la WebApp nel suo
+complesso, simulando percorsi di utilizzo reali in un browser per garantire la
+coerenza tra tutti i sottosistemi. I test si definiscono sui percorsi
+principali: l'accesso alle pagine riservate, la prenotazione guidata, il posto
+occupato con l'ingresso in lista d'attesa, la promozione dopo una
+cancellazione e l'uscita dalla coda. I criteri di successo richiedono che
+l'intero ciclo si svolga senza interruzioni sulla build di produzione.
+L'intera procedura è automatizzata tramite Playwright.
+
+\chapter{Criteri di Accettazione}
+
+\section{Criteri di Copertura dei Test}
+
+\subsection{Funzionalità incluse nel Testing}
+
+L'attività di testing coprirà le componenti architetturali impattate dalle
+modifiche (CR01 e CR02) e le funzionalità core necessarie al loro
+funzionamento. Nello specifico:
+\begin{itemize}
+  \item \textbf{Prenotazione dei posti (CR01):} route handler delle
+        prenotazioni, servizio di dominio, autenticazione e middleware, schema
+        e vincoli del database.
+  \item \textbf{Lista d'attesa e riassegnazione (CR02):} route della coda,
+        automazioni periodiche, cancellazioni dello studente e dello staff,
+        notifiche ed eventi.
+  \item \textbf{Area staff:} route amministrative toccate dalle modifiche e
+        controllo dei ruoli su tutte le route dello staff.
+  \item \textbf{Interfaccia di prenotazione:} mappa, griglia mobile, messaggio
+        di conflitto e gestione della propria coda.
+  \item \textbf{Regressione:} accesso, prestiti, statistiche e notifiche
+        esistenti, rieseguendo i casi della versione di partenza.
+\end{itemize}
+
+\subsection{Funzionalità escluse dal Testing}
+
+Sono escluse dal perimetro di questo piano:
+\begin{itemize}
+  \item \textbf{Servizi esterni:} il recapito delle email tramite il
+        fornitore di posta e l'accesso con Google sono sostituiti da mock;
+        resta verificato il comportamento di BiblioFlow quando il servizio
+        risponde o fallisce.
+  \item \textbf{Monitoraggio e analisi d'uso:} Sentry, Vercel Analytics e
+        Speed Insights.
+  \item \textbf{Installazione PWA:} il comportamento del service worker e
+        della modalità offline, che dipende dal browser e non è toccato dalle
+        Change Requests.
+\end{itemize}
+
+\section{Criteri e Valori di Accettazione}
+
+Il successo della versione aggiornata di BiblioFlow deve garantire i seguenti
+criteri:
+\begin{itemize}
+  \item \textbf{Copertura del Codice:} almeno il 90\% di statement coverage e
+        l'80\% di branch coverage su \file{src/lib} e \file{src/app/api}, e il
+        100\% sul middleware. Le soglie sono configurate nello strumento di
+        test, che fallisce se non vengono raggiunte.
+  \item \textbf{Validazione Funzionale:} il sistema deve rispondere
+        correttamente alle modifiche definite nelle Change Requests, in
+        particolare:
+  \begin{itemize}
+    \item \textbf{CA-01, accesso:} ogni operazione su prenotazioni e coda
+          richiede la sessione; uno studente non vede né modifica risorse
+          altrui e non accede all'area staff;
+    \item \textbf{CA-02, concorrenza:} con richieste simultanee sullo stesso
+          posto e intervallo viene creata al più una prenotazione, senza
+          record parziali;
+    \item \textbf{CA-03, lista d'attesa:} l'ordine è quello di arrivo e la
+          stessa persona non può avere due richieste attive per lo stesso
+          posto e intervallo;
+    \item \textbf{CA-04, riassegnazione:} quando il posto si libera il primo
+          in coda viene promosso una sola volta, anche con esecuzioni
+          concorrenti, e la promozione non confermata scade;
+    \item \textbf{CA-05, tracciabilità:} ingresso, uscita, promozione e
+          scadenza producono eventi e notifiche correlati;
+    \item \textbf{CA-06, regressione:} le funzionalità esistenti non toccate
+          dalle modifiche mantengono il loro comportamento.
+  \end{itemize}
+  \item \textbf{Stabilità:} non devono essere presenti bug bloccanti nei
+        processi di testing e la suite E2E deve risultare stabile su
+        esecuzioni ripetute.
+  \item Tutti i casi di test precedenti classificati come invariati devono
+        continuare a passare con successo, garantendo che l'introduzione delle
+        modifiche non abbia introdotto regressioni nelle funzionalità
+        esistenti.
+\end{itemize}
+
+\end{document}

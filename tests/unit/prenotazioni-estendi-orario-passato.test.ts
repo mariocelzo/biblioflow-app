@@ -172,6 +172,7 @@ describe("estendi-blocca-prenotazioni-gia-iniziate · GET/POST /api/prenotazioni
     vi.setSystemTime(ADESSO);
 
     const prenotazione = prenotazioneOngoing();
+    const logEventoCreate = vi.fn().mockResolvedValue({ id: "log-est-1" });
     mocks.prisma.$transaction.mockImplementation(
       async (callback: (tx: unknown) => Promise<unknown>) => {
         const tx = {
@@ -183,7 +184,7 @@ describe("estendi-blocca-prenotazioni-gia-iniziate · GET/POST /api/prenotazioni
               oraFine: new Date("1970-01-01T15:00:00.000Z"),
             }),
           },
-          logEvento: { create: vi.fn().mockResolvedValue({ id: "log-est-1" }) },
+          logEvento: { create: logEventoCreate },
           notifica: { create: vi.fn().mockResolvedValue({ id: "notifica-est-1" }) },
         };
         return callback(tx);
@@ -201,6 +202,14 @@ describe("estendi-blocca-prenotazioni-gia-iniziate · GET/POST /api/prenotazioni
     expect(response.status).toBe(200);
     expect(body.success).toBe(true);
     expect(body.data.nuovaDurataOre).toBe(5); // 10:00 -> 15:00
+    // D-01: l'estensione ha un tipo di evento proprio. Con PRENOTAZIONE_CREATA
+    // la dashboard admin e lo storico la mostravano come una nuova prenotazione.
+    expect(logEventoCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        tipo: "PRENOTAZIONE_ESTESA",
+        prenotazioneId: prenotazione.id,
+      }),
+    });
   });
 
   it("[TC-EST-003] POST rifiuta comunque un intervallo incoerente (nuova fine prima dell'inizio)", async () => {

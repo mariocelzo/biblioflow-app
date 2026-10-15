@@ -49,9 +49,9 @@
  * parallelo. Le helper qui sotto rispecchiano le stesse clausole `where` del
  * prodotto ma le RESTRINGONO alle fixture `bib55-*`. La proprietà sotto esame
  * non cambia: che l'aggiunta di `EVENTI_CODA` (+ promozione admin) NON alteri
- * nessuno di quei valori. Le clausole `tipo: "NO_SHOW"` restano quelle del
- * prodotto: se qualcuno le allentasse a uno scan ampio, questo test lo
- * catturerebbe.
+ * nessuno di quei valori. Le clausole sul tipo restano quelle del prodotto
+ * (`filtroTipoNoShow()`, allow-list NO_SHOW + NO_SHOW_AUTO): se qualcuno le
+ * allentasse a uno scan ampio, questo test lo catturerebbe.
  */
 
 import type { Prisma } from "@prisma/client";
@@ -61,6 +61,7 @@ import {
   assertTestDatabaseUrl,
   DEFAULT_TEST_DATABASE_URL,
 } from "../fixtures/database";
+import { filtroTipoNoShow } from "@/lib/eventi-no-show";
 
 // `src/app/api/admin/statistiche/route.ts` importa solo `auth` da `@/lib/auth`.
 // Lo si sostituisce interamente così NextAuth (e la validazione env che fa
@@ -192,8 +193,7 @@ async function seedDatasetBase() {
   });
 
   // ── LogEvento LEGITTIMI e preesistenti ────────────────────────────────────
-  // NO_SHOW: uno per utente distinto (così `distinct: ["userId"]` del batch
-  // `RISOLVI_TUTTE_NOSHOW` è deterministico), tutti dentro i 7 giorni tranne uno.
+  // NO_SHOW: uno per utente distinto, tutti dentro i 7 giorni tranne uno.
   await prisma.logEvento.createMany({
     data: [
       { id: "bib55-log-noshow-u2", tipo: "NO_SHOW", userId: "bib55-u2", createdAt: giorniFa(1), dettagli: { prenotazioneId: "bib55-pren-scaduta-1" } },
@@ -292,7 +292,7 @@ async function misuraDashboard() {
     prisma.prenotazione.count({ where: { userId: { in: [...UTENTI] }, stato: "CHECK_IN" } }),
     prisma.prestito.count({ where: { userId: { in: [...UTENTI] }, dataRestituzione: null } }),
     prisma.logEvento.findMany({
-      where: { userId: { in: [...UTENTI] }, tipo: "NO_SHOW", createdAt: { gte: setteGiorniFa } },
+      where: { userId: { in: [...UTENTI] }, tipo: filtroTipoNoShow(), createdAt: { gte: setteGiorniFa } },
       select: { id: true, dettagli: true },
     }),
     prisma.posto.count({ where: { salaId: SALA_ID, stato: "DISPONIBILE" } }),
@@ -335,7 +335,7 @@ async function misuraAnomalie() {
   const [noShowRecentiTutti, prenotazioniScadute, prestitiScaduti, ritardiCheckIn, batchNoShowGrezzo] =
     await Promise.all([
       prisma.logEvento.findMany({
-        where: { userId: { in: [...UTENTI] }, tipo: "NO_SHOW", createdAt: { gte: setteGiorniFa } },
+        where: { userId: { in: [...UTENTI] }, tipo: filtroTipoNoShow(), createdAt: { gte: setteGiorniFa } },
         include: { user: { select: { nome: true, cognome: true, email: true, matricola: true } } },
         orderBy: { createdAt: "desc" },
       }),
@@ -346,10 +346,10 @@ async function misuraAnomalie() {
       prisma.prenotazione.count({
         where: { userId: { in: [...UTENTI] }, stato: "CONFERMATA", data: DATA_OGGI },
       }),
-      // Batch RISOLVI_TUTTE_NOSHOW: distinct per userId, poi filtro "non risolti".
+      // Batch RISOLVI_TUTTE_NOSHOW: tutti gli eventi no-show (manuali e
+      // automatici), poi filtro "non risolti".
       prisma.logEvento.findMany({
-        where: { userId: { in: [...UTENTI] }, tipo: "NO_SHOW", createdAt: { gte: setteGiorniFa } },
-        distinct: ["userId"],
+        where: { userId: { in: [...UTENTI] }, tipo: filtroTipoNoShow(), createdAt: { gte: setteGiorniFa } },
       }),
     ]);
 

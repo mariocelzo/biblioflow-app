@@ -1,0 +1,133 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Report Finale del Progetto}
+\renewcommand{\sottotitolodocumento}{Report Finale del Progetto}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+
+\mainmatter
+\chapter{Introduzione}
+
+In questo documento viene illustrato il percorso evolutivo di BiblioFlow,
+descrivendo le attività di manutenzione ed estensione svolte a partire
+dall'applicazione esistente. Il documento sintetizza le fasi di analisi
+preventiva, l'implementazione delle richieste di modifica (Change Requests)
+e la successiva validazione tramite test, evidenziando come la qualità del
+software sia stata preservata e migliorata.
+\begin{itemize}
+  \item \textbf{Affidabilità della Prenotazione (CR01):} l'identità di chi
+        prenota deriva sempre dalla sessione e la creazione è atomica: un
+        vincolo del database rende impossibile assegnare lo stesso posto a
+        due studenti nella stessa fascia, anche con richieste simultanee.
+  \item \textbf{Posti che non restano vuoti (CR02):} chi trova il posto
+        occupato può mettersi in lista d'attesa; quando il posto si libera per
+        cancellazione o mancata presenza, il primo in coda lo ottiene
+        automaticamente e ne viene avvisato.
+\end{itemize}
+
+\chapter{Sviluppo del Progetto}
+
+BiblioFlow si configura come una piattaforma web per la gestione dei posti
+studio e dei servizi di una biblioteca universitaria. Il sistema unisce la
+prenotazione guidata dei posti, il check-in con QR code e le automazioni che
+liberano i posti non occupati, con un'attenzione particolare agli studenti
+pendolari e all'accessibilità.
+
+\section{Componenti Core (Interfaccia, API e Automazioni)}
+
+La logica applicativa risiede in un'applicazione Next.js organizzata in
+package distinti: pagine e route handler in \file{src/app}, servizi condivisi
+in \file{src/lib}, componenti dell'interfaccia in \file{src/components} e
+modello dei dati in \file{prisma}. Le Change Requests hanno introdotto un
+servizio di dominio dedicato alle prenotazioni e alla lista d'attesa, al
+quale le route si limitano a delegare: le nuove regole sono state aggiunte
+come moduli dedicati, minimizzando l'impatto sul codice esistente.
+
+Le automazioni periodiche sono separate dall'interfaccia e richiamate da
+un'attività pianificata tramite un endpoint protetto. Questa separazione ha
+facilitato l'implementazione della CR02, permettendo di collegare la
+promozione dalla coda ai tre punti in cui un posto si libera senza
+riprogettarli.
+
+\section{Change Requests}
+
+Questa sezione riassume le Change Requests (CR) utili all'evoluzione di
+BiblioFlow. Le modifiche hanno l'obiettivo di rendere affidabile la
+prenotazione dei posti e di non lasciare vuoti i posti che si liberano.
+
+{\small
+\begin{xltabular}{\linewidth}{L{1cm}YL{2.6cm}L{1.8cm}}
+  \toprule
+  \intestazione \tb{ID} & \tb{Titolo} & \tb{Categoria} & \tb{Esito} \\
+  \midrule
+  CR01 & Prenotazione sicura e atomica dei posti studio & Corrective,
+  Preventive & Rilasciata \\
+  CR02 & Lista d'attesa con riassegnazione automatica dei posti &
+  Perfective & Rilasciata \\
+  \bottomrule
+\end{xltabular}}
+
+\paragraph{CR01 -- Prenotazione sicura e atomica dei posti studio}
+\textbf{Obiettivo:} ricavare identità e titolarità sempre dalla sessione
+autenticata, centralizzare le regole sugli orari e rendere atomica la
+creazione delle prenotazioni, così che due prenotazioni attive non possano
+mai sovrapporsi sullo stesso posto.
+
+\paragraph{CR02 -- Lista d'attesa con riassegnazione automatica dei posti}
+\textbf{Obiettivo:} permettere allo studente di entrare in coda per un posto
+occupato e promuovere automaticamente il primo in coda quando il posto si
+libera, con notifica, scadenza della promozione non confermata e
+tracciabilità di ogni passaggio.
+
+\section{Strategia di Testing}
+
+La verifica del sistema ha seguito un approccio incrementale definito nel
+Master Test Plan, coprendo sia le nuove funzionalità sia la non-regressione
+dell'esistente.
+
+\subsection{Gestione degli Incidenti (Pre-Modification)}
+
+Durante la fase preliminare di testing sono emersi problemi nella suite
+stessa, non nel sistema: la versione di partenza non conteneva alcuna
+infrastruttura di test, una suite veniva saltata in silenzio a causa del
+caricamento di un pacchetto e un caso di caratterizzazione fotografava un
+difetto invece di un requisito. L'infrastruttura è stata aggiunta senza
+toccare i flussi verificati e i test sono stati corretti, documentando
+ciascun intervento nel Test Incident Report.
+
+\subsection{Testing delle Nuove Funzionalità (Post-Modification)}
+
+\textbf{Prenotazione (CR01):} sono stati eseguiti test di unità sul servizio
+di dominio e sulle funzioni di autorizzazione, e test di integrazione su
+PostgreSQL reale per verificare che, con richieste simultanee sullo stesso
+posto, una sola prenotazione venga creata e nessun dato parziale resti nel
+database.
+
+\textbf{Lista d'attesa (CR02):} sono stati verificati su database reale
+l'ordine della coda, la promozione dopo cancellazione, annullamento dello
+staff e no-show, la scadenza delle promozioni e l'assenza di duplicati con
+esecuzioni concorrenti. È stata introdotta una suite End-to-End con
+Playwright che percorre nel browser prenotazione, conflitto, ingresso in
+coda, promozione e uscita dalla coda.
+
+\textbf{Qualità della suite:} l'estensione della copertura alle route,
+prima escluse dalla misura, ha portato il codice server al 95,2\% delle
+istruzioni e all'89,4\% dei rami, con 1013 test superati su 1013. I nuovi test
+hanno fatto emergere quindici difetti, corretti nella manutenzione
+successiva alle Change Requests.
+
+\subsection{Esito della Regressione}
+
+La riesecuzione della suite storica alla chiusura delle Change Requests ha
+confermato che le modifiche non hanno introdotto difetti: i 20 casi
+classificati come invariati hanno conservato l'esito della versione di
+partenza. Sulla versione finale 12 casi restano invariati e superati; gli
+altri sono stati modificati o eliminati da interventi correttivi documentati,
+ciascuno verificato da un nuovo test. Tutti i sei criteri di accettazione
+risultano soddisfatti.
+
+\end{document}

@@ -17,6 +17,7 @@ import { DashboardAnomalieCard } from "@/components/admin/dashboard-anomalie-car
 import { DashboardActivityCard } from "@/components/admin/dashboard-activity-card";
 import { RichiesteCard } from "@/components/admin/richieste-card"; // Placeholder per nuova card
 import { formattaTempoRelativo } from "@/lib/admin-tempo";
+import { filtroTipoNoShow } from "@/lib/eventi-no-show";
 
 // Traduce ogni TipoEvento (schema Prisma) in icona/colori/etichetta per la
 // card "Attività Recente". Serve solo come RIPIEGO: la maggior parte dei
@@ -40,6 +41,10 @@ const METADATA_EVENTO: Record<
   CODA_PROMOZIONE: { iconName: "Users", color: "text-sky-600 dark:text-sky-400", bgColor: "bg-sky-100 dark:bg-sky-950", label: "utente promosso dalla lista d'attesa" },
   CODA_SCADENZA: { iconName: "Clock", color: "text-yellow-600 dark:text-yellow-400", bgColor: "bg-yellow-100 dark:bg-yellow-950", label: "promozione scaduta senza conferma" },
   CODA_ANNULLATA: { iconName: "Users", color: "text-muted-foreground", bgColor: "bg-muted", label: "rimosso dalla lista d'attesa" },
+  UTENTE_REGISTRATO: { iconName: "Users", color: "text-emerald-600 dark:text-emerald-400", bgColor: "bg-emerald-100 dark:bg-emerald-950", label: "si è registrato" },
+  PRENOTAZIONE_ESTESA: { iconName: "Clock", color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-950", label: "ha esteso una prenotazione" },
+  PRESTITO_SOLLECITATO: { iconName: "Clock", color: "text-orange-600 dark:text-orange-400", bgColor: "bg-orange-100 dark:bg-orange-950", label: "ha ricevuto un sollecito di restituzione" },
+  PRESTITO_RINNOVATO: { iconName: "BookOpen", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-100 dark:bg-purple-950", label: "ha rinnovato un prestito" },
 };
 
 export const metadata: Metadata = {
@@ -85,7 +90,7 @@ export default async function AdminDashboardPage() {
     }),
     db.logEvento.findMany({
       where: {
-        tipo: "NO_SHOW",
+        tipo: filtroTipoNoShow(),
         createdAt: {
           gte: setteGiorniFa,
         },

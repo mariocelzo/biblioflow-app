@@ -1,0 +1,21 @@
+% Generato da diagrammi/grafi_ia.py: non modificare a mano.
+\begin{table}[H]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lcccccccc}
+\toprule
+\tb{Sorgente $\backslash$ Destinazione} & \rotatebox{90}{UI prenotazione} & \rotatebox{90}{UI staff} & \rotatebox{90}{Client realtime} & \rotatebox{90}{Route handler} & \rotatebox{90}{Cron} & \rotatebox{90}{automation-service} & \rotatebox{90}{Canale SSE} & \rotatebox{90}{Schema dati} \\
+\midrule
+UI prenotazione & \cellcolor{viola!55}0 & -- & -- & \cellcolor{viola!38}1 & -- & -- & -- & \cellcolor{viola!26}2 \\
+UI staff & -- & \cellcolor{viola!55}0 & -- & \cellcolor{viola!38}1 & -- & -- & -- & \cellcolor{viola!38}1 \\
+Client realtime & -- & -- & \cellcolor{viola!55}0 & -- & -- & -- & \cellcolor{viola!38}1 & -- \\
+Route handler & -- & -- & -- & \cellcolor{viola!55}0 & -- & -- & -- & \cellcolor{viola!38}1 \\
+Cron & -- & -- & -- & -- & \cellcolor{viola!55}0 & \cellcolor{viola!38}1 & -- & \cellcolor{viola!26}2 \\
+automation-service & -- & -- & -- & -- & -- & \cellcolor{viola!55}0 & -- & \cellcolor{viola!38}1 \\
+Canale SSE & -- & -- & -- & -- & -- & -- & \cellcolor{viola!55}0 & \cellcolor{viola!38}1 \\
+Schema dati & -- & -- & -- & -- & -- & -- & -- & \cellcolor{viola!55}0 \\
+\bottomrule
+\end{tabular}
+\caption{Matrice di Raggiungibilità Cross-Layer (CR02)}\label{tab:raggiungibilita-cr02}
+\end{table}

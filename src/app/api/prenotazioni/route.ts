@@ -65,6 +65,22 @@ export async function GET(request: NextRequest) {
     if (postoId) where.postoId = postoId;
     if (stato) where.stato = stato;
 
+    // Date dei filtri: una data non valida produceva `Invalid Date`, che Prisma
+    // rifiutava con un errore tradotto nel 500 generico. Stesso criterio del
+    // filtro `stato` qui sopra: input sbagliato → 422.
+    const dataNonValida = (valore: string | null) =>
+      valore !== null && Number.isNaN(new Date(valore).getTime());
+    if (
+      (data && (!/^\d{4}-\d{2}-\d{2}$/.test(data) || dataNonValida(data))) ||
+      dataNonValida(dataInizio) ||
+      dataNonValida(dataFine)
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Data non valida: usa il formato AAAA-MM-GG" },
+        { status: 422 },
+      );
+    }
+
     if (data) {
       const dataDate = new Date(`${data}T00:00:00.000Z`);
       const nextDay = new Date(dataDate);

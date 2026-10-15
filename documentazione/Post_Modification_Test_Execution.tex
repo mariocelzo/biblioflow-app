@@ -1,0 +1,821 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Post-Modification Test Document}
+\renewcommand{\sottotitolodocumento}{Post-Modification Test Document}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+\listoftables
+
+\mainmatter
+\chapter{Regression Testing}
+
+\section{Regression Testing per la Change Request 01 (CR-01)}
+
+Durante l'implementazione della CR-01 è stata eseguita un'analisi per
+identificare le regressioni introdotte dalle modifiche alle route di
+prenotazione e per distinguerle dalle differenze volute.
+
+\subsection{Metodologia Operativa}
+
+Il processo di regression testing è stato condotto seguendo un approccio
+iterativo per garantire che le nuove funzionalità non compromettessero la
+stabilità del sistema esistente. Il flusso di lavoro seguito è stato il
+seguente:
+\begin{enumerate}
+  \item \textbf{Implementazione delle Modifiche:} sono state applicate le
+        modifiche al codice di produzione necessarie per la CR-01.
+  \item \textbf{Esecuzione della Suite di Test:} è stata rieseguita l'intera
+        suite di caratterizzazione della versione di partenza (34 casi).
+  \item \textbf{Identificazione dei Fallimenti:} l'esecuzione ha evidenziato
+        fallimenti nei casi che descrivevano le route di prenotazione.
+  \item \textbf{Analisi delle Cause:} per ogni fallimento è stato stabilito se
+        derivasse da una regressione o da un cambiamento richiesto dalla CR.
+  \item \textbf{Classificazione:} ogni caso è stato classificato come
+        \emph{invariato}, \emph{modificato} o \emph{eliminato}; i casi
+        modificati conservano il proprio identificativo e indicano il test che
+        ne verifica il nuovo comportamento.
+  \item \textbf{Verifica Finale:} i casi invariati sono stati rieseguiti e
+        confrontati uno per uno con l'esito della versione di partenza.
+\end{enumerate}
+
+\subsection{Caso 1: Regressione nei Test delle Route di Prenotazione}
+
+\textbf{File:} \file{tests/pre-modifica/prenotazioni.test.ts}
+
+Questi casi (TC-PRE-001\dots010) invocano direttamente i route handler di
+prenotazione sostituendo Prisma e la sessione con mock costruiti sulla
+versione di partenza.
+
+\paragraph{Il Problema}
+Dopo la CR i casi falliscono. Le route ottengono l'utente con
+\texttt{requireUser()} e delegano la creazione a un servizio che apre una
+transazione: i mock storici non esportano né le nuove funzioni di
+autenticazione né \texttt{\$transaction}, quindi l'esecuzione si interrompe
+prima delle asserzioni.
+
+\paragraph{Soluzione Implementata}
+I mock storici non sono stati riscritti: avrebbero cancellato l'evidenza del
+comportamento originale, compresi i tre difetti fissati da TC-PRE-004,
+TC-PRE-007 e TC-PRE-010. I casi sono classificati come \textbf{modificati} e
+ciascuno rimanda alla suite che verifica il comportamento nuovo; per i tre
+difetti la differenza è voluta.
+
+{\small
+\begin{xltabular}{\linewidth}{L{2.1cm}YL{4.3cm}}
+  \toprule
+  \intestazione \tb{Caso} & \tb{Nuovo comportamento} & \tb{Test che lo verifica} \\
+  \midrule
+  \endhead
+  TC-PRE-001 & identità dalla sessione, creazione in transazione
+  \texttt{Serializable} & \texttt{TC-BIB31-001}, auth-prenotazioni \\
+  TC-PRE-002, 003 & validazione centralizzata prima di ogni scrittura &
+  \texttt{TC-BIB27-003}\dots\texttt{013} \\
+  TC-PRE-004 & intervallo invertito rifiutato con 422 (prima 201) &
+  \texttt{TC-BIB27-005} \\
+  TC-PRE-005 & conflitto garantito dal vincolo del database, con proposta di
+  coda & \texttt{TC-BIB24-DB-001}\dots\texttt{003}, \texttt{TC-BIB31-002} \\
+  TC-PRE-006 & cancellazione solo del titolare, con promozione della coda &
+  \texttt{TC-CODA-DEL-001}\dots\texttt{005} \\
+  TC-PRE-007, 008 & check-in con data e orario ricomposti, sessione e
+  titolarità su entrambi i percorsi & finestra di check-in
+  (\texttt{TC-FIN-*}), auth-prenotazioni \\
+  TC-PRE-009, 010 & estensione con le regole centralizzate; durata calcolata
+  sul giorno della prenotazione & \texttt{TC-BIB27-006}\dots\texttt{008},
+  \texttt{015}\dots\texttt{019} \\
+  \bottomrule
+  \caption{Casi di prenotazione modificati dalla CR-01}\label{tab:modificati-cr01}\\
+\end{xltabular}}
+
+\subsection{Caso 2: Regressione nel Contratto della Pagina di Prenotazione}
+
+\textbf{File:} \file{tests/pre-modifica/admin-ui.test.ts} (TC-PRE-023,
+TC-PRE-024)
+
+\paragraph{Il Problema}
+TC-PRE-023 verifica che la pagina \texttt{/prenota} invii
+\texttt{userId}, posto, data e orari. Dopo la CR il caso continua a passare:
+la pagina invia ancora l'identificativo. Il rischio era interpretare questo
+esito come conferma che il server se ne fidi ancora.
+
+\paragraph{Soluzione Implementata}
+Il caso è classificato come \textbf{modificato}: il contratto della pagina è
+invariato, ma il server ignora l'identificativo ricevuto e usa quello della
+sessione. Lo dimostra il test di integrazione \enquote{ignora userId del
+payload e crea per l'utente autenticato}, che invia l'identificativo di un
+altro studente e verifica che la prenotazione sia intestata a chi ha la
+sessione. TC-PRE-024 rimanda alla stessa prova e ai casi di ingresso in coda
+dal conflitto (\texttt{TC-BIB52}\dots\texttt{54}).
+
+\subsection{Analisi di Impatto su Accesso e Area Staff}
+
+\textbf{File:} \file{tests/pre-modifica/login.test.ts},
+\file{tests/pre-modifica/admin-ui.test.ts}
+
+I casi di accesso, statistiche, gestione utenti e prestiti (TC-PRE-011\dots020
+e TC-PRE-022) non hanno subito regressioni. Le nuove funzioni di
+autorizzazione sono state aggiunte accanto a quelle esistenti, senza
+cambiarne il comportamento: il provider di accesso e le guardie di ruolo
+dell'area staff sono rimasti compatibili con i casi storici.
+
+\section{Regression Testing per la Change Request 02 (CR-02)}
+
+La CR-02 aggiunge un'entità e nuovi percorsi (coda, promozione, scadenza), ma
+interviene anche su punti esistenti: l'annullamento dello staff, il rilascio
+automatico dei no-show e il canale in tempo reale. Il regression testing ha
+verificato che queste estensioni non alterassero i comportamenti preesistenti.
+
+\subsection{Strategia di Regressione}
+
+La strategia si è concentrata su due momenti:
+\begin{enumerate}
+  \item \textbf{Chiusura delle Change Requests:} riesecuzione dei 20 casi
+        classificati come invariati, con confronto caso per caso con l'esito
+        della versione di partenza.
+  \item \textbf{Versione finale:} riesecuzione degli stessi casi dopo la
+        manutenzione correttiva successiva alle Change Requests, per
+        distinguere le regressioni dalle correzioni intenzionali.
+\end{enumerate}
+
+\subsection{Esecuzione della Suite alla Chiusura delle Change Requests}
+
+I 20 casi invariati sono stati rieseguiti sulla versione che chiude
+l'implementazione (commit \texttt{adc5e30}, 4 settembre 2026) e confrontati con
+l'esecuzione della versione di partenza.
+
+\textbf{Risultati:}
+\begin{itemize}
+  \item \textbf{Casi invariati:} 20 passati su 20, identici alla versione di
+        partenza.
+  \item \textbf{Aree verificate:} accesso (TC-PRE-011\dots013), protezione di
+        pagine e API (TC-PRE-014\dots016), area staff (TC-PRE-017\dots020,
+        TC-PRE-022), automazioni e notifiche preesistenti (PRE-AUT-001, 002,
+        004, PRE-NOT-001, 002), contratto del canale SSE (PRE-SSE-001\dots004).
+\end{itemize}
+
+Due casi modificati meritano una nota: TC-PRE-021 (annullamento dello staff)
+e PRE-AUT-003 (no-show automatico) continuano a passare anche dopo la CR,
+perché con la coda vuota la promozione non produce effetti. La scelta di
+attivare la promozione solo se esiste qualcuno in attesa ha garantito la
+compatibilità con il comportamento precedente.
+
+\subsection{Analisi sulla Versione Finale}
+
+Dopo le Change Requests il progetto ha attraversato una fase di manutenzione
+correttiva. La riesecuzione degli stessi 20 casi sulla versione finale dà il
+seguente quadro:
+
+{\small
+\begin{xltabular}{\linewidth}{L{3.3cm}L{2.2cm}Y}
+  \toprule
+  \intestazione \tb{Casi} & \tb{Classificazione} & \tb{Motivo} \\
+  \midrule
+  \endhead
+  TC-PRE-011\dots015, 017\dots019, 022, PRE-AUT-004, PRE-NOT-001, 002 &
+  Invariato, \ok & -- \\
+  TC-PRE-016 & Modificato &
+  Il middleware ora verifica davvero il token: un cookie inventato non apre
+  più \texttt{/prenota} (si veda il Test Incident n.4). \\
+  TC-PRE-020 & Modificato &
+  La restituzione registrata dallo staff ora incrementa anche le copie
+  disponibili del libro in una transazione; prima ogni restituzione al banco
+  \enquote{perdeva} una copia. Il mock storico non prevede la transazione;
+  il comportamento nuovo è verificato su database reale. \\
+  PRE-AUT-001, 002 & Modificato &
+  Gli orari delle prenotazioni sono ora salvati nell'ora di Roma, mentre la
+  fixture storica li scrive in UTC: il promemoria non scatta più all'orario
+  della fixture. Il comportamento è verificato da
+  \file{tests/unit/automation-service.test.ts}. \\
+  PRE-SSE-001\dots004 & Eliminato &
+  La catena SSE non è mai stata collegata all'interfaccia e, tenendo i client
+  in memoria, non funziona con più istanze serverless. È stata rimossa e
+  sostituita dalla rilettura autenticata delle API e dal controllo periodico
+  delle notifiche. \\
+  \bottomrule
+  \caption{Casi invariati alla chiusura delle CR, rieseguiti sulla versione finale}\label{tab:regressione-finale}\\
+\end{xltabular}}
+
+\subsection{Conclusione}
+
+Il Regression Testing ha dato esito positivo in entrambi i momenti. Alla
+chiusura delle Change Requests tutti i 20 casi invariati conservano l'esito
+della versione di partenza. Sulla versione finale restano 12 casi invariati,
+tutti superati; gli altri 8 sono stati modificati o eliminati da interventi
+documentati, ciascuno con un test che ne verifica il nuovo comportamento.
+
+\chapter{Copertura}
+
+In questo capitolo vengono presentati i risultati della copertura del codice
+(code coverage) per il codice server e per l'interfaccia di BiblioFlow.
+
+\section{Metodologia}
+
+Per garantire una valutazione completa dell'efficacia della suite di test,
+sono state misurate sia la Statement Coverage (copertura delle istruzioni) sia
+la Branch Coverage (copertura dei rami).
+
+\subsection{Copertura Backend}
+
+La copertura del codice server (route handler, librerie, middleware, hook) è
+stata calcolata con Vitest e il fornitore di copertura nativo di V8, che
+misura anche i rami per individuare i percorsi sfuggiti a una semplice
+verifica delle righe.
+\begin{itemize}
+  \item \textbf{Strumento:} Vitest 4.1.11 con \texttt{@vitest/coverage-v8}.
+  \item \textbf{Comando:}
+\begin{lstlisting}
+npm run test:coverage
+\end{lstlisting}
+  \item \textbf{Configurazione:} la misura include tutto \file{src}, route
+        handler compresi, ed esclude la suite di caratterizzazione. Sono
+        configurate soglie minime: 90\% di istruzioni e 80\% di rami su
+        \file{src/lib} e \file{src/app/api}, 100\% sul middleware; sotto
+        soglia il comando fallisce.
+\end{itemize}
+
+\subsection{Copertura Frontend}
+
+I componenti React toccati dalle Change Requests sono verificati in un DOM
+simulato (jsdom) con Testing Library, nella stessa esecuzione di Vitest.
+\begin{itemize}
+  \item \textbf{Strumento:} Vitest, jsdom 26, Testing Library.
+  \item \textbf{Configurazione:} test dei componenti in
+        \file{tests/unit/componenti}. Le pagine Next.js sono esercitate dalla
+        suite E2E su build di produzione, che non contribuisce alla misura V8.
+\end{itemize}
+
+\subsection{Risultati}
+
+La tabella seguente riassume le metriche di copertura ottenute, confrontate
+con quelle misurate all'inizio dell'attività di miglioramento della suite.
+
+{\small
+\begin{xltabular}{\linewidth}{YC{1.9cm}C{1.9cm}C{2.9cm}}
+  \toprule
+  \intestazione \tb{Componente} & \tb{Statement} & \tb{Branch} & \tb{Prima (stmt / branch)} \\
+  \midrule
+  \endhead
+  Route handler (\file{src/app/api}, 37 route) & \textbf{95,1\%} & \textbf{89,0\%} & 72,3\% / 66,6\% \\
+  Librerie (\file{src/lib}, 29 moduli) & \textbf{95,4\%} & \textbf{90,5\%} & 89,9\% / 83,6\% \\
+  Middleware & 100\% & 100\% & 100\% / 100\% \\
+  Hook di ingresso in coda & 94,1\% & 84,4\% & 25,5\% / 25,0\% \\
+  \textbf{Totale codice server} & \textbf{95,2\%} & \textbf{89,4\%} & -- \\
+  Moduli toccati dalle CR (18 file, UI compresa) & 87,4\% & 80,3\% & -- \\
+  Componenti (\file{src/components}) & 21,4\% & 17,9\% & circa 3\% \\
+  \bottomrule
+  \caption{Metriche di Copertura del Codice}\label{tab:copertura}\\
+\end{xltabular}}
+
+La suite conta 123 file e 1013 test, tutti superati: 815 test di unità, 32
+test di componenti, 138 test di integrazione e 28 test sui vincoli del
+database. Prima dell'attività i test erano 763 in 103 file.
+
+\section{Analisi}
+
+\textbf{Codice server:} il codice server ha raggiunto un grado di copertura
+elevato (95,2\% delle istruzioni, 89,4\% dei rami), sopra le soglie del Master
+Test Plan. È importante notare che la configurazione iniziale escludeva dalla
+misura proprio i route handler: il dato pubblicato in precedenza non
+comprendeva le API. Misurate per la prima volta, le route si fermavano al
+72,3\% delle istruzioni, con sette route mai eseguite da alcun test
+(registrazione, verifica e reinvio dell'email, profilo, dettaglio di un posto
+e di un libro, storico di un utente).
+
+Di conseguenza, sono stati introdotti test mirati per colmare questo
+divario:
+\begin{enumerate}
+  \item \textbf{Route a copertura zero o bassa:} test per registrazione e
+        verifica dell'email su database reale, per dettaglio posti e utenti,
+        anomalie, prestiti dello staff, catalogo, sale, profilo e
+        notifiche, inclusi accessi senza sessione e con ruolo errato.
+  \item \textbf{Errori interni:} un test trasversale chiama 49 handler con il
+        database guasto e verifica che rispondano 500 con un messaggio
+        generico, senza nomi di tabelle, driver o stack.
+  \item \textbf{Ciclo di vita della coda e modifica dello staff} su database
+        reale, componenti dell'interfaccia in jsdom e una suite E2E.
+\end{enumerate}
+
+I nuovi test hanno fatto emergere quindici difetti, tutti corretti e coperti
+da un test che fallisce sul codice precedente:
+
+{\small
+\begin{xltabular}{\linewidth}{L{1.5cm}YL{3.1cm}}
+  \toprule
+  \intestazione \tb{ID} & \tb{Difetto} & \tb{Origine} \\
+  \midrule
+  \endhead
+  D-01 & Registrazione ed estensione registrate nel log come
+  \enquote{prenotazione creata}. & Baseline; estensione dalla CR-01 \\
+  D-02 & Nel dettaglio di un posto, \enquote{oggi} calcolato nel fuso del
+  server: tra mezzanotte e le due di Roma la prenotazione in corso spariva. &
+  Baseline \\
+  D-03 & I no-show rilevati dal cron non comparivano tra le anomalie né nei
+  contatori dello staff. & Baseline \\
+  D-04 & \enquote{Risolvi tutte} chiudeva un solo evento per utente. & Baseline \\
+  D-05 & Solleciti e rinnovi registrati come restituzioni e nuovi prestiti; il
+  sollecito singolo non verificava lo stato del prestito. & Baseline \\
+  D-06 & Durata del prestito decisa dal client, anche negativa o di anni. & Baseline \\
+  D-07\dots09 & Filtri non validi (stato del prestito, tipo di notifica, date
+  delle prenotazioni) producevano un errore 500 invece di 422. & Baseline \\
+  D-10 & Una modifica dello staff in sovrapposizione, rifiutata dal vincolo
+  del database, rispondeva \enquote{errore interno} invece di 409. &
+  Effetto a catena della CR-01 \\
+  D-11 & \enquote{1 disponibili}, \enquote{1 risultati disponibili}. & Baseline \\
+  D-12 & Pulsanti dello staff fatti solo di icona senza nome accessibile;
+  azioni proposte su prenotazioni già concluse. & Baseline e manutenzione
+  correttiva \\
+  D-13 & Nessuna schermata mostrava allo studente le proprie richieste in
+  coda né permetteva di uscirne. & CR-02 (interfaccia incompleta) \\
+  D-14 & Le prenotazioni scadute per promozione non confermata non
+  comparivano nello storico. & CR-02 \\
+  D-15 & Una data non valida nell'indirizzo della pagina staff delle
+  prenotazioni causava un errore del server. & Baseline \\
+  \bottomrule
+  \caption{Difetti emersi dall'aumento della copertura}\label{tab:difetti}\\
+\end{xltabular}}
+
+\textbf{Interfaccia:} la copertura dei componenti passa da circa il 3\% al
+21,4\%. Il valore riguarda tutti i componenti dell'applicazione: quelli
+toccati dalle Change Requests (mappa, griglia mobile, lista d'attesa, azioni
+dello staff) sono verificati in dettaglio, mentre le pagine sono esercitate
+dalla suite E2E. Per questo motivo il totale grezzo dell'intero \file{src}
+(48,5\%) non è indicativo e non viene usato come soglia.
+
+\chapter{Unit Testing}
+
+\section{Unit Testing per la Change Request 01 (CR-01)}
+
+Questa sezione descrive i test di unità introdotti per la CR-01: prenotazione
+sicura e atomica. L'obiettivo era verificare in isolamento le regole del
+servizio di dominio, le funzioni di autorizzazione e il comportamento delle
+route.
+
+\subsection{Tecnologie e Framework}
+
+Per lo sviluppo della suite di test sono stati impiegati i seguenti strumenti:
+\begin{itemize}
+  \item \textbf{Vitest:} framework di testing primario, per la definizione dei
+        casi, le asserzioni e la misura della copertura.
+  \item \textbf{Mock di Vitest} (\texttt{vi.mock}, \texttt{vi.hoisted}):
+        sostituiscono il client Prisma e la sessione di Auth.js, isolando la
+        logica dal database e dall'autenticazione.
+  \item \textbf{Richieste HTTP native:} le route vengono invocate con oggetti
+        \texttt{Request} costruiti nel test, esattamente come le chiamerebbe
+        Next.js.
+\end{itemize}
+
+\subsection{Logica Core: servizio di dominio delle prenotazioni}
+
+\textbf{File:} \file{tests/unit/prenotazioni-service.test.ts} (38 casi)
+
+\begin{itemize}
+  \item \texttt{TC-BIB27-001}\dots\texttt{020}: validazione centralizzata
+        degli intervalli, tra cui fine non successiva all'inizio
+        (\texttt{005}), durata minima di un'ora e massima di otto
+        (\texttt{006}\dots\texttt{008}), orari della sala e sala inattiva
+        (\texttt{012}, \texttt{013}), conflitti sul posto e sull'utente con
+        proposta di coda (\texttt{015}\dots\texttt{019}).
+  \item \texttt{TC-BIB31-001}: la creazione avviene in una transazione
+        \texttt{Serializable}.
+  \item \texttt{TC-BIB31-002}: la violazione del vincolo del database viene
+        tradotta in un conflitto proponibile come coda, non in un errore
+        interno.
+\end{itemize}
+
+\subsection{Funzioni di Autorizzazione}
+
+\textbf{File:} \file{tests/unit/auth-helpers.test.ts}
+
+\begin{itemize}
+  \item \texttt{TC-BIB26-001}\dots\texttt{007}: \texttt{requireUser},
+        \texttt{requireRole} e \texttt{assertOwnership} restituiscono 401
+        senza sessione, 403 per il ruolo non ammesso e 404 per la risorsa di
+        un altro utente; lo staff è sempre ammesso.
+\end{itemize}
+
+\subsection{Route di Prenotazione}
+
+\textbf{File:} \file{tests/unit/prenotazioni-elenco-e-creazione.test.ts},
+\file{tests/unit/prenotazioni-regole-finestra-checkin.test.ts},
+\file{tests/unit/errori-generici-route.test.ts}
+
+\begin{itemize}
+  \item L'elenco è sempre ristretto alla sessione, anche se l'indirizzo
+        contiene l'identificativo di un altro utente; filtri di data non
+        validi producono 422.
+  \item La creazione ignora l'identificativo inviato dal client e, in caso
+        di conflitto, risponde 409 con la proposta di entrare in coda.
+  \item La finestra di check-in è verificata ai suoi estremi: quindici minuti
+        prima e dopo l'inizio, trenta per chi ha il margine pendolare
+        (\texttt{TC-FIN-*}, \texttt{TC-TOL-*}).
+  \item Con il database guasto ogni route risponde 500 senza dettagli
+        interni.
+\end{itemize}
+
+\section{Unit Testing per la Change Request 02 (CR-02)}
+
+La CR-02 introduce la lista d'attesa e la promozione automatica. La strategia
+di testing unitario ha coperto tutti i livelli coinvolti: servizi,
+automazioni, route e interfaccia.
+
+\subsection{Stack Tecnologico di Testing}
+
+Data la natura dell'applicazione, sono stati adottati strumenti specifici per
+ogni livello:
+\begin{itemize}
+  \item \textbf{Vitest con mock:} per i servizi, le automazioni e le route,
+        isolando database, orologio e sessione.
+  \item \textbf{Testing Library, user-event e jsdom:} per i componenti React.
+        Permettono di verificare il rendering, lo stato e le interazioni in un
+        DOM simulato, interrogando gli elementi per ruolo e nome accessibile
+        come farebbe una tecnologia assistiva.
+\end{itemize}
+
+\subsection{Servizi e Automazioni}
+
+\textbf{File:} \file{tests/unit/automation-service.test.ts},
+\file{tests/unit/cron-automations.test.ts},
+\file{tests/unit/prenotazioni-cancellazione-promuove-coda.test.ts},
+\file{tests/unit/admin-prenotazioni.test.ts}
+
+\begin{itemize}
+  \item \texttt{TC-BIB40}\dots\texttt{46}: il no-show avvia la promozione;
+        le notifiche di ingresso, uscita, promozione e scadenza; la scadenza
+        delle promozioni non confermate dopo quindici minuti; la correlazione
+        tra notifiche ed eventi.
+  \item \texttt{TC-BIB41-001}\dots\texttt{003}: il lock impedisce due
+        esecuzioni contemporanee del cron.
+  \item \texttt{TC-CODA-DEL-001}\dots\texttt{005} e
+        \texttt{TC-CODA-PATCH-*}: la cancellazione dello studente promuove il
+        primo in coda per lo stesso intervallo, solo dopo che la prenotazione
+        risulta annullata, e notifica il promosso.
+  \item \texttt{TC-BIB49-001}\dots\texttt{005}: l'annullamento dello staff
+        promuove e restituisce il nome del promosso all'interfaccia.
+\end{itemize}
+
+\subsection{Frontend Testing (React)}
+
+\textbf{File:} \file{tests/unit/componenti/*.test.tsx},
+\file{tests/unit/mappa-coda.test.ts}, \file{tests/unit/mobile-coda.test.ts},
+\file{tests/unit/prenota-conflitto.test.ts}
+
+\begin{itemize}
+  \item \textbf{Mappa dei posti:} legenda, posti interattivi, uso da tastiera
+        (Invio e spazio), ingresso in coda con lo stesso contratto della vista
+        mobile, ripiego sulla griglia sotto 768 pixel.
+  \item \textbf{Griglia mobile:} ordine naturale dei posti, nome accessibile e
+        stato premuto, posti in manutenzione non selezionabili, ingresso in
+        coda, rifiuto del server, assenza di rete.
+  \item \textbf{Lista d'attesa dello studente:} elenco con posizione,
+        uscita dalla coda con rilettura delle posizioni, stato vuoto, errore
+        con \enquote{Riprova} (\texttt{TC-UI-CODA-001}\dots\texttt{005}).
+  \item \textbf{Azioni dello staff:} azioni proposte solo per gli stati
+        accettati dal server, esito della promozione dopo l'annullamento,
+        conflitto 409 mostrato all'operatore.
+  \item \textbf{Conflitto all'ultimo istante:} il messaggio di posto non più
+        disponibile propone la lista d'attesa (\texttt{TC-BIB54-001}\dots\texttt{004}).
+\end{itemize}
+
+\subsection{Middleware della Coda}
+
+\textbf{File:} \file{tests/unit/middleware-coda.test.ts}
+
+\begin{itemize}
+  \item \texttt{TC-BIB51-001}\dots\texttt{005}: la route della coda è
+        dichiarata nel matcher e respinge le richieste senza sessione (401)
+        o con un cookie inventato; un token firmato davvero viene accettato e
+        la protezione delle API dello staff resta invariata.
+\end{itemize}
+
+\chapter{Integration Testing}
+
+\section{Integration Testing per la Change Request 01 (CR-01)}
+
+Questa sezione documenta le attività di integration testing svolte per
+validare la CR-01. Mentre lo unit testing isola i singoli componenti,
+l'integration testing verifica che route, servizio di dominio e database
+collaborino correttamente e producano l'esito atteso in uno scenario reale.
+
+\subsection{Strategia di Testing}
+
+Per i test di integrazione è stata adottata una strategia black-box parziale:
+\begin{itemize}
+  \item \textbf{Ambiente Reale:} i test usano PostgreSQL 16 reale, con le
+        migrazioni applicate e un database isolato il cui nome deve
+        dichiarare di essere di test; i dati vengono ripuliti prima di ogni
+        caso.
+  \item \textbf{Esecuzione dal Route Handler:} le richieste attraversano la
+        route, il servizio di dominio e il database, senza mock di Prisma.
+  \item \textbf{Validazione dell'Esito:} si verificano la risposta HTTP e lo
+        stato finale del database (prenotazioni, eventi, notifiche).
+\end{itemize}
+
+\subsection{Suite di Test}
+
+\paragraph{Concorrenza} (\file{tests/integration/concorrenza.test.ts})
+\begin{itemize}
+  \item \textbf{Due richieste simultanee, tre round:} sullo stesso posto e
+        intervallo esattamente una richiesta ottiene la prenotazione.
+  \item \textbf{N richieste simultanee:} un solo vincitore e nessun record
+        fantasma lasciato dalle transazioni rifiutate.
+\end{itemize}
+
+\paragraph{Vincolo del database}
+(\file{tests/post-modifica/prenotazioni-constraint-db.test.ts})
+\begin{itemize}
+  \item \texttt{TC-BIB24-DB-001}\dots\texttt{003}: il vincolo di esclusione,
+        verificato scrivendo direttamente sul database, considera occupato lo
+        slot anche durante il check-in, ammette intervalli adiacenti e ignora
+        le prenotazioni in stato terminale.
+\end{itemize}
+
+\paragraph{Autenticazione e titolarità}
+(\file{tests/integration/auth-prenotazioni.test.ts},
+\file{tests/integration/autorizzazione-admin.test.ts})
+\begin{itemize}
+  \item 401 su ogni operazione protetta senza sessione; 404 su lettura,
+        modifica e cancellazione della prenotazione di un altro studente.
+  \item Identificativo del payload ignorato: la prenotazione è intestata a
+        chi ha la sessione.
+  \item \texttt{TC-BIB57-*} (36 casi): 401 e 403 su tutte le route dello
+        staff, comprese le tre rimaste aperte alla prima verifica.
+\end{itemize}
+
+\section{Integration Testing per la Change Request 02 (CR-02)}
+
+L'integration testing per la CR-02 ha l'obiettivo di verificare la catena che
+parte da un evento di liberazione del posto e arriva alla promozione, alle
+notifiche e agli eventi registrati.
+
+\subsection{Strumenti Utilizzati}
+
+\begin{itemize}
+  \item \textbf{Vitest:} runner dell'intera suite.
+  \item \textbf{PostgreSQL 16:} database reale effimero, in locale e nel job
+        \texttt{test} della pipeline.
+  \item \textbf{Prisma Client:} usato dai test per preparare i dati e
+        verificare lo stato finale.
+\end{itemize}
+
+\subsection{Componenti Sotto Test}
+
+I test di integrazione coinvolgono la cooperazione tra:
+\begin{itemize}
+  \item \textbf{Route handler:} cancellazione dello studente e dello staff,
+        coda, cron.
+  \item \textbf{Servizio di dominio:} ingresso, uscita, posizione e
+        promozione.
+  \item \textbf{Servizio delle automazioni:} no-show, scadenza delle
+        promozioni, lock.
+  \item \textbf{Database:} vincolo di unicità delle richieste attive e
+        ordinamento della coda.
+\end{itemize}
+
+\subsection{Suite di Test}
+
+\paragraph{Test 1: Ciclo coda--promozione}
+(\file{tests/integration/coda-promozione.test.ts})
+\begin{enumerate}
+  \item B entra in coda per il posto prenotato da A.
+  \item Lo staff annulla la prenotazione di A.
+  \item B viene promosso con prenotazione, notifica ed evento correlati
+        (\texttt{TC-BIB58-001}); con la coda vuota nessuno viene promosso
+        (\texttt{TC-BIB58-002}).
+\end{enumerate}
+
+\paragraph{Test 2: Automazioni} (\file{tests/integration/automazioni.test.ts})
+\begin{enumerate}
+  \item Il no-show automatico promuove il primo in coda (\texttt{TC-BIB47-001}).
+  \item Due esecuzioni ravvicinate non producono promozioni, notifiche o
+        richieste duplicate (\texttt{002}, \texttt{002b}); due invocazioni
+        concorrenti del cron eseguono una sola volta (\texttt{003}).
+  \item La promozione non confermata scade e il posto passa al successivo
+        (\texttt{005}); la scadenza è idempotente (\texttt{006}) e non tocca
+        una promozione confermata con il check-in (\texttt{007}).
+\end{enumerate}
+
+\paragraph{Test 3: Ciclo di vita della coda}
+(\file{tests/integration/coda-ciclo-di-vita-db.test.ts},
+\file{tests/post-modifica/lista-attesa-db.test.ts})
+\begin{enumerate}
+  \item Tre utenti ottengono le posizioni 1, 2 e 3 in ordine di arrivo;
+        non si entra due volte nella stessa coda.
+  \item Il titolare esce dalla coda: resta traccia nel log e chi era dietro
+        avanza; la richiesta di un altro utente risulta inesistente.
+  \item Dopo l'uscita si può rientrare, in fondo; con lo slot ancora occupato
+        nessuno viene promosso.
+\end{enumerate}
+
+\subsection{Risultati}
+
+Tutti i 166 test di integrazione e sui vincoli del database sono stati
+eseguiti con successo, confermando che promozione, notifiche ed eventi
+restano coerenti anche con esecuzioni ripetute e concorrenti.
+
+\chapter{System Testing}
+
+A seguito dell'implementazione delle Change Request CR-01 (prenotazione
+sicura e atomica) e CR-02 (lista d'attesa e riassegnazione), la strategia di
+System Testing è stata aggiornata. Oltre alla riesecuzione dei casi esistenti
+descritti nel documento \enquote{Pre-Modification Test Document}, sono stati
+introdotti nuovi casi di test per coprire le nuove funzionalità.
+
+\section{Aggiornamento Categorie}
+
+Le categorie sono state estese per includere i parametri rilevanti per la
+titolarità, la concorrenza e la lista d'attesa. Oltre alle categorie già
+definite nel documento pre-modifica, sono state aggiunte le seguenti.
+
+\subsection{Nuovo Parametro: Titolarità e Concorrenza}
+
+{\small
+\begin{xltabular}{\linewidth}{L{5.4cm}L{1.3cm}Y}
+  \toprule
+  \intestazione \tb{Categoria} & \tb{Codice} & \tb{Scelte (Classi di Equivalenza)} \\
+  \midrule
+  \endhead
+  \multirow{2}{=}{\textbf{Titolarità (TI)}\newline\footnotesize Proprietario della risorsa richiesta.}
+    & TI0 & Propria \\*
+    & TI1 & Di un altro utente \\
+  \midrule
+  \multirow{2}{=}{\textbf{Concorrenza (CC)}\newline\footnotesize Richieste contemporanee sullo stesso posto e intervallo.}
+    & CC0 & Richiesta singola \\*
+    & CC1 & Richieste simultanee \\
+  \bottomrule
+  \caption{Nuovi parametri: Titolarità e Concorrenza}\label{tab:par-titolarita}\\
+\end{xltabular}}
+
+\subsection{Nuovo Parametro: Lista d'Attesa (LA, EL)}
+
+{\small
+\begin{xltabular}{\linewidth}{L{5.4cm}L{1.3cm}Y}
+  \toprule
+  \intestazione \tb{Categoria} & \tb{Codice} & \tb{Scelte (Classi di Equivalenza)} \\
+  \midrule
+  \endhead
+  \multirow{3}{=}{\textbf{Stato della Coda (LA)}\newline\footnotesize Richieste in attesa per il posto e l'intervallo.}
+    & LA0 & Coda vuota \\*
+    & LA1 & Altri utenti in coda \\*
+    & LA2 & Richiesta attiva dello stesso utente \\
+  \midrule
+  \multirow{5}{=}{\textbf{Evento di Liberazione (EL)}\newline\footnotesize Causa per cui il posto torna libero.}
+    & EL0 & Nessuno (slot ancora occupato) \\*
+    & EL1 & Cancellazione dello studente \\*
+    & EL2 & Annullamento dello staff \\*
+    & EL3 & No-show rilevato dal cron \\*
+    & EL4 & Promozione non confermata scaduta \\
+  \bottomrule
+  \caption{Nuovi parametri: Lista d'Attesa}\label{tab:par-coda}\\
+\end{xltabular}}
+
+\section{Nuovi Test Case (TC)}
+
+In base alle nuove categorie identificate, sono stati progettati e
+implementati i seguenti Test Case aggiuntivi. Ogni caso è automatizzato: la
+colonna dell'oracolo indica il test che lo esegue.
+
+{\small
+\begin{xltabular}{\linewidth}{L{2.2cm}L{3.4cm}Y}
+  \toprule
+  \intestazione \tb{TC ID} & \tb{Test Frame (Parametri)} & \tb{Oracolo / Risultato Atteso} \\
+  \midrule
+  \endhead
+  TC-POST-001 & SE0, RS1, OP0\dots OP4 &
+  \textbf{Senza sessione:} 401 su ogni operazione sulle prenotazioni e sulla
+  coda (auth-prenotazioni, \texttt{TC-BIB57-040}\dots\texttt{042}). \\
+  TC-POST-002 & SE1, RU0, TI1, OP1\dots OP4 &
+  \textbf{Risorsa altrui:} 404 su lettura, modifica e cancellazione;
+  nessuna scrittura (auth-prenotazioni). \\
+  TC-POST-003 & SE1, RU0, OP0, OR0, TI1 &
+  \textbf{Identità nel payload:} la prenotazione è intestata a chi ha la
+  sessione, non all'utente indicato nel corpo (auth-prenotazioni). \\
+  TC-POST-004 & SE1, RU0, RS1, FS0\dots FS3 &
+  \textbf{Studente sull'area staff:} 403 su tutte le route dello staff
+  (\texttt{TC-BIB57-010}\dots\texttt{015}, \texttt{050}\dots\texttt{055}). \\
+  TC-POST-005 & SE1, RU0, OP0, IO2 &
+  \textbf{Intervallo invertito:} 422, nessuna prenotazione
+  (\texttt{TC-BIB27-005}; prima TC-PRE-004 rispondeva 201). \\
+  TC-POST-006 & SE1, RU0, OP0, IO0, DI0, CC1 &
+  \textbf{Richieste simultanee:} una sola prenotazione creata, le altre 409,
+  nessun record fantasma (concorrenza). \\
+  TC-POST-007 & SE1, RU0, OP0, IO0, DI1, CC0 &
+  \textbf{Posto occupato:} 409 con la proposta di entrare in coda
+  (\texttt{TC-BIB31-002}, \texttt{TC-BIB27-015}). \\
+  TC-POST-008 & SE1, RU0, LA0, LA1 &
+  \textbf{Ingresso in coda:} posizioni 1, 2, 3 in ordine di arrivo
+  (\texttt{TC-CODA-VITA-001}). \\
+  TC-POST-009 & SE1, RU0, LA2 &
+  \textbf{Richiesta duplicata:} rifiutata; resta una sola richiesta attiva
+  (\texttt{TC-CODA-VITA-002}, \texttt{TC-BIB23-DB-001}). \\
+  TC-POST-010 & SE1, RU0, TI0, LA1 &
+  \textbf{Uscita dalla coda:} richiesta \texttt{ANNULLATA}, evento
+  registrato, chi era dietro avanza (\texttt{TC-CODA-VITA-010}). \\
+  TC-POST-011 & EL1, LA1 &
+  \textbf{Cancellazione dello studente:} il primo in coda ottiene una
+  prenotazione \texttt{CONFERMATA} e la notifica di promozione
+  (\texttt{TC-CODA-DEL-001}\dots\texttt{003}). \\
+  TC-POST-012 & SE1, RU1, EL2, LA1 &
+  \textbf{Annullamento dello staff:} promozione del primo in coda e nome del
+  promosso restituito allo staff (\texttt{TC-BIB58-001}, \texttt{TC-BIB49-*}). \\
+  TC-POST-013 & EL2, LA0 &
+  \textbf{Coda vuota:} nessuna promozione e nessuna notifica di promozione
+  (\texttt{TC-BIB58-002}, \texttt{TC-CODA-DEL-004}). \\
+  TC-POST-014 & EL3, LA1, ES0, ES1 &
+  \textbf{No-show:} promozione del primo in coda; con due esecuzioni nessuna
+  promozione né notifica duplicata (\texttt{TC-BIB47-001}, \texttt{002}). \\
+  TC-POST-015 & EL4, LA1 &
+  \textbf{Promozione scaduta:} dopo quindici minuti senza check-in la
+  promozione scade e il posto passa al successivo (\texttt{TC-BIB47-005}). \\
+  TC-POST-016 & EL0, LA1 &
+  \textbf{Slot ancora occupato:} nessuno viene promosso
+  (\texttt{TC-CODA-VITA-020}). \\
+  TC-POST-017 & SE1, RU0, OP2, ST0, MO0 &
+  \textbf{Check-in nella finestra:} accettato (prima TC-PRE-007 lo
+  rifiutava); estremi della finestra verificati (\texttt{TC-FIN-*}). \\
+  TC-POST-018 & SE1, RU0, OP4, ST0, DI0 &
+  \textbf{Estensione libera:} accettata se la durata totale non supera otto
+  ore (\texttt{TC-BIB27-007}; prima TC-PRE-010 la rifiutava). \\
+  \bottomrule
+  \caption{Nuovi Test Case di sistema}\label{tab:tc-post}\\
+\end{xltabular}}
+
+\chapter{WebApp Testing (End-to-End)}
+
+Parallelamente ai System Test, è stata implementata una suite di test
+End-to-End (E2E) automatizzati per validare l'esperienza utente sulla WebApp.
+La suite è stata sviluppata con Playwright, che pilota un browser reale e
+simula le interazioni dell'utente (click, compilazione dei moduli,
+navigazione) in un ambiente controllato.
+
+\section{Strategia di Testing E2E}
+
+I test E2E si concentrano sui flussi delle due Change Requests, verificando
+l'integrazione completa tra pagine, API e database sulla build di produzione.
+\begin{itemize}
+  \item \textbf{Ambiente:} build di produzione di Next.js, Chromium,
+        lingua italiana e fuso orario di Roma; PostgreSQL 16 con migrazioni e
+        dati dimostrativi caricati prima della suite, su un database il cui
+        nome deve dichiarare di essere di test.
+  \item \textbf{Esecuzione:} un solo worker, scenari in serie che condividono
+        lo stato del database come farebbero utenti reali; tracce e
+        screenshot conservati in caso di errore.
+  \item \textbf{Accesso e Autorizzazione:} redirect al login e ritorno alla
+        pagina richiesta, credenziali errate, ruoli, cookie contraffatti.
+  \item \textbf{Happy Path:} prenotazione guidata, coda, promozione.
+  \item \textbf{Negative Testing:} posto preso da un altro studente
+        all'ultimo istante.
+  \item \textbf{Data Binding:} posizione in coda, nome del promosso, notifica
+        e prenotazione a nome del promosso.
+\end{itemize}
+
+La suite è configurata anche nella pipeline di integrazione continua, in un
+job dedicato, ed è risultata stabile su tre esecuzioni consecutive (12 scenari
+su 12, circa 37 secondi ciascuna).
+
+\section{Casi di Test E2E Automatizzati}
+
+Di seguito sono riportati i Test Case implementati nei file
+\file{tests/e2e/*.spec.ts}. Ogni test è identificato da un ID univoco E2E.
+
+{\small
+\begin{xltabular}{\linewidth}{L{1.3cm}L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{TC ID} & \tb{Descrizione Scenario} & \tb{Oracolo / Risultato Atteso} \\
+  \midrule
+  \endhead
+  E2E-01 & \textbf{Ritorno dopo il login.} Un anonimo apre una pagina
+  riservata. & Redirect al login; dopo l'accesso torna alla pagina
+  richiesta. \\
+  E2E-02 & \textbf{Password errata.} & Nessuna sessione; messaggio
+  \enquote{Email o password non corretti. Riprova.} \\
+  E2E-03 & \textbf{Studente nell'area staff.} & La pagina amministrativa non
+  si apre e le API dello staff rispondono 403. \\
+  E2E-04 & \textbf{Cookie inventato.} & Le pagine riservate portano al login,
+  le API rispondono 401. \\
+  E2E-05 & \textbf{Prenotazione guidata.} Data, mezza giornata, sala, posto. &
+  Conferma della prenotazione, ritrovata tra \enquote{Le mie
+  prenotazioni}. \\
+  E2E-06 & \textbf{Posto occupato.} Un secondo studente apre la stessa
+  fascia. & Il posto appare occupato e viene proposta la lista d'attesa. \\
+  E2E-07 & \textbf{Ingresso in coda.} & Posizione 1, riletta dal server. \\
+  E2E-08 & \textbf{Annullamento dello staff.} & L'operatore vede il nome
+  dello studente promosso dalla coda. \\
+  E2E-09 & \textbf{Notifica al promosso.} & Notifica \enquote{Posto assegnato
+  dalla lista d'attesa} e prenotazione a suo nome. \\
+  E2E-10 & \textbf{Conflitto all'ultimo istante.} Un secondo browser prende il
+  posto durante la conferma. & Messaggio \enquote{Posto non più disponibile}
+  con accesso alla lista d'attesa. \\
+  E2E-11 & \textbf{Cancellazione del titolare.} & Chi è primo in coda ottiene
+  il posto. \\
+  E2E-12 & \textbf{Ingresso e uscita dalla coda.} Dalla scheda
+  \enquote{Lista d'attesa}. & La scheda mostra la posizione 1 e il conteggio
+  (1); dopo l'uscita compare \enquote{Non sei in nessuna lista d'attesa} e il
+  conteggio torna a (0). \\
+  \bottomrule
+  \caption{Casi di Test E2E}\label{tab:e2e}\\
+\end{xltabular}}
+
+\end{document}
