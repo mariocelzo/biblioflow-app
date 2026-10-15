@@ -61,9 +61,14 @@ export default async function PrenotazioniAdminPage({
     where.stato = statoValido;
   }
 
-  if (params.data) {
+  // Una data scritta a mano nell'URL (es. `?data=domani`) produceva una
+  // `Invalid Date` e la pagina falliva con un errore del server: come per lo
+  // stato, un filtro non valido viene ignorato.
+  if (params.data && /^\d{4}-\d{2}-\d{2}$/.test(params.data)) {
     const dataSelezionata = new Date(params.data);
-    where.data = dataSelezionata;
+    if (!Number.isNaN(dataSelezionata.getTime())) {
+      where.data = dataSelezionata;
+    }
   }
 
   if (params.utente) {

@@ -12,7 +12,11 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts", "tests/**/*.spec.ts"],
+    // I test dei componenti React (`.test.tsx`) dichiarano in testa
+    // `// @vitest-environment jsdom`; tutti gli altri restano in ambiente node.
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx", "tests/**/*.spec.ts"],
+    // La suite E2E Playwright ha un runner proprio (`npm run test:e2e`).
+    exclude: ["**/node_modules/**", "tests/e2e/**"],
     passWithNoTests: true,
     // I test di integrazione condividono intenzionalmente lo stesso PostgreSQL
     // locale. Eseguire file diversi in parallelo permette a un'automazione
@@ -38,15 +42,19 @@ export default defineConfig({
     },
     coverage: {
       provider: "v8",
-      reporter: ["text", "html", "lcov"],
+      reporter: ["text-summary", "json-summary", "html", "lcov"],
       reportsDirectory: "coverage",
-      include: ["src/**/*.ts"],
-      exclude: [
-        "src/**/*.d.ts",
-        "src/app/**/layout.ts",
-        "src/app/**/page.ts",
-        "src/app/**/route.ts",
-      ],
+      // Tutto il codice applicativo, route handler compresi: escluderli
+      // (come faceva la configurazione precedente) nascondeva proprio le API.
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.d.ts", "src/types/**"],
+      // Soglie minime sul codice server (dominio, API, middleware): una
+      // modifica che le fa scendere fa fallire `npm run test:coverage`.
+      thresholds: {
+        "src/lib/**/*.ts": { statements: 90, branches: 80 },
+        "src/app/api/**/*.ts": { statements: 90, branches: 80 },
+        "src/middleware.ts": { statements: 100, branches: 100 },
+      },
     },
   },
 });

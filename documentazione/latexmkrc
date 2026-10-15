@@ -1,0 +1,8 @@
+# Compilazione: latexmk Change_Requests.tex, oppure latexmk per tutti i documenti.
+# I file ausiliari restano in build/, il PDF viene copiato in pdf/.
+ensure_path('TEXINPUTS', './stile//');
+$pdf_mode = 1;
+$out_dir = 'build';
+$pdflatex = 'pdflatex -interaction=nonstopmode -halt-on-error -file-line-error %O %S';
+@default_files = ('*.tex');
+$success_cmd = 'mkdir -p pdf && cp build/%R.pdf pdf/%R.pdf';

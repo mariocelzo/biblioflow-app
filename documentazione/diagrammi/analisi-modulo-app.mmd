@@ -1,0 +1,30 @@
+flowchart LR
+    ACC["<b>Accesso</b><br/>login · registrazione<br/>recupera-password · reset-password"]
+    ST1["<b>Prenotazione</b><br/>page.tsx (home) · prenota<br/>prenotazioni · prenotazioni/[id]/estendi"]
+    ST2["<b>Catalogo e prestiti</b><br/>libri · libri/[id] · prestiti"]
+    ST3["<b>Account</b><br/>notifiche · profilo"]
+    ADM["<b>Area staff</b><br/>admin/prenotazioni · admin/posti<br/>admin/prestiti · admin/richieste<br/>admin/utenti · admin/anomalie<br/>admin/scanner · admin/statistiche"]
+    DASH["<b>Dashboard staff</b><br/>admin (page.tsx)"]
+
+    R_AUTH["api/auth/*"]
+    R_PREN["api/prenotazioni/*"]
+    R_CAT["api/posti · api/sale"]
+    R_LIB["api/libri · api/prestiti<br/>api/richieste"]
+    R_NOT["api/notifiche · api/profilo"]
+    R_ADM["api/admin/*"]
+    DB[("Prisma<br/>(rendering lato server)")]
+
+    ACC --> R_AUTH
+    ST1 --> R_PREN & R_CAT & R_NOT
+    ST2 --> R_LIB
+    ST3 --> R_NOT
+    ADM --> R_ADM
+    ADM --> DB
+    DASH --> DB
+
+    classDef ui fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef api fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef dati fill:#f3f4f6,stroke:#6b7280,color:#111827
+    class ACC,ST1,ST2,ST3,ADM,DASH ui
+    class R_AUTH,R_PREN,R_CAT,R_LIB,R_NOT,R_ADM api
+    class DB dati

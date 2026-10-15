@@ -51,6 +51,7 @@ import {
   Clock,
 } from "lucide-react";
 import { formattaOraDb } from "@/lib/admin-tempo";
+import { isEventoNoShow } from "@/lib/eventi-no-show";
 
 interface ProfiloData {
   user: {
@@ -640,15 +641,17 @@ export function UtenteActionButton({
                           {evento.tipo === "CHECK_IN" && (
                             <CheckCircle2 className="h-5 w-5 text-green-600" />
                           )}
-                          {evento.tipo === "NO_SHOW" && (
+                          {isEventoNoShow(evento.tipo) && (
                             <UserX className="h-5 w-5 text-red-600" />
                           )}
                           {evento.tipo === "PRESTITO_CREATO" && (
                             <BookOpen className="h-5 w-5 text-purple-600" />
                           )}
-                          {!["PRENOTAZIONE_CREATA", "CHECK_IN", "NO_SHOW", "PRESTITO_CREATO"].includes(
+                          {!["PRENOTAZIONE_CREATA", "CHECK_IN", "PRESTITO_CREATO"].includes(
                             evento.tipo
-                          ) && <History className="h-5 w-5 text-muted-foreground" />}
+                          ) && !isEventoNoShow(evento.tipo) && (
+                            <History className="h-5 w-5 text-muted-foreground" />
+                          )}
                         </div>
                         <div className="flex-1 space-y-1">
                           <div className="flex items-center justify-between">

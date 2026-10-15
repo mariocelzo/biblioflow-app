@@ -19,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ListaAttesaUtente } from "@/components/lista-attesa-utente";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +49,7 @@ import {
   History,
   Timer,
   Train,
+  Users,
 } from "lucide-react";
 
 // Tipi
@@ -60,7 +62,9 @@ interface Prenotazione {
   data: string;
   oraInizio: string;
   oraFine: string;
-  stato: "IN_ATTESA" | "CONFERMATA" | "CHECK_IN" | "COMPLETATA" | "CANCELLATA" | "NO_SHOW";
+  // Valori di StatoPrenotazione. La lista d'attesa non e' uno stato della
+  // prenotazione (e' un'entita' a parte, vedi ListaAttesaUtente).
+  stato: "CONFERMATA" | "CHECK_IN" | "COMPLETATA" | "CANCELLATA" | "NO_SHOW" | "SCADUTA";
   checkInAt: string | null;
   checkOutAt: string | null;
   // Margine Pendolare: estende la finestra di check-in di questa prenotazione
@@ -115,7 +119,12 @@ function PrenotazioniContent() {
   // non corrisponde piu' a nessuna prenotazione dell'utente (es. e' stata nel
   // frattempo cancellata) semplicemente non succede nulla: nessun errore.
   const prenotazioneEvidenziataId = searchParams.get(QUERY_PARAM_PRENOTAZIONE_EVIDENZIATA);
-  const [tabAttiva, setTabAttiva] = useState<"attive" | "passate">("attive");
+  // `?scheda=coda` apre direttamente la lista d'attesa: e' dove si arriva dopo
+  // essere entrati in coda dal dialog di conflitto di /prenota.
+  const [tabAttiva, setTabAttiva] = useState<"attive" | "coda" | "passate">(
+    searchParams.get("scheda") === "coda" ? "coda" : "attive",
+  );
+  const [richiesteInCoda, setRichiesteInCoda] = useState(0);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const evidenziataScrollataRef = useRef(false);
 
@@ -146,10 +155,12 @@ function PrenotazioniContent() {
 
   // Filtra prenotazioni per stato
   const prenotazioniAttive = prenotazioni.filter(
-    (p) => ["IN_ATTESA", "CONFERMATA", "CHECK_IN"].includes(p.stato)
+    (p) => ["CONFERMATA", "CHECK_IN"].includes(p.stato)
   );
+  // SCADUTA (promozione dalla coda non confermata in tempo) mancava: quelle
+  // prenotazioni non comparivano ne' tra le attive ne' nello storico.
   const prenotazioniPassate = prenotazioni.filter(
-    (p) => ["COMPLETATA", "CANCELLATA", "NO_SHOW"].includes(p.stato)
+    (p) => ["COMPLETATA", "CANCELLATA", "NO_SHOW", "SCADUTA"].includes(p.stato)
   );
 
   // Una volta caricate le prenotazioni, se l'URL punta a una prenotazione
@@ -292,8 +303,6 @@ function PrenotazioniContent() {
   // Ottieni colore badge stato
   const getStatoBadge = (stato: Prenotazione["stato"]) => {
     switch (stato) {
-      case "IN_ATTESA":
-        return <Badge variant="secondary">In attesa</Badge>;
       case "CONFERMATA":
         return <Badge className="bg-blue-500">Confermata</Badge>;
       case "CHECK_IN":
@@ -306,6 +315,8 @@ function PrenotazioniContent() {
         return <Badge variant="destructive">Cancellata</Badge>;
       case "NO_SHOW":
         return <Badge variant="destructive">No-show</Badge>;
+      case "SCADUTA":
+        return <Badge variant="outline">Scaduta</Badge>;
       default:
         return <Badge variant="outline">{stato}</Badge>;
     }
@@ -325,7 +336,7 @@ function PrenotazioniContent() {
 
   // Card prenotazione
   const PrenotazioneCard = ({ prenotazione }: { prenotazione: Prenotazione }) => {
-    const isAttiva = ["IN_ATTESA", "CONFERMATA"].includes(prenotazione.stato);
+    const isAttiva = prenotazione.stato === "CONFERMATA";
     const isInCorso = prenotazione.stato === "CHECK_IN";
 
     // Il pulsante di check-in compare/si abilita SOLO nella stessa finestra
@@ -536,13 +547,17 @@ function PrenotazioniContent() {
         {/* Tabs */}
         <Tabs
           value={tabAttiva}
-          onValueChange={(value) => setTabAttiva(value as "attive" | "passate")}
+          onValueChange={(value) => setTabAttiva(value as "attive" | "coda" | "passate")}
           className="space-y-4"
         >
           <TabsList>
             <TabsTrigger value="attive" className="flex items-center gap-2">
               <Calendar className="h-4 w-4" />
               Attive ({prenotazioniAttive.length})
+            </TabsTrigger>
+            <TabsTrigger value="coda" className="flex items-center gap-2">
+              <Users className="h-4 w-4" />
+              Lista d&apos;attesa ({richiesteInCoda})
             </TabsTrigger>
             <TabsTrigger value="passate" className="flex items-center gap-2">
               <History className="h-4 w-4" />
@@ -576,6 +591,11 @@ function PrenotazioniContent() {
                 ))}
               </div>
             )}
+          </TabsContent>
+
+          {/* Montata sempre (forceMount) per avere subito il conteggio nell'etichetta della scheda. */}
+          <TabsContent value="coda" forceMount className="data-[state=inactive]:hidden">
+            <ListaAttesaUtente onConteggio={setRichiesteInCoda} />
           </TabsContent>
 
           <TabsContent value="passate">

@@ -3,13 +3,14 @@
 # ----------------------------------------------------------------------------
 # Card Fase 0: "Pipeline CI su GitHub Actions".
 # Prima di questa pipeline nessun controllo bloccava una PR: qui viene creata
-# da zero. Cinque job indipendenti (girano in parallelo) così che, quando uno
+# da zero. Sei job indipendenti (girano in parallelo) così che, quando uno
 # fallisce, si veda subito quale controllo non passa.
 #
 #   lint       -> npm run lint            (ESLint)
 #   typecheck  -> npx tsc --noEmit        (TypeScript, nessun output)
 #   build      -> npm run build           (next build di produzione)
 #   test       -> npm test                (con PostgreSQL reale come service)
+#   e2e        -> npm run test:e2e        (Playwright sull'app di produzione)
 #   audit      -> produzione bloccante + audit completo informativo
 # ============================================================================
 
@@ -183,6 +184,74 @@ jobs:
         # PostgreSQL del service; "npm test" esclude i test di caratterizzazione
         # tests/pre-modifica/**, che descrivono il comportamento della baseline.
         run: npm test --if-present
+
+  # --------------------------------------------------------------------------
+  # E2E — Playwright su un browser vero contro la build di produzione.
+  # Il global setup (tests/e2e/global-setup.ts) applica le migrazioni e il
+  # seed al database E2E, il cui nome deve dichiarare di essere di test.
+  # --------------------------------------------------------------------------
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Database effimero del runner con accesso "trust": nessuna password da
+      # scrivere nel workflow (e nessun falso positivo degli scanner di segreti).
+      DATABASE_URL: postgresql://postgres@localhost:5432/biblioflow_e2e_test
+      E2E_DATABASE_URL: postgresql://postgres@localhost:5432/biblioflow_e2e_test
+      NEXTAUTH_URL: "http://localhost:3100"
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_SECRET: ${{ secrets.CI_NEXTAUTH_SECRET }}
+      CRON_SECRET: ${{ secrets.CI_CRON_SECRET }}
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: biblioflow_e2e_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout del codice
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 20 + cache npm
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Installazione dipendenze (deterministica)
+        run: npm ci
+
+      - name: Installazione di Chromium per Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Migrazioni sul database E2E
+        run: npx prisma migrate deploy
+
+      - name: Build di produzione
+        run: npm run build
+
+      - name: Test end-to-end
+        run: npm run test:e2e
+
+      - name: Report Playwright (solo in caso di errore)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
 
   # --------------------------------------------------------------------------
   # AUDIT — produzione bloccante; tool di sviluppo sempre visibili nel log.

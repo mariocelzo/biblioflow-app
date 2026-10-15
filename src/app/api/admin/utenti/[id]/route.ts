@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { filtroTipoNoShow } from "@/lib/eventi-no-show";
 import { staffCriticalApiRateLimiter } from "@/lib/rate-limit";
 
 /**
@@ -210,7 +211,7 @@ export async function GET(
     const noShowCount = await db.logEvento.count({
       where: {
         userId: id,
-        tipo: "NO_SHOW",
+        tipo: filtroTipoNoShow(),
       },
     });
 

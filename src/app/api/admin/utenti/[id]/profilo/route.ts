@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import db from "@/lib/prisma";
+import { filtroTipoNoShow } from "@/lib/eventi-no-show";
 
 /**
  * Colonne di `User` esposte da questa rotta.
@@ -114,7 +115,7 @@ export async function GET(
       db.logEvento.count({
         where: {
           userId: userId,
-          tipo: "NO_SHOW",
+          tipo: filtroTipoNoShow(),
         },
       }),
     ]);

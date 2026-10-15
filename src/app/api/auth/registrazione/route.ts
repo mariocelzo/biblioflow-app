@@ -197,10 +197,12 @@ export async function POST(request: NextRequest) {
       },
     });
     
-    // Log evento registrazione
+    // Log evento registrazione.
+    // Tipo dedicato: con PRENOTAZIONE_CREATA la dashboard admin mostrava ogni
+    // nuovo account come "ha creato una prenotazione".
     await prisma.logEvento.create({
       data: {
-        tipo: "PRENOTAZIONE_CREATA", // Usiamo questo tipo generico per ora
+        tipo: "UTENTE_REGISTRATO",
         userId: user.id,
         descrizione: `Nuovo utente registrato: ${user.email}`,
       },

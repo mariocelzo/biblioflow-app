@@ -40,8 +40,10 @@ Applicazione pubblicata: [biblioflow-app.vercel.app](https://biblioflow-app.verc
 - completamento automatico dei check-in a fine fascia e protezione dei posti in
   manutenzione durante cancellazioni e automazioni.
 
-Il processo di manutenzione, l'impact analysis e le evidenze CA-01–CA-06 sono
-raccolti in [`docs/`](docs/). Il riferimento immutabile precedente alla
+La documentazione di progetto (report, change request, impact analysis, piano
+e report di test) e' in [`documentazione/`](documentazione/): sorgenti LaTeX,
+diagrammi e PDF compilati; il pacchetto da consegnare e' in
+[`deliverables/`](deliverables/). Il riferimento immutabile precedente alle
 change request e' il tag `baseline-pre-cr-bf-01`.
 
 ## Stack
@@ -53,7 +55,8 @@ change request e' il tag `baseline-pre-cr-bf-01`.
 - NextAuth/Auth.js con sessioni JWT;
 - cron protetto per promemoria, no-show, scadenze e chiusura automatica;
 - Docker Compose per PostgreSQL e Redis locali;
-- Vitest per test unitari e di integrazione.
+- Vitest per test unitari, di componenti (jsdom) e di integrazione;
+- Playwright per i test end-to-end sulla build di produzione.
 
 ## Avvio locale
 
@@ -250,13 +253,26 @@ npm run test:coverage
 
 `npm test` esclude `tests/pre-modifica/**`: quei test caratterizzano il
 sistema originale. La suite storica e' disponibile con `npm run test:pre` e
-va interpretata rispetto al tag `baseline-pre-cr-bf-01`, come spiegato in
-`docs/test/`.
+va interpretata rispetto al tag `baseline-pre-cr-bf-01`, come spiegato nel
+Post-Modification Test Document (`documentazione/`).
+
+Test end-to-end (Playwright, build di produzione). Il database indicato deve
+essere di test: il setup applica migrazioni e seed e rifiuta altri nomi.
+
+```bash
+npm run build
+E2E_DATABASE_URL='postgresql://biblioflow_test@127.0.0.1:5433/biblioflow_e2e_test?schema=public' \
+  npm run test:e2e
+```
+
+Il server di prova parte sulla porta 3100 con `E2E_DATABASE_URL` come
+database; `NEXTAUTH_SECRET` e `CRON_SECRET` vengono letti dall'ambiente come
+per l'applicazione.
 
 ### Pipeline completa in locale
 
-La PR esegue cinque job: lint, typecheck, build, test e audit. L'equivalente
-locale e':
+La PR esegue sei job: lint, typecheck, build, test, e2e e audit.
+L'equivalente locale e':
 
 ```bash
 npm ci
@@ -288,21 +304,23 @@ src/components/          componenti UI e funzionali
 src/lib/                 auth, dominio, Prisma, automazioni e rate limiting
 prisma/                  schema, migrazioni e seed
 tests/                   suite correnti e caratterizzazione pre-modifica
-docs/                    analisi, diagrammi e report di test
+documentazione/          documenti LaTeX, diagrammi, PDF e registro dei lavori
+deliverables/            pacchetto di consegna (PDF, Excel del corso, manifest)
+docs/                    documenti di lavoro storici (analisi AS-IS, report di fase)
 .github/workflows/       pipeline CI e deploy migrazioni
 ```
 
 ## Documentazione
 
-- [Verifica finale](docs/test/verifica-finale-criteri-accettazione.md)
-- [Stato della consegna 2026-10-13](docs/stato-consegna-2026-10-13.md)
-- [Specifica post-modifica](docs/test/spec-post-modifica.md)
-- [Report parti modificate](docs/test/report-post-modifica.md)
-- [Report di regressione](docs/test/report-regressione.md)
-- [Diagramma componenti AS-IS](docs/diagrammi/prenotazione-componenti-as-is.md)
-- [Diagramma stati AS-IS](docs/diagrammi/prenotazione-stati-as-is.md)
-- [Diagramma componenti TO-BE](docs/diagrammi/prenotazione-componenti-to-be.md)
-- [Diagramma stati TO-BE](docs/diagrammi/prenotazione-stati-to-be.md)
+- [Documenti di progetto in PDF](documentazione/pdf/): Report di Progetto,
+  Change Requests, Impact Analysis, Master Test Plan, Pre-Modification Test
+  Document, Test Incident Report, Post-Modification Test Document, Report
+  Finale
+- [Registro dei lavori](documentazione/REGISTRO-LAVORI.md): modifiche, dati
+  misurati e difetti corretti
+- [Pacchetto di consegna](deliverables/BiblioFlow-consegna-2026-10-15/)
+- [Documenti di lavoro storici](docs/): analisi AS-IS e report delle singole
+  fasi, superati dai documenti in `documentazione/`
 - [Regole di contribuzione](CONTRIBUTING.md)
 
 ## Contribuire

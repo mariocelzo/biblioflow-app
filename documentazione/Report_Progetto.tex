@@ -1,0 +1,397 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Report di Progetto}
+\renewcommand{\sottotitolodocumento}{Report del Progetto}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+\listoffigures
+
+\mainmatter
+\chapter{Descrizione del Sistema}
+
+\section{Contesto Applicativo}
+
+Nelle biblioteche universitarie i posti studio sono una risorsa limitata e
+molto contesa, soprattutto nei periodi d'esame. In assenza di un sistema di
+prenotazione l'accesso segue la regola del primo arrivato: chi abita vicino
+alla sede occupa i posti nelle prime ore del mattino, mentre gli studenti
+pendolari, che dipendono dagli orari dei mezzi pubblici, arrivano quando la sala
+è già piena. È diffusa anche l'occupazione \enquote{informale} del posto,
+lasciando libri o zaino per ore, che rende la disponibilità reale diversa da
+quella apparente.
+
+Il personale della biblioteca, d'altra parte, non dispone di dati affidabili
+sull'occupazione delle sale, sui posti che restano vuoti pur essendo stati
+promessi a qualcuno e sugli studenti che si prenotano senza presentarsi
+(\emph{no-show}). Infine, gli studenti con esigenze di accessibilità hanno
+bisogno di sapere in anticipo quali posti sono raggiungibili e attrezzati.
+
+La digitalizzazione della prenotazione dei posti, collegata a una conferma
+della presenza all'arrivo, permette di rendere l'accesso più equo e di liberare
+automaticamente i posti non utilizzati.
+
+\section{La Piattaforma BiblioFlow}
+
+BiblioFlow nasce in questo contesto come piattaforma web per la gestione dei
+posti studio e dei servizi di una biblioteca universitaria. È un'applicazione
+web progressiva (PWA) sviluppata con Next.js, React e TypeScript: si usa dal
+browser ma può essere installata su smartphone e continua a mostrare una
+pagina di cortesia in assenza di rete. I dati sono conservati in PostgreSQL e
+gestiti tramite l'ORM Prisma; l'autenticazione è affidata ad Auth.js
+(NextAuth), con accesso tramite email e password o account Google.
+
+Il sistema distingue tre ruoli:
+\begin{itemize}
+  \item \textbf{Studente:} prenota un posto scegliendolo sulla mappa della
+        sala, conferma la presenza con il check-in, consulta il catalogo,
+        chiede libri in prestito o la loro preparazione al banco e riceve
+        notifiche;
+  \item \textbf{Bibliotecario:} gestisce prenotazioni, posti, prestiti,
+        richieste e anomalie, effettua il check-in degli studenti tramite lo
+        scanner dei QR code e consulta le statistiche;
+  \item \textbf{Amministratore:} ha gli stessi strumenti del bibliotecario e
+        in più può attivare o disattivare gli account.
+\end{itemize}
+
+Due caratteristiche distinguono BiblioFlow da un semplice calendario di
+prenotazione: l'opzione \textbf{pendolare}, che aggiunge un margine di
+tolleranza sull'orario di arrivo per chi viaggia con i mezzi pubblici, e
+l'attenzione all'\textbf{accessibilità}, con posti accessibili segnalati sulla
+mappa, preferenze di visualizzazione (alto contrasto, testo grande, movimento
+ridotto) e navigazione completa da tastiera.
+
+\subsection{Analisi del Funzionamento}
+
+Il funzionamento di BiblioFlow ruota attorno al ciclo di vita della
+prenotazione di un posto e può essere descritto attraverso i seguenti
+passaggi:
+\begin{itemize}
+  \item \textbf{Autenticazione:} lo studente accede con email e password
+        (verificata con bcrypt) o con Google. La sessione è un token JWT
+        conservato in un cookie; un middleware intercetta le richieste e
+        respinge quelle prive del cookie di sessione, mentre i controlli sul
+        ruolo sono svolti dalle singole route.
+  \item \textbf{Prenotazione guidata:} una procedura in quattro passi raccoglie
+        data, durata (due ore, mezza giornata di mattina o di pomeriggio,
+        giornata intera), sala e posto. La scelta del posto avviene su una
+        mappa interattiva che mostra lo stato di ogni posto e le sue
+        caratteristiche (presa elettrica, accessibilità). Il server verifica gli
+        orari di apertura della sala e l'assenza di sovrapposizioni prima di
+        creare la prenotazione nello stato \texttt{CONFERMATA}.
+  \item \textbf{Check-in e uso del posto:} all'arrivo lo studente conferma la
+        presenza dalla home, dove la prenotazione del giorno è accompagnata da
+        un QR code, oppure si fa scansionare il QR dal personale. Il check-in è
+        ammesso in una finestra di quindici minuti attorno all'inizio della
+        prenotazione e porta la prenotazione in \texttt{CHECK\_IN} e il posto in
+        \texttt{OCCUPATO}; al termine la prenotazione diventa
+        \texttt{COMPLETATA}.
+  \item \textbf{Automazioni:} un'attività pianificata invia i promemoria di
+        check-in, avvisa delle scadenze dei prestiti e rilascia i posti delle
+        prenotazioni non confermate entro il margine (stato \texttt{NO\_SHOW}).
+  \item \textbf{Notifiche e tracciabilità:} ogni operazione rilevante produce
+        una notifica persistente per l'utente e un evento nel registro
+        \texttt{LogEvento}, che alimenta la dashboard e le statistiche dello
+        staff.
+\end{itemize}
+
+\chapter{Struttura del Sistema}
+
+L'architettura di BiblioFlow segue la struttura di un'applicazione Next.js con
+App Router: pagine e route handler convivono nella cartella \file{src/app},
+mentre la logica condivisa, i componenti dell'interfaccia e il modello dei dati
+sono organizzati in package distinti, ognuno preposto a una specifica
+responsabilità. Di seguito viene presentata l'analisi dei moduli principali,
+così come si presentano nella versione di partenza del progetto.
+
+\section{Package Principali del Sistema}
+
+\subsection{app (pagine)}
+
+L'obiettivo è fornire le schermate dell'applicazione. Ogni cartella sotto
+\file{src/app} corrisponde a un percorso dell'interfaccia; le pagine dello
+studente sono componenti client che dialogano con le API tramite
+\texttt{fetch}, mentre la dashboard dello staff è resa lato server e legge i
+dati direttamente con Prisma.
+
+Moduli principali:
+\begin{itemize}
+  \item \file{layout.tsx}: struttura comune a tutte le pagine; monta i provider
+        di sessione, tema, accessibilità e PWA, l'intestazione e i componenti di
+        accessibilità (salto al contenuto, annunci per i lettori di schermo).
+  \item \file{page.tsx}: home dello studente; mostra la prenotazione attiva con
+        il QR code per il check-in e le scorciatoie verso le funzioni
+        principali.
+  \item \file{login}, \file{registrazione}, \file{recupera-password},
+        \file{reset-password}: accesso e gestione delle credenziali.
+  \item \file{prenota}: procedura guidata di prenotazione in quattro passi
+        (data, durata, sala, posto) con mappa interattiva e opzione pendolare.
+  \item \file{prenotazioni} e \file{prenotazioni/[id]/estendi}: elenco delle
+        prenotazioni dello studente, cancellazione ed estensione dell'orario.
+  \item \file{libri}, \file{libri/[id]}, \file{prestiti}: catalogo, dettaglio
+        di un libro, richiesta e rinnovo dei prestiti.
+  \item \file{notifiche}, \file{profilo}: centro notifiche e dati del profilo,
+        comprese le preferenze di pendolarismo e accessibilità.
+  \item \file{admin/*}: area dello staff, con dashboard, gestione di
+        prenotazioni, posti, prestiti, richieste di preparazione, utenti e
+        anomalie, scanner dei QR code e statistiche.
+\end{itemize}
+
+\diagramma[0.62\linewidth]{analisi-modulo-app}{Analisi modulo app (pagine).}
+
+\subsection{app/api (route handler)}
+
+Questo package rappresenta il backend dell'applicazione. Ogni file
+\file{route.ts} espone uno o più metodi HTTP e restituisce JSON; le route
+validano l'input, verificano la sessione dove previsto e accedono ai dati
+tramite Prisma.
+
+Moduli principali:
+\begin{itemize}
+  \item \file{auth/*}: gestore di Auth.js e flussi di registrazione,
+        verifica dell'email, recupero e reimpostazione della password, con
+        limitazione della frequenza delle richieste.
+  \item \file{prenotazioni}, \file{prenotazioni/[id]},
+        \file{prenotazioni/[id]/check-in}, \file{prenotazioni/[id]/estendi}:
+        elenco, creazione, lettura, cancellazione, check-in ed estensione delle
+        prenotazioni.
+  \item \file{posti}, \file{sale}, \file{disponibilita-giorni}: stato dei
+        posti, sale con i relativi orari e giorni prenotabili.
+  \item \file{libri}, \file{prestiti}, \file{richieste}: catalogo, prestiti e
+        rinnovi, richieste di preparazione dei libri al banco.
+  \item \file{notifiche}, \file{profilo}: lettura, marcatura ed eliminazione
+        delle notifiche; lettura e modifica del profilo.
+  \item \file{admin/*}: operazioni dello staff (annullamento e modifica delle
+        prenotazioni, stato dei posti, prestiti, richieste, utenti, anomalie,
+        statistiche, validazione dei QR code).
+  \item \file{cron/automations}: punto di ingresso dell'attività pianificata,
+        protetto da un segreto condiviso.
+  \item \file{sse/posti}: canale Server-Sent Events per gli aggiornamenti in
+        tempo reale dei posti.
+\end{itemize}
+
+A monte delle route opera \file{src/middleware.ts}, che lascia passare le
+pagine e le API pubbliche (accesso, registrazione, \file{api/auth},
+\file{api/cron}) e per tutte le altre verifica la presenza del cookie di
+sessione: in sua assenza risponde 401 alle API e reindirizza le pagine al
+login, conservando la destinazione richiesta.
+
+\diagramma[0.9\linewidth]{analisi-modulo-api}{Analisi modulo app/api.}
+
+\subsection{lib}
+
+Raccoglie i servizi condivisi dal backend: autenticazione, accesso ai dati,
+automazioni e utilità trasversali.
+
+Moduli principali:
+\begin{itemize}
+  \item \file{auth.ts}: configurazione di Auth.js con i provider Credentials e
+        Google, i callback che arricchiscono il token con ruolo e preferenze
+        dell'utente e le funzioni \texttt{hasRole} e \texttt{isStaff}.
+  \item \file{prisma.ts}: istanza unica del client Prisma collegata a
+        PostgreSQL tramite l'adattatore \texttt{pg}.
+  \item \file{automation-service.ts}: logica delle automazioni periodiche:
+        \texttt{sendCheckInReminders}, \texttt{sendLoanExpiryAlerts},
+        \texttt{releaseNoShowReservations}, \texttt{notifyAvailableSeat} e
+        l'orchestratore \texttt{runAllAutomations}.
+  \item \file{realtime-events.ts} e \file{sse-emitter.ts}: emettitore di
+        eventi in memoria e funzioni di pubblicazione degli aggiornamenti dei
+        posti e delle notifiche sul canale SSE.
+  \item \file{qr-signature.ts}: firma HMAC e verifica dei QR code usati per il
+        check-in, con controllo della scadenza.
+  \item \file{rate-limit.ts}: limitatori di frequenza per indirizzo IP
+        (accesso, registrazione, prenotazioni, prestiti, API).
+  \item \file{password.ts}, \file{env.ts}, \file{utils.ts}: hashing e
+        regole delle password, validazione delle variabili d'ambiente
+        all'avvio, composizione delle classi CSS.
+\end{itemize}
+
+\diagramma[0.85\linewidth]{analisi-modulo-lib}{Analisi modulo lib.}
+
+\subsection{components}
+
+Contiene i componenti React riutilizzabili che compongono l'interfaccia.
+Questo approccio modulare facilita la manutenzione e la coerenza visiva tra
+l'area dello studente e quella dello staff.
+
+Moduli principali:
+\begin{itemize}
+  \item \file{mappa-biblioteca.tsx}: mappa interattiva dei posti di una sala,
+        con legenda degli stati e delle caratteristiche; sotto i 768 pixel di
+        larghezza cede il posto a \file{mobile-posti-grid.tsx}, una griglia
+        pensata per lo schermo dello smartphone.
+  \item \file{qrcode-checkin.tsx}: mostra il QR code della prenotazione e
+        invia la conferma di check-in.
+  \item \file{admin/*}: menu di azioni su prenotazioni, posti, prestiti,
+        utenti e anomalie, filtri, card della dashboard e grafici delle
+        statistiche.
+  \item \file{layout/*} e \file{providers/*}: intestazione con il contatore
+        delle notifiche, barra laterale dello staff, provider di sessione, tema
+        e PWA.
+  \item \file{ui/*}: primitive grafiche (pulsanti, card, dialog, menu, schede,
+        selettori) costruite su Radix UI.
+\end{itemize}
+
+\diagramma[0.85\linewidth]{analisi-modulo-components}{Analisi modulo components.}
+
+\subsection{accessibility e contexts}
+
+Questo package raccoglie il supporto all'accessibilità, che nel progetto è un
+requisito e non un'aggiunta.
+\begin{itemize}
+  \item \file{contexts/accessibility-context.tsx}: stato globale delle
+        preferenze (alto contrasto, testo grande, dimensione del carattere,
+        movimento ridotto, tema scuro, navigazione da tastiera), salvate nel
+        browser e applicate all'intera interfaccia.
+  \item \file{components/accessibility/*}: collegamento per saltare al
+        contenuto, scorciatoie da tastiera, intrappolamento del focus nei
+        dialog e annunci per i lettori di schermo (\texttt{LiveAnnouncer}).
+\end{itemize}
+
+\subsection{hooks e types}
+
+\begin{itemize}
+  \item \file{hooks/use-sse.ts}: hook React che apre una connessione
+        \texttt{EventSource}, gestisce la riconnessione e consegna gli eventi
+        ricevuti; \texttt{usePostiRealtime} lo specializza per il canale dei
+        posti.
+  \item \file{types/index.ts}: tipi TypeScript condivisi tra pagine e
+        componenti.
+\end{itemize}
+
+\subsection{prisma}
+
+Questa cartella contiene il modello dei dati e gli strumenti per crearlo.
+\begin{itemize}
+  \item \file{schema.prisma}: definisce undici entità, tra cui utenti, sale,
+        posti, prenotazioni, libri, prestiti, notifiche e registro degli
+        eventi, insieme agli stati di posti, prenotazioni e prestiti. La data di una prenotazione è salvata come
+        \texttt{@db.Date} e i suoi orari come \texttt{@db.Time}.
+  \item \file{migrations/*}: storico delle migrazioni del database.
+  \item \file{seed.ts}: popola un'installazione nuova con sale, posti, libri e
+        account dimostrativi per ciascun ruolo.
+\end{itemize}
+
+\diagramma[0.95\linewidth]{modello-dati-as-is}{Analisi modulo prisma (modello dei dati).}
+
+\subsection{public (PWA)}
+
+Contiene le risorse statiche che rendono BiblioFlow installabile e
+utilizzabile anche con una connessione instabile.
+\begin{itemize}
+  \item \file{manifest.json}: nome, icone, colori e scorciatoie
+        dell'applicazione installata.
+  \item \file{sw.js}: service worker con strategia \emph{network first} per le
+        pagine e le API e \emph{cache first} per le risorse statiche; senza
+        rete mostra \file{offline.html}.
+  \item \file{components/pwa/*}: banner di installazione e indicatore dello
+        stato offline.
+\end{itemize}
+
+\chapter{Flusso di Funzionamento del Sistema}
+
+\section{Tipologie di Utilizzo}
+
+BiblioFlow è stato progettato per accompagnare la giornata in biblioteca dal
+punto di vista di chi studia, di chi gestisce la sala e del sistema stesso,
+che interviene in autonomia a intervalli regolari. Il sistema offre quindi tre
+modalità principali di utilizzo:
+\begin{itemize}
+  \item \textbf{Utilizzo da parte dello studente:} tramite browser o
+        applicazione installata, lo studente prenota il posto, riceve i
+        promemoria e conferma la presenza con il check-in.
+  \item \textbf{Utilizzo da parte dello staff:} bibliotecari e amministratori
+        usano l'area \file{/admin} per effettuare il check-in con lo scanner,
+        annullare o modificare prenotazioni e risolvere le anomalie.
+  \item \textbf{Automazioni pianificate:} un'attività pianificata invoca
+        periodicamente l'endpoint \file{/api/cron/automations}, che esegue
+        promemoria, avvisi e rilascio dei posti non occupati.
+\end{itemize}
+
+\section{Flusso di Utilizzo}
+
+In questa sezione vengono dettagliati i flussi operativi che caratterizzano le
+tre modalità di utilizzo. Per ognuna si descrive la sequenza di eventi che
+porta dall'azione dell'utente, o dell'attività pianificata, al risultato
+finale.
+
+\subsection{Flusso di Utilizzo da parte dello Studente}
+
+\paragraph{Prenotazione.}
+\begin{enumerate}
+  \item Lo studente apre \file{/prenota} e sceglie la data, la durata e la sala;
+        la pagina carica sale e posti con \file{GET /api/sale} e
+        \file{GET /api/posti}.
+  \item Sulla mappa sceglie un posto libero, eventualmente attiva il margine
+        pendolare, e conferma.
+  \item La pagina invia \file{POST /api/prenotazioni} con identificativo
+        dell'utente, posto, data e orari.
+  \item Il route handler controlla i campi obbligatori, legge utente, posto e
+        sala, verifica che l'intervallo rientri nell'orario di apertura e che
+        non esistano prenotazioni attive sovrapposte sul posto o per l'utente.
+  \item Se i controlli sono superati crea la prenotazione nello stato
+        \texttt{CONFERMATA}, registra l'evento \texttt{PRENOTAZIONE\_CREATA},
+        invia una notifica e risponde 201; in caso di sovrapposizione risponde
+        409.
+\end{enumerate}
+
+\diagramma[0.9\linewidth]{sequenza-prenotazione-as-is}{Sequence Diagram della prenotazione.}
+
+\paragraph{Check-in.}
+\begin{enumerate}
+  \item Nel giorno della prenotazione la home mostra il QR code della
+        prenotazione e il pulsante di conferma della presenza.
+  \item La conferma invia \file{POST /api/prenotazioni/[id]/check-in}; il
+        route handler verifica la sessione e che la prenotazione appartenga
+        all'utente.
+  \item Se il momento della richiesta cade nella finestra di quindici minuti
+        attorno all'inizio, la prenotazione passa a \texttt{CHECK\_IN} e il
+        posto a \texttt{OCCUPATO}; altrimenti la richiesta è rifiutata come
+        scaduta.
+\end{enumerate}
+
+\diagramma[0.9\linewidth]{sequenza-checkin-as-is}{Sequence Diagram del check-in.}
+
+\subsection{Flusso di Utilizzo da parte dello Staff}
+
+\begin{enumerate}
+  \item Il bibliotecario apre \file{/admin/scanner} e inquadra il QR code
+        mostrato dallo studente.
+  \item La pagina invia il contenuto del QR a
+        \file{POST /api/admin/scanner/validate}, che verifica sessione e ruolo,
+        la firma e la validità temporale del codice.
+  \item Il route handler controlla che la prenotazione esista, appartenga allo
+        studente indicato nel QR e non sia annullata, scaduta o già in corso;
+        quindi registra il check-in, occupa il posto, crea l'evento e la
+        notifica e mostra allo staff i dati dello studente.
+  \item Dalla pagina \file{/admin/prenotazioni} lo staff può annullare una
+        prenotazione (\file{POST /api/admin/prenotazioni}, azione
+        \texttt{ANNULLA\_SINGOLA}): la prenotazione diventa
+        \texttt{CANCELLATA}, il posto torna disponibile se era occupato e lo
+        studente riceve una notifica.
+\end{enumerate}
+
+\diagramma[0.9\linewidth]{sequenza-staff-as-is}{Sequence Diagram dello staff.}
+
+\subsection{Flusso delle Automazioni Pianificate}
+
+\begin{enumerate}
+  \item L'attività pianificata di Vercel (Vercel Cron) chiama
+        \file{GET /api/cron/automations}, passando il segreto
+        \texttt{CRON\_SECRET} nell'intestazione di autorizzazione.
+  \item Il route handler confronta il token con il segreto configurato e
+        invoca \texttt{runAllAutomations()}.
+  \item Il servizio invia i promemoria di check-in alle prenotazioni che
+        iniziano entro venti minuti, gli avvisi per i prestiti in scadenza e
+        rilascia le prenotazioni \texttt{CONFERMATA} non confermate oltre il
+        margine: stato \texttt{NO\_SHOW}, posto \texttt{DISPONIBILE}, notifica
+        all'utente ed evento \texttt{NO\_SHOW\_AUTO}.
+  \item Al termine restituisce un riepilogo delle operazioni eseguite.
+\end{enumerate}
+
+\diagramma[0.9\linewidth]{sequenza-automazioni-as-is}{Sequence Diagram delle automazioni pianificate.}
+
+\end{document}

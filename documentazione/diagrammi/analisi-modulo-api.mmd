@@ -1,0 +1,41 @@
+flowchart LR
+    MW["middleware.ts<br/>presenza del cookie<br/>di sessione"]
+    subgraph ROUTE["Route handler"]
+        R_AUTH["auth/[...nextauth]<br/>registrazione · verify<br/>recupera-password<br/>reset-password"]
+        R_PREN["prenotazioni<br/>prenotazioni/[id]<br/>[id]/check-in<br/>[id]/estendi"]
+        R_CAT["posti · sale<br/>disponibilita-giorni"]
+        R_LIB["libri · libri/[id]<br/>prestiti · prestiti/[id]<br/>[id]/rinnova · richieste"]
+        R_NOT["notifiche · profilo"]
+        R_ADM["admin/prenotazioni<br/>admin/posti/[id]<br/>admin/prestiti<br/>admin/richieste<br/>admin/utenti/[id]<br/>admin/anomalie<br/>admin/statistiche<br/>admin/scanner/validate"]
+        R_CRON["cron/automations"]
+        R_SSE["sse/posti"]
+    end
+    subgraph LIB["src/lib"]
+        AUTH["auth"]
+        PRISMA["prisma"]
+        RL["rate-limit"]
+        QR["qr-signature"]
+        AUTO["automation-service"]
+        SSE["sse-emitter"]
+        PWD["password"]
+        ENV["env"]
+    end
+
+    MW --> R_PREN & R_CAT & R_LIB & R_NOT & R_ADM & R_SSE
+    R_AUTH --> AUTH & RL & PWD & PRISMA
+    R_PREN --> PRISMA & RL
+    R_PREN -- "solo check-in" --> AUTH
+    R_CAT --> PRISMA
+    R_LIB --> PRISMA & RL
+    R_NOT --> AUTH & PRISMA
+    R_ADM --> AUTH & PRISMA & QR
+    R_CRON --> AUTO & ENV
+    R_SSE --> SSE
+    AUTO --> PRISMA
+
+    classDef mw fill:#ede9fe,stroke:#7c3aed,color:#2e1065
+    classDef api fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef lib fill:#dcfce7,stroke:#16a34a,color:#052e16
+    class MW mw
+    class R_AUTH,R_PREN,R_CAT,R_LIB,R_NOT,R_ADM,R_CRON,R_SSE api
+    class AUTH,PRISMA,RL,QR,AUTO,SSE,PWD,ENV lib

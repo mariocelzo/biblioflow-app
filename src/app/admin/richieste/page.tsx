@@ -120,8 +120,8 @@ export default function AdminRichiestePage() {
                     <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-gray-100">Gestione Richieste Libri</h1>
                     <p className="text-muted-foreground">Click & Collect - Dashboard Operatore</p>
                 </div>
-                <Button onClick={fetchRichieste} variant="outline" size="icon">
-                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <Button onClick={fetchRichieste} variant="outline" size="icon" aria-label="Aggiorna l'elenco delle richieste">
+                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />
                 </Button>
             </div>
 

@@ -1,0 +1,322 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Pre-Modification Test Document}
+\renewcommand{\sottotitolodocumento}{Pre-Modification Test Document}
+
+% Prima colonna delle tabelle delle categorie: nome e descrizione.
+\newcommand{\categoria}[3]{%
+  \multirow{#3}{=}{\textbf{#1}\newline\footnotesize #2}}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+\listoftables
+
+\mainmatter
+\chapter{Introduzione}
+
+\section{Scopo del Documento}
+
+Lo scopo del presente documento è quello di presentare l'insieme dei casi di
+test designati a realizzare il testing di sistema di BiblioFlow nella sua
+versione attuale (Baseline), prima dell'introduzione delle modifiche previste
+dalle Change Requests.
+
+La strategia adottata è quella del testing black-box. Questo approccio
+consente di verificare la conformità del sistema concentrandosi esclusivamente
+sul comportamento esterno, ovvero sulla corrispondenza tra le richieste
+inviate alle interfacce del sistema (API HTTP, middleware, provider di
+accesso, funzioni delle automazioni) e le risposte e i dati prodotti, senza
+ispezionare la logica interna del codice.
+
+I casi descrivono il comportamento \emph{osservato} della versione di partenza,
+non quello desiderato: dove il sistema presenta un difetto noto, l'oracolo
+riporta il comportamento difettoso, così che la correzione introdotta dalle
+Change Requests risulti visibile come differenza rispetto a questa base.
+
+\section{Ambiente di Testing}
+
+Al fine di garantire la coerenza e la riproducibilità dei risultati, i test di
+sistema vengono eseguiti in un ambiente controllato configurato come segue:
+\begin{itemize}
+  \item \textbf{Versione del sistema:} tag \texttt{baseline-pre-cr-bf-01}
+        (commit \texttt{e0742bf}). Poiché la baseline non contiene
+        l'infrastruttura di test, l'esecuzione avviene sul commit
+        \texttt{7469969}, che aggiunge Vitest e le fixture senza modificare i
+        flussi verificati.
+  \item \textbf{Runtime:} Node.js 22.12, npm 10.9, Vitest 4.1.11.
+  \item \textbf{Database:} PostgreSQL 16 in un container effimero, database
+        \texttt{biblioflow\_test}; la preparazione rifiuta qualunque indirizzo
+        che non identifichi esplicitamente un database di test.
+  \item \textbf{Interfaccia di input:} route handler e middleware invocati
+        con richieste HTTP costruite nel test; funzioni delle automazioni
+        invocate come farebbe l'attività pianificata.
+  \item \textbf{Sistema Operativo di Riferimento:} Windows 11, fuso orario
+        \texttt{Europe/Rome}.
+\end{itemize}
+
+\section{Tipologia di Testing}
+
+Il metodo formale adottato per la progettazione dei casi di test è il
+Category Partitioning (Partizione delle Categorie).
+
+Questa tecnica è stata utilizzata per scomporre il dominio degli input del
+sistema in unità funzionali distinte (categorie), identificando per ciascuna
+di esse i parametri significativi e le relative classi di equivalenza. Tale
+approccio ha permesso di coprire i flussi che le Change Requests andranno a
+toccare (prenotazione, check-in, estensione, cancellazione, automazioni) e
+quelli che dovranno restare invariati (accesso, area staff, notifiche),
+minimizzando la ridondanza dei test.
+
+\chapter{Identificazione delle Categorie e dei Parametri}
+
+Il criterio adottato è quello del category partitioning, allo scopo di
+individuare le categorie di input e i parametri a cui associare ciascuna di
+esse. Di seguito sono elencati i gruppi di parametri definiti per il testing
+di sistema di BiblioFlow, suddivisi per ambito logico: Accesso (chi effettua
+la richiesta), Prenotazione (oggetto della richiesta) e Automazioni, Notifiche
+e Realtime (elaborazioni periodiche e canali verso l'utente).
+
+\section{Parametri di Accesso}
+
+Fanno riferimento all'identità di chi invia la richiesta e alla risorsa a cui
+tenta di accedere.
+
+{\small
+\begin{xltabular}{\linewidth}{L{5.4cm}L{1.3cm}Y}
+  \toprule
+  \intestazione \tb{Categoria} & \tb{Codice} & \tb{Scelte (Classi di Equivalenza)} \\
+  \midrule
+  \endhead
+  \categoria{Sessione (SE)}{Presenza del cookie di sessione nella richiesta.}{2}
+    & SE0 & Assente \\*
+    & SE1 & Presente \\
+  \midrule
+  \categoria{Ruolo (RU)}{Ruolo dell'utente autenticato.}{3}
+    & RU0 & Studente \\*
+    & RU1 & Bibliotecario \\*
+    & RU2 & Amministratore \\
+  \midrule
+  \categoria{Credenziali (CR)}{Esito del confronto della password all'accesso.}{2}
+    & CR0 & Corrette \\*
+    & CR1 & Password errata \\
+  \midrule
+  \categoria{Stato Account (AC)}{Abilitazione dell'account.}{2}
+    & AC0 & Attivo \\*
+    & AC1 & Disattivato \\
+  \midrule
+  \categoria{Risorsa (RS)}{Tipo di risorsa richiesta.}{2}
+    & RS0 & Pagina dell'interfaccia \\*
+    & RS1 & API \\
+  \bottomrule
+  \caption{Parametri relativi all'Accesso}\label{tab:par-accesso}\\
+\end{xltabular}}
+
+\section{Parametri della Prenotazione}
+
+Fanno riferimento all'operazione richiesta sulla prenotazione e ai dati che la
+accompagnano.
+
+{\small
+\begin{xltabular}{\linewidth}{L{5.4cm}L{1.3cm}Y}
+  \toprule
+  \intestazione \tb{Categoria} & \tb{Codice} & \tb{Scelte (Classi di Equivalenza)} \\
+  \midrule
+  \endhead
+  \categoria{Operazione (OP)}{Operazione richiesta sulla prenotazione.}{6}
+    & OP0 & Creazione \\*
+    & OP1 & Cancellazione da parte dello studente \\*
+    & OP2 & Check-in tramite l'endpoint dedicato \\*
+    & OP3 & Check-in tramite \texttt{PATCH} (percorso legacy) \\*
+    & OP4 & Estensione dell'orario \\*
+    & OP5 & Annullamento da parte dello staff \\
+  \midrule
+  \categoria{Payload (PL)}{Completezza dei campi obbligatori.}{2}
+    & PL0 & Completo \\*
+    & PL1 & Campo obbligatorio mancante \\
+  \midrule
+  \categoria{Intervallo Orario (IO)}{Relazione tra l'intervallo richiesto e l'orario della sala.}{3}
+    & IO0 & Ordinato e dentro l'orario di apertura \\*
+    & IO1 & Fuori dall'orario di apertura \\*
+    & IO2 & Invertito (fine precedente all'inizio) \\
+  \midrule
+  \categoria{Disponibilità (DI)}{Presenza di prenotazioni attive sovrapposte sullo stesso posto.}{2}
+    & DI0 & Nessuna sovrapposizione \\*
+    & DI1 & Sovrapposizione con una prenotazione attiva \\
+  \midrule
+  \categoria{Stato Iniziale (ST)}{Stato della prenotazione prima dell'operazione.}{3}
+    & ST0 & \texttt{CONFERMATA} \\*
+    & ST1 & \texttt{CHECK\_IN} \\*
+    & ST2 & \texttt{SCADUTA} \\
+  \midrule
+  \categoria{Origine (OR)}{Chi produce la richiesta di prenotazione.}{2}
+    & OR0 & Richiesta costruita direttamente \\*
+    & OR1 & Payload prodotto dalla pagina \texttt{/prenota} \\
+  \bottomrule
+  \caption{Parametri relativi alla Prenotazione}\label{tab:par-prenotazione}\\
+\end{xltabular}}
+
+\section{Parametri di Automazioni, Notifiche e Realtime}
+
+Fanno riferimento alle elaborazioni periodiche, alle funzioni dello staff e ai
+canali con cui il sistema informa l'utente.
+
+{\small
+\begin{xltabular}{\linewidth}{L{5.4cm}L{1.3cm}Y}
+  \toprule
+  \intestazione \tb{Categoria} & \tb{Codice} & \tb{Scelte (Classi di Equivalenza)} \\
+  \midrule
+  \endhead
+  \categoria{Momento (MO)}{Istante dell'elaborazione rispetto all'inizio della prenotazione.}{3}
+    & MO0 & Dentro la finestra di check-in \\*
+    & MO1 & Tra 15 e 20 minuti prima dell'inizio \\*
+    & MO2 & Oltre il margine di no-show \\
+  \midrule
+  \categoria{Esecuzioni (ES)}{Numero di esecuzioni dell'automazione nella giornata.}{2}
+    & ES0 & Una \\*
+    & ES1 & Due \\
+  \midrule
+  \categoria{Funzione Staff (FS)}{Funzione dell'area staff invocata.}{4}
+    & FS0 & Statistiche \\*
+    & FS1 & Gestione utenti \\*
+    & FS2 & Prestiti \\*
+    & FS3 & Prenotazioni \\
+  \midrule
+  \categoria{Notifiche (NT)}{Operazione sulle notifiche.}{2}
+    & NT0 & Avviso di posto liberato \\*
+    & NT1 & Elenco filtrato e paginato \\
+  \midrule
+  \categoria{Canale SSE (CS)}{Fase della connessione Server-Sent Events.}{3}
+    & CS0 & Apertura dello stream \\*
+    & CS1 & Pubblicazione di un evento \\*
+    & CS2 & Chiusura dello stream \\
+  \bottomrule
+  \caption{Parametri di Automazioni, Notifiche e Realtime}\label{tab:par-automazioni}\\
+\end{xltabular}}
+
+\chapter{Test di Sistema}
+
+In questo capitolo vengono dettagliati i casi di test (Test Cases) progettati
+per coprire i frame identificati. La tabella seguente mappa ogni Test Case
+(ID) con il relativo Test Frame (combinazione di parametri) e l'Oracolo
+(risultato atteso sulla versione di partenza). Gli oracoli segnati come
+\emph{difetto} descrivono un comportamento errato della baseline, fissato di
+proposito per misurare la correzione.
+
+{\small
+\begin{xltabular}{\linewidth}{L{2.4cm}L{3.4cm}Y}
+  \toprule
+  \intestazione \tb{TC ID} & \tb{Test Frame (Parametri)} & \tb{Oracolo / Risultato Atteso} \\
+  \midrule
+  \endhead
+  TC-PRE-001 & SE1, RU0, OP0, PL0, IO0, DI0, OR0 &
+  \textbf{Creazione valida:} HTTP 201, prenotazione \texttt{CONFERMATA},
+  evento \texttt{PRENOTAZIONE\_CREATA} e notifica di conferma. \\
+  TC-PRE-002 & SE1, RU0, OP0, PL1, OR0 &
+  \textbf{Campo mancante:} HTTP 400 con l'elenco dei campi obbligatori;
+  nessuna prenotazione creata. \\
+  TC-PRE-003 & SE1, RU0, OP0, PL0, IO1, DI0 &
+  \textbf{Fuori orario:} HTTP 400 con gli orari di apertura della sala;
+  nessuna scrittura. \\
+  TC-PRE-004 & SE1, RU0, OP0, PL0, IO2, DI0 &
+  \textbf{Intervallo invertito (difetto):} HTTP 201; il sistema non verifica
+  che la fine segua l'inizio. \\
+  TC-PRE-005 & SE1, RU0, OP0, PL0, IO0, DI1 &
+  \textbf{Posto occupato:} HTTP 409, \enquote{posto già prenotato}; nessuna
+  nuova prenotazione. \\
+  TC-PRE-006 & SE1, RU0, OP1, ST0 &
+  \textbf{Cancellazione:} HTTP 200, stato \texttt{CANCELLATA}, evento
+  \texttt{PRENOTAZIONE\_CANCELLATA}. \\
+  TC-PRE-007 & SE1, RU0, OP2, ST0, MO0 &
+  \textbf{Check-in valido rifiutato (difetto):} HTTP 400, \enquote{periodo di
+  check-in scaduto}; il confronto usa un orario ancorato al 1970. \\
+  TC-PRE-008 & SE1, RU0, OP3, ST0 &
+  \textbf{Check-in legacy:} HTTP 200, prenotazione \texttt{CHECK\_IN}, posto
+  \texttt{OCCUPATO}, evento \texttt{CHECK\_IN}. \\
+  TC-PRE-009 & SE1, RU0, OP4, ST0, DI1 &
+  \textbf{Estensione in conflitto:} HTTP 409; orario originale invariato. \\
+  TC-PRE-010 & SE1, RU0, OP4, ST0, DI0 &
+  \textbf{Estensione libera rifiutata (difetto):} HTTP 400 per durata
+  superiore a otto ore, calcolata tra date incompatibili. \\
+  TC-PRE-011 & CR0, AC0 &
+  \textbf{Accesso valido:} utente restituito senza hash della password,
+  ultimo accesso aggiornato. \\
+  TC-PRE-012 & CR1, AC0 &
+  \textbf{Password errata:} errore \enquote{Credenziali non valide}; ultimo
+  accesso invariato. \\
+  TC-PRE-013 & AC1 &
+  \textbf{Account disattivato:} errore dedicato prima del confronto della
+  password. \\
+  TC-PRE-014 & SE0, RS0 &
+  \textbf{Pagina staff anonima:} redirect 307 a \texttt{/login} con la
+  destinazione in \texttt{callbackUrl}. \\
+  TC-PRE-015 & SE0, RS1 &
+  \textbf{API staff anonima:} HTTP 401 \enquote{Non autenticato}. \\
+  TC-PRE-016 & SE1, RS0 &
+  \textbf{Pagina con cookie:} il middleware lascia proseguire
+  \texttt{/prenota} (verifica solo la presenza del cookie). \\
+  TC-PRE-017 & SE1, RU0, RS1, FS0 &
+  \textbf{Studente sulle statistiche:} HTTP 403, nessuna query di
+  aggregazione. \\
+  TC-PRE-018 & SE1, RU1, RS1, FS1 &
+  \textbf{Bibliotecario disattiva un utente:} HTTP 403; operazione riservata
+  all'amministratore, nessun aggiornamento. \\
+  TC-PRE-019 & SE1, RU1, RS1, FS1 &
+  \textbf{Dettaglio utente:} HTTP 200 con profilo e conteggi di
+  prenotazioni, prestiti e no-show. \\
+  TC-PRE-020 & SE1, RU2, RS1, FS2 &
+  \textbf{Restituzione prestito:} stato \texttt{RESTITUITO}, data di
+  restituzione, evento e notifica; zero giorni di ritardo. \\
+  TC-PRE-021 & SE1, RU1, OP5, ST1, FS3 &
+  \textbf{Annullamento staff:} prenotazione \texttt{CANCELLATA}, posto
+  \texttt{DISPONIBILE}, evento e notifica. \\
+  TC-PRE-022 & SE1, RU1, RS1, FS0 &
+  \textbf{Tasso di no-show:} distribuzione 20\% no-show, 60\% completate,
+  20\% altre. \\
+  TC-PRE-023 & OP0, OR1 &
+  \textbf{Contratto della pagina:} \texttt{POST /api/prenotazioni} con
+  \texttt{userId}, posto, data, orari e margine pendolare. \\
+  TC-PRE-024 & SE1, RU0, OP0, PL0, IO0, DI0, OR1 &
+  \textbf{Conferma dalla pagina:} HTTP 201 e prenotazione
+  \texttt{CONFERMATA}. \\
+  PRE-AUT-001 & ST0, MO1, ES0 &
+  \textbf{Promemoria:} una notifica \texttt{CHECK\_IN\_REMINDER} non letta
+  con collegamento alla prenotazione ed evento \texttt{AUTOMATION}. \\
+  PRE-AUT-002 & ST0, MO1, ES1 &
+  \textbf{Promemoria idempotente:} la seconda esecuzione non invia nulla; un
+  solo promemoria nel database. \\
+  PRE-AUT-003 & ST0, MO2, ES0 &
+  \textbf{No-show automatico:} stato \texttt{NO\_SHOW}, posto
+  \texttt{DISPONIBILE}, notifica \texttt{ALERT}, evento
+  \texttt{NO\_SHOW\_AUTO}. \\
+  PRE-AUT-004 & ST2, MO2, ES0 &
+  \textbf{Prenotazione già scaduta:} nessuna elaborazione, nessuna notifica
+  né evento. \\
+  PRE-NOT-001 & NT0 &
+  \textbf{Posto liberato:} notifica \texttt{INFO} non letta, con collegamento
+  a \texttt{/prenota}, all'utente che frequenta la sala. \\
+  PRE-NOT-002 & SE1, RU0, NT1 &
+  \textbf{Elenco notifiche:} HTTP 200 con \texttt{count=1},
+  \texttt{totale=2}, \texttt{nonLette=1}. \\
+  PRE-SSE-001 & CS0 &
+  \textbf{Apertura stream:} HTTP 200, \texttt{text/event-stream}, cache
+  disabilitata, commento iniziale \texttt{: connected}. \\
+  PRE-SSE-002 & CS1 &
+  \textbf{Isolamento dei canali:} l'evento sul canale dei posti arriva solo
+  a quel canale e al canale jolly, nel formato \texttt{event}/\texttt{data}. \\
+  PRE-SSE-003 & CS1 &
+  \textbf{Aggiornamento posto:} evento \texttt{posto-update} con posto,
+  stato, numero, sala e timestamp ISO. \\
+  PRE-SSE-004 & CS2 &
+  \textbf{Chiusura:} il client viene rimosso dal registro dell'emettitore. \\
+  \bottomrule
+\end{xltabular}}
+
+Tutti i 34 casi sono stati eseguiti sulla versione di partenza con esito
+conforme all'oracolo (34 su 34). I tre casi segnati come difetto (TC-PRE-004,
+TC-PRE-007, TC-PRE-010) e il contratto di TC-PRE-023 costituiscono l'evidenza
+da cui partono le Change Requests.
+
+\end{document}

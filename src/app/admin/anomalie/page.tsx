@@ -24,6 +24,7 @@ import {
 import db from "@/lib/prisma";
 import { AnomalieActions, QuickActions, RowActionButton } from "@/components/admin/anomalie-actions";
 import { formattaOraDb } from "@/lib/admin-tempo";
+import { filtroTipoNoShow } from "@/lib/eventi-no-show";
 
 export const metadata: Metadata = {
   title: "Anomalie & Alert",
@@ -52,7 +53,7 @@ export default async function AdminAnomaliesPage() {
     // No-show degli ultimi 7 giorni (prendi tutti per filtrare correttamente)
     db.logEvento.findMany({
       where: {
-        tipo: "NO_SHOW",
+        tipo: filtroTipoNoShow(),
         createdAt: {
           gte: setteGiorniFa,
         },

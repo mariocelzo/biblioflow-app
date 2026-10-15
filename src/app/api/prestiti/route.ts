@@ -1,4 +1,4 @@
-import type { StatoPrestito } from "@prisma/client";
+import { StatoPrestito } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 
 import { AuthError, isStaff, requireUser } from "@/lib/auth";
@@ -64,6 +64,15 @@ function erroreNessunaCopiaDisponibile() {
 // i filtri, invece di rinunciare al dato.
 const STATI_PRESTITO_IN_CORSO: readonly StatoPrestito[] = ["ATTIVO", "RINNOVATO"];
 
+// Durata del prestito decisa dal server, non dal client.
+// Prima `durataDays` arrivava dal corpo della richiesta senza controlli: uno
+// studente poteva chiedere un prestito di dieci anni, oppure una durata
+// negativa (prestito gia' scaduto) o non numerica (data non valida, 500).
+// Lo studente riceve sempre la durata standard; lo staff, che registra i
+// prestiti al banco, puo' indicarne una diversa entro un tetto esplicito.
+const DURATA_PRESTITO_GIORNI = 30;
+const DURATA_MASSIMA_PRESTITO_STAFF_GIORNI = 60;
+
 // Campi utente esposti allo studente: NON includono dati personali sensibili
 // (email, matricola). Lo staff (BIBLIOTECARIO/ADMIN) puo' invece vederli perche'
 // gestisce i prestiti al banco.
@@ -119,6 +128,18 @@ export async function GET(request: NextRequest) {
     }
 
     if (stato) {
+      // Un valore fuori enum arrivava intatto a Prisma e diventava un 500:
+      // stesso trattamento (422) gia' applicato a prenotazioni, posti e
+      // richieste.
+      if (!Object.values(StatoPrestito).includes(stato as StatoPrestito)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Stato non valido. Valori ammessi: ${Object.values(StatoPrestito).join(", ")}`,
+          },
+          { status: 422 },
+        );
+      }
       where.stato = stato;
     }
 
@@ -194,7 +215,25 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    const { libroId, durataDays = 30 } = body;
+    const { libroId } = body;
+
+    let durataDays = DURATA_PRESTITO_GIORNI;
+    if (isStaff(user.ruolo) && body.durataDays !== undefined) {
+      if (
+        !Number.isInteger(body.durataDays) ||
+        body.durataDays < 1 ||
+        body.durataDays > DURATA_MASSIMA_PRESTITO_STAFF_GIORNI
+      ) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `durataDays deve essere un intero tra 1 e ${DURATA_MASSIMA_PRESTITO_STAFF_GIORNI}`,
+          },
+          { status: 422 },
+        );
+      }
+      durataDays = body.durataDays;
+    }
 
     // L'identita' del richiedente e' SEMPRE quella di sessione. Solo lo staff
     // puo' registrare un prestito per conto di un altro utente passando

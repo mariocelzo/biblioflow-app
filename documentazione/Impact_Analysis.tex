@@ -1,0 +1,747 @@
+\documentclass[11pt,a4paper,oneside,openany]{book}
+\usepackage{biblioflow-ista}
+
+\renewcommand{\titolodocumento}{Impact Analysis}
+\renewcommand{\sottotitolodocumento}{Impact Analysis}
+
+% Insieme di file in forma estesa: \insieme{SIS}{riga \\ riga ...}
+\newcommand{\insieme}[2]{%
+  \[ \mathit{#1} = \left\{ \begin{array}{l} #2 \end{array} \right\} \]}
+\newcommand{\elem}[1]{\text{\file{#1}}}
+
+\begin{document}
+\frontmatter
+\copertina
+\tableofcontents
+\listoffigures
+\listoftables
+
+\mainmatter
+\chapter{Introduzione}
+
+BiblioFlow è una piattaforma web per la prenotazione dei posti studio e la
+gestione dei servizi di una biblioteca universitaria. L'architettura combina
+un'interfaccia Next.js installabile come PWA, un insieme di route handler che
+accedono a PostgreSQL tramite Prisma e un servizio di automazioni periodiche
+che gestisce promemoria e posti non occupati.
+
+Questo documento di Impact Analysis si propone di esaminare in via preventiva
+le modifiche richieste (Change Requests) per l'evoluzione della piattaforma.
+Lo scopo dell'analisi è stimare l'estensione degli interventi necessari sui
+moduli esistenti, permettendo così di pianificare lo sviluppo in modo accurato
+e di mitigare i rischi legati a potenziali effetti collaterali o regressioni
+nel codice. L'indagine viene svolta attraverso un'ispezione statica dei
+sorgenti della versione di partenza, volta a tracciare le dipendenze logiche
+tra i componenti.
+
+\section{Obiettivi del documento}
+
+L'analisi persegue i seguenti obiettivi operativi:
+\begin{itemize}
+  \item \textbf{Mappatura Architetturale:} ricostruire la struttura delle
+        dipendenze di BiblioFlow attraverso l'analisi statica, identificando i
+        moduli critici e le interconnessioni tra pagine, route handler e
+        servizi.
+  \item \textbf{Stima dell'Impatto:} determinare per ogni Change Request
+        l'insieme dei file che necessitano di modifica diretta e quelli esposti
+        a rischio di propagazione.
+  \item \textbf{Giustificazione Formale:} fornire evidenze che motivino
+        l'inclusione dei vari componenti negli insiemi di impatto previsti.
+  \item \textbf{Verifica a Posteriori:} definire i criteri quantitativi
+        (metriche di Precision e Recall) per valutare, a fine implementazione,
+        la discrepanza tra l'impatto ipotizzato in questa sede e le modifiche
+        effettivamente realizzate.
+\end{itemize}
+
+\section{Change Request Analizzate}
+
+Le richieste di modifica analizzate sono:
+
+{\small
+\begin{xltabular}{\linewidth}{L{1cm}L{3.4cm}YL{1.3cm}}
+  \toprule
+  \intestazione \tb{ID} & \tb{Titolo} & \tb{Descrizione Sintetica} & \tb{Priorità} \\
+  \midrule
+  CR01 & Prenotazione sicura e atomica dei posti studio &
+  Identità e titolarità derivate dalla sessione autenticata, regole sugli
+  orari centralizzate e creazione atomica delle prenotazioni, con un vincolo
+  del database che impedisce due prenotazioni attive sovrapposte sullo stesso
+  posto. & Alta \\
+  \midrule
+  CR02 & Lista d'attesa con riassegnazione automatica dei posti &
+  Coda per posto e fascia oraria quando il posto è occupato; promozione
+  automatica del primo in coda quando il posto si libera per cancellazione,
+  no-show o promozione non confermata, con notifiche e tracciabilità. & Media \\
+  \bottomrule
+  \caption{Tabella riassuntiva delle Change Request}\label{tab:riassunto}\\
+\end{xltabular}}
+
+\section{Terminologia e Acronimi}
+
+Per classificare i componenti software in base al loro coinvolgimento nelle
+modifiche, si adottano le seguenti definizioni standard:
+\begin{itemize}
+  \item \textbf{SIS (Starting Impact Set):} identifica i componenti che saranno
+        oggetto di modifica diretta per soddisfare i requisiti della Change
+        Request.
+  \item \textbf{CIS (Candidate Impact Set):} comprende l'insieme esteso dei
+        componenti che, pur non essendo modificati direttamente, potrebbero
+        subire effetti indesiderati a causa di relazioni di dipendenza (import,
+        chiamate HTTP, dati condivisi) con gli elementi del SIS.
+  \item \textbf{AIS (Actual Impact Set):} rappresenta l'insieme dei componenti
+        effettivamente alterati al termine della fase di implementazione.
+  \item \textbf{FPIS (False Positive Impact Set):} sottoinsieme del CIS che,
+        contrariamente alle previsioni, non ha richiesto interventi.
+  \item \textbf{DIS (Discovered Impact Set):} componenti che hanno richiesto
+        modifiche impreviste durante lo sviluppo, sfuggiti all'analisi
+        iniziale.
+\end{itemize}
+
+\chapter{Change Request 01}
+
+\section{Descrizione della Change Request}
+
+{\small
+\begin{xltabular}{\linewidth}{SY}
+  \toprule
+  Titolo & Prenotazione sicura e atomica dei posti studio \\
+  \midrule
+  Situazione Attuale &
+  La creazione di una prenotazione si fida dell'identificativo utente inviato
+  dal client; lettura, cancellazione ed estensione non verificano la
+  titolarità. Il controllo di disponibilità e la scrittura sono operazioni
+  separate e il database non impedisce sovrapposizioni. Le regole sugli orari
+  sono duplicate tra creazione ed estensione e accettano intervalli invertiti;
+  check-in ed estensione confrontano date e orari in rappresentazioni
+  incompatibili. \\
+  \midrule
+  Situazione Desiderata &
+  Identità e titolarità derivate dalla sessione, con risposte 401, 403 e 404
+  coerenti anche sulle route dello staff. Un servizio di dominio unico per la
+  validazione degli intervalli. Creazione atomica in transazione, garantita da
+  un vincolo di esclusione del database; il conflitto produce un 409
+  comprensibile. \\
+  \bottomrule
+  \caption{Dettaglio Change Request CR01}\label{tab:cr01}\\
+\end{xltabular}}
+
+\section{Analisi Statica e Architetturale}
+
+L'analisi statica del sistema attuale evidenzia una catena di esecuzione corta
+e lineare. Le pagine dello studente chiamano direttamente i route handler con
+\texttt{fetch}; prima di ogni route il middleware verifica soltanto che esista
+un cookie di sessione, senza leggerne il contenuto. Ciascun route handler
+contiene per intero la propria logica: legge e scrive con Prisma, e solo alcune
+route (check-in e area staff) interrogano \file{lib/auth.ts} per conoscere
+l'utente. Non esiste uno strato di servizio condiviso tra le route di
+prenotazione: ognuna replica i propri controlli.
+
+\subsection{Call Graph Architetturale (Stato Attuale)}
+
+Di seguito è riportata la struttura delle chiamate tra i moduli coinvolti nel
+flusso di prenotazione, ricostruita tramite analisi del codice sorgente della
+versione di partenza: gli archi rappresentano un import, una chiamata HTTP di
+una pagina verso una route o il passaggio obbligato dal middleware.
+
+\diagramma[0.95\linewidth]{ia-cr01-as-is}{Architettura Attuale (As-Is) del flusso di prenotazione.}
+
+\subsection{Matrice di Raggiungibilità}
+
+La matrice seguente rappresenta la raggiungibilità tra i moduli del grafo
+precedente. I colori rappresentano la distanza topologica, cioè il numero di
+archi necessari per raggiungere un componente; il trattino indica che la
+destinazione non è raggiungibile.
+
+\input{tabelle/raggiungibilita-cr01}
+
+La matrice mette in evidenza due punti di concentrazione: \file{lib/prisma.ts}
+e lo schema sono raggiungibili da ogni route a distanza 1 e 2, quindi una
+modifica allo schema si propaga a tutto il sottosistema; il middleware
+raggiunge tutte le route a distanza 1, quindi un cambiamento nel modo di
+riconoscere l'utente lo coinvolge necessariamente.
+
+\section{Impact Analysis}
+
+\subsection{Start Impact Set (SIS)}
+
+Lo Start Impact Set (SIS) identifica le entità software che richiedono una
+modifica diretta per implementare i requisiti descritti nella Change Request.
+Per la CR01 sono stati individuati sette file che costituiscono il punto di
+iniezione della modifica.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}L{2cm}Y}
+  \toprule
+  \intestazione \tb{File (Percorso)} & \tb{Ruolo} & \tb{Motivazione dell'Inclusione} \\
+  \midrule
+  \endhead
+  \file{prisma/schema.prisma} & Modello dati &
+  \textbf{Garanzia sul database:} la sovrapposizione è oggi controllata solo
+  dal codice. Serve un vincolo che renda impossibili due prenotazioni attive
+  sovrapposte sullo stesso posto. \\
+  \file{src/lib/auth.ts} & Sicurezza &
+  \textbf{Identità dalla sessione:} mancano funzioni comuni per ottenere
+  l'utente autenticato e verificarne ruolo e titolarità; ogni route le
+  reimplementa o le omette. \\
+  \file{api/prenotazioni/route.ts} & Controller &
+  \textbf{Creazione atomica:} legge \texttt{userId} dal corpo della richiesta
+  ed esegue verifica e scrittura in due momenti distinti; l'elenco accetta un
+  \texttt{userId} arbitrario come filtro. \\
+  \file{api/prenotazioni/[id]/route.ts} & Controller &
+  \textbf{Titolarità:} lettura, cancellazione e check-in tramite
+  \texttt{PATCH} non verificano che la prenotazione appartenga all'utente. \\
+  \file{api/prenotazioni/[id]/check-in/route.ts} & Controller &
+  \textbf{Confronto data/ora:} confronta l'istante della richiesta con un
+  orario \texttt{@db.Time} ancorato al 1970 e rifiuta check-in validi. \\
+  \file{api/prenotazioni/[id]/estendi/route.ts} & Controller &
+  \textbf{Validazione duplicata:} non verifica la sessione, replica le regole
+  sugli orari e calcola la durata tra date incompatibili. \\
+  \file{app/prenota/page.tsx} & Interfaccia &
+  \textbf{Contratto della richiesta:} invia l'identificativo dell'utente nel
+  corpo della prenotazione; il contratto con l'API deve cambiare. \\
+  \bottomrule
+  \caption{Start Impact Set (SIS) per la CR01}\label{tab:sis-cr01}\\
+\end{xltabular}}
+
+\insieme{SIS}{
+  \elem{prisma/schema.prisma},\ \elem{src/lib/auth.ts},\\
+  \elem{api/prenotazioni/route.ts},\ \elem{api/prenotazioni/[id]/route.ts},\\
+  \elem{api/prenotazioni/[id]/check-in/route.ts},\\
+  \elem{api/prenotazioni/[id]/estendi/route.ts},\ \elem{app/prenota/page.tsx}}
+
+\subsection{Candidate Impact Set (CIS)}
+
+L'analisi del Candidate Impact Set (CIS) mira a identificare i componenti che
+dipendono, direttamente o indirettamente, dagli elementi del SIS.
+Inizialmente l'indagine è stata condotta tramite ricerca testuale degli import
+e delle chiamate \texttt{fetch} nel codice sorgente, con il comando
+\texttt{grep}. Data la natura puramente sintattica di questo metodo, si è
+proceduto a una revisione manuale delle dipendenze, appoggiata al diagramma dei
+componenti e alla matrice ruoli-operazioni redatti sulla versione di partenza
+prima di intervenire sul codice.
+
+A differenza di quanto avviene per un intervento isolato, il CIS non coincide
+con il SIS: la revisione ha aggiunto sei componenti.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{File (Percorso)} & \tb{Motivo della Propagazione} \\
+  \midrule
+  \endhead
+  \file{src/middleware.ts} &
+  Precede tutte le route e oggi riconosce l'utente dalla sola presenza del
+  cookie: una gestione dell'identità basata sulla sessione potrebbe
+  richiederne l'adeguamento. \\
+  \file{api/admin/posti/[id]/route.ts} &
+  Restituisce le prenotazioni di un posto; la matrice ruoli-operazioni rileva
+  che verifica la sessione ma non il ruolo dello staff. \\
+  \file{api/admin/richieste/route.ts} &
+  Route dello staff che non verifica né la sessione né il ruolo: rientra nel
+  requisito di risposte coerenti per l'area staff. \\
+  \file{api/admin/scanner/validate/route.ts} &
+  Esegue il check-in tramite QR e scrive gli stessi stati della prenotazione
+  toccati dalla CR. \\
+  \file{app/prenotazioni/page.tsx} &
+  Consuma l'elenco e le operazioni sulla singola prenotazione, il cui
+  contratto (filtri, codici di errore) può cambiare. \\
+  \file{app/prenotazioni/[id]/estendi/page.tsx} &
+  Consuma la route di estensione, le cui regole e risposte saranno
+  centralizzate. \\
+  \bottomrule
+  \caption{Componenti aggiunti dal Candidate Impact Set per la CR01}\label{tab:cis-cr01}\\
+\end{xltabular}}
+
+\insieme{CIS}{
+  \mathit{SIS}\ \cup\ \{\elem{src/middleware.ts},\ \elem{api/admin/posti/[id]/route.ts},\\
+  \quad \elem{api/admin/richieste/route.ts},\ \elem{api/admin/scanner/validate/route.ts},\\
+  \quad \elem{app/prenotazioni/page.tsx},\ \elem{app/prenotazioni/[id]/estendi/page.tsx}\}}
+
+\section{Implementazione}
+
+\subsection{Actual Impact Set (AIS)}
+
+Durante la fase di implementazione, la scelta di raccogliere le regole di
+prenotazione in un servizio di dominio, invece di correggerle route per route,
+ha portato a una divergenza tra l'Impact Set stimato (CIS) e quello effettivo
+(AIS). L'AIS comprende i seguenti elementi:
+\begin{itemize}
+  \item \textbf{File Modificati (dal CIS):}
+  \begin{itemize}
+    \item \file{prisma/schema.prisma}: aggiornato per i nuovi indici sulle
+          prenotazioni attive.
+    \item \file{src/lib/auth.ts}: aggiunte \texttt{requireUser},
+          \texttt{requireRole} e \texttt{assertOwnership}, con un errore di
+          autorizzazione tipizzato che le route traducono in 401, 403 o 404.
+    \item \file{api/prenotazioni/route.ts},
+          \file{api/prenotazioni/[id]/route.ts},
+          \file{api/prenotazioni/[id]/check-in/route.ts},
+          \file{api/prenotazioni/[id]/estendi/route.ts}: identità dalla
+          sessione, titolarità, delega al servizio di dominio e traduzione
+          degli errori in risposte HTTP.
+    \item \file{api/admin/posti/[id]/route.ts},
+          \file{api/admin/richieste/route.ts}: verifica del ruolo dello staff e
+          validazione dei dati in ingresso.
+  \end{itemize}
+  \item \textbf{Nuovi File Creati (Estensione):}
+  \begin{itemize}
+    \item \file{src/lib/prenotazioni-service.ts}: servizio di dominio con la
+          validazione degli intervalli e la creazione in transazione
+          \texttt{Serializable}.
+    \item \file{src/lib/prenotazioni-errors.ts}: errori di dominio con codice
+          stabile e messaggio comprensibile, tra cui il conflitto di
+          disponibilità.
+    \item \file{prisma/migrations/..._vincolo_anti_sovrapposizione_prenotazioni}:
+          vincolo di esclusione PostgreSQL sugli intervalli delle prenotazioni
+          attive dello stesso posto.
+  \end{itemize}
+\end{itemize}
+
+Formalmente, l'insieme dei file impattati risulta essere:
+
+\insieme{AIS_{CR01}}{
+  \elem{prisma/schema.prisma},\ \elem{src/lib/auth.ts},\\
+  \elem{api/prenotazioni/route.ts},\ \elem{api/prenotazioni/[id]/route.ts},\\
+  \elem{api/prenotazioni/[id]/check-in/route.ts},\\
+  \elem{api/prenotazioni/[id]/estendi/route.ts},\\
+  \elem{api/admin/posti/[id]/route.ts},\ \elem{api/admin/richieste/route.ts},\\
+  \elem{src/lib/prenotazioni-service.ts}\ \text{(New)},\\
+  \elem{src/lib/prenotazioni-errors.ts}\ \text{(New)},\\
+  \text{migrazione del vincolo anti-sovrapposizione (New)}}
+
+La differenza tra stima ed effettivo evidenzia un approccio additivo per la
+logica di dominio: le regole sono state spostate in moduli nuovi e le route si
+sono ridotte a tradurre input ed errori, invece di essere corrette una per
+una.
+
+\subsection{False Positive Impact Set (FPIS)}
+
+Il False Positive Impact Set (FPIS) è costituito dai componenti che erano
+stati stimati come impattati dalla modifica (membri del CIS), ma che non sono
+stati modificati durante l'implementazione (non membri dell'AIS). La tabella
+seguente descrive questi file e la giustificazione della loro esclusione.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{Classe/File} & \tb{Motivo dell'Esclusione} \\
+  \midrule
+  \endhead
+  \file{app/prenota/page.tsx} &
+  La pagina continua a inviare l'identificativo dell'utente, ma il server lo
+  ignora e usa quello della sessione: la correzione è stata fatta interamente
+  lato server, senza cambiare il contratto della pagina. \\
+  \file{src/middleware.ts} &
+  Le route ottengono l'utente dalla sessione per conto proprio; il
+  middleware, che si limita a respingere le richieste prive di cookie, non ha
+  richiesto modifiche per questa CR. \\
+  \file{api/admin/scanner/validate/route.ts} &
+  Verificava già sessione, ruolo e firma del QR; la CR non ha introdotto
+  nuovi stati della prenotazione che lo scanner dovesse riconoscere. \\
+  \file{app/prenotazioni/page.tsx} &
+  I contratti di elenco e cancellazione sono rimasti compatibili: le nuove
+  risposte di errore sono già gestite dal codice esistente. \\
+  \file{app/prenotazioni/[id]/estendi/page.tsx} &
+  La route di estensione mantiene la stessa richiesta e la stessa risposta di
+  successo; cambiano solo le regole lato server. \\
+  \bottomrule
+  \caption{False Positive Impact Set (FPIS) per la CR01}\label{tab:fpis-cr01}\\
+\end{xltabular}}
+
+\textbf{Analisi:} i falsi positivi derivano da una stima prudente: ogni
+consumatore delle route di prenotazione è stato incluso perché il contratto
+poteva cambiare. Spostare la correzione lato server ha permesso di mantenere
+compatibili i contratti e di lasciare intatte le pagine. Il middleware è stato
+poi rivisto durante la manutenzione successiva, quando è emerso che il solo
+controllo della presenza del cookie non era sufficiente: ora verifica davvero
+il token di sessione.
+
+\subsection{Discovered Impact Set (DIS)}
+
+Il Discovered Impact Set (DIS) comprende i file che non erano stati inclusi
+nell'insieme di impatto iniziale, ma che sono stati creati durante l'effettiva
+implementazione della Change Request. Questi componenti rappresentano il
+lavoro \enquote{scoperto} durante lo sviluppo, dovuto a decisioni
+architetturali prese per migliorare la manutenibilità del codice.
+
+Le seguenti classi compongono il DIS per la CR01:
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{Classe/File} & \tb{Motivazione dell'Inclusione} \\
+  \midrule
+  \endhead
+  \file{src/lib/prenotazioni-service.ts} &
+  Invece di correggere quattro route con quattro copie delle stesse regole, è
+  stato creato un servizio di dominio indipendente da richiesta e risposta
+  HTTP: validazione degli intervalli, verifica della sala e del posto,
+  creazione ed estensione in transazione. \\
+  \file{src/lib/prenotazioni-errors.ts} &
+  Le route devono distinguere i casi d'errore senza conoscere il database:
+  gli errori di dominio portano un codice stabile e un messaggio
+  comprensibile, che la route traduce nel codice HTTP corretto. \\
+  Migrazione del vincolo anti-sovrapposizione &
+  Lo schema Prisma non consente di dichiarare un vincolo di esclusione sugli
+  intervalli: è stato necessario scriverlo in SQL in una migrazione dedicata,
+  oltre alla modifica di \file{schema.prisma} prevista nel SIS. \\
+  \bottomrule
+  \caption{Discovered Impact Set (DIS) per la CR01}\label{tab:dis-cr01}\\
+\end{xltabular}}
+
+\textbf{Analisi:} la presenza di questi file nel DIS mostra che una parte
+dell'impatto si è spostata dalla modifica del codice esistente alla creazione
+di moduli nuovi. È lo stesso fenomeno che riduce l'FPIS: concentrando le
+regole in un punto solo, i consumatori sono rimasti intatti.
+
+\section{Metrics}
+
+In questa sezione valutiamo l'accuratezza della stima dell'impatto utilizzando
+le metriche di Precision e Recall.
+\begin{itemize}
+  \item \textbf{Candidate Impact Set (CIS):} 13 file
+  \item \textbf{Actual Impact Set (AIS):} 11 file
+  \item \textbf{Intersezione (CIS $\cap$ AIS):} 8 file
+\end{itemize}
+
+\paragraph{Precision (Precisione)}
+Misura la frazione di file previsti che sono stati effettivamente modificati.
+\[ \mathit{Precision} = \frac{|\mathit{CIS} \cap \mathit{AIS}|}{|\mathit{CIS}|} = \frac{8}{13} \approx 0{,}62\ (61{,}5\%) \]
+Un valore del 62\% indica che la maggior parte dei file previsti è stata
+coinvolta; i cinque falsi positivi sono consumatori il cui contratto è
+rimasto compatibile.
+
+\paragraph{Recall (Richiamo)}
+Misura la frazione di file effettivamente modificati che erano stati previsti
+correttamente all'inizio.
+\[ \mathit{Recall} = \frac{|\mathit{CIS} \cap \mathit{AIS}|}{|\mathit{AIS}|} = \frac{8}{11} \approx 0{,}73\ (72{,}7\%) \]
+Un valore del 73\% indica che quasi tre quarti del lavoro effettivo erano
+stati previsti; la parte restante corrisponde ai tre file nuovi del DIS, nati
+dalla scelta di introdurre un servizio di dominio.
+
+\chapter{Change Request 02}
+
+\section{Descrizione della Change Request}
+
+{\small
+\begin{xltabular}{\linewidth}{SY}
+  \toprule
+  Titolo & Lista d'attesa con riassegnazione automatica dei posti \\
+  \midrule
+  Situazione Attuale &
+  Se il posto è occupato nella fascia scelta lo studente riceve solo un
+  errore. Quando una prenotazione viene annullata o il titolare non si
+  presenta, il posto torna disponibile senza avvisare nessuno; l'automazione
+  periodica si limita a segnare il no-show e a liberare il posto. \\
+  \midrule
+  Situazione Desiderata &
+  Ingresso in coda per posto e fascia dalla mappa, dalla griglia mobile o dal
+  messaggio di conflitto; ordine di arrivo senza duplicati; promozione
+  automatica del primo in coda su cancellazione (studente o staff), no-show e
+  promozione non confermata, con notifica, scadenza della promozione e
+  tracciabilità completa. \\
+  \bottomrule
+  \caption{Dettaglio Change Request CR02}\label{tab:cr02}\\
+\end{xltabular}}
+
+\section{Analisi Statica e Architetturale (Liberazione dei Posti)}
+
+L'architettura coinvolta dalla CR02 è più distribuita di quella della CR01:
+un posto può liberarsi per tre vie indipendenti (cancellazione dello studente,
+cancellazione dello staff, automazione periodica) che oggi non condividono
+alcun codice. L'analisi statica ha inoltre ricostruito la catena dei
+componenti di aggiornamento in tempo reale, presenti nel codice ma non
+collegati all'interfaccia: nessuna pagina usa l'hook \file{use-sse.ts} e
+nessun modulo invoca \file{realtime-events.ts}.
+
+\subsection{Call Graph Architetturale (Stato Attuale)}
+
+Per comprendere l'impatto della lista d'attesa è stata mappata la catena che
+va dalle interfacce ai punti in cui un posto si libera, fino allo schema dei
+dati. Il diagramma adotta una prospettiva orientata al flusso dei dati e
+mostra il disaccoppiamento tra i tre percorsi di liberazione e il canale in
+tempo reale.
+
+\diagramma[0.82\linewidth]{ia-cr02-as-is}{Liberazione dei posti e canale realtime As-Is.}
+
+\subsection{Matrice di Raggiungibilità (Cross-Layer)}
+
+La seguente matrice quantifica la distanza logica tra i livelli
+dell'architettura. Nel contesto della CR02 è significativo ciò che
+\emph{non} è raggiungibile: dall'interfaccia di prenotazione non si arriva al
+servizio delle automazioni né al canale SSE, quindi l'esito di una promozione
+non ha oggi alcuna strada per tornare all'utente se non tramite la base di dati
+e le notifiche.
+
+\input{tabelle/raggiungibilita-cr02}
+
+\section{Impact Analysis}
+
+\subsection{Start Impact Set (SIS)}
+
+Lo Start Impact Set per la CR02 comprende i componenti che possiedono i punti
+in cui un posto si libera e il modello dei dati che deve rappresentare la
+coda.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}L{2cm}Y}
+  \toprule
+  \intestazione \tb{File (Percorso)} & \tb{Tipo} & \tb{Motivazione Specifica} \\
+  \midrule
+  \endhead
+  \file{prisma/schema.prisma} & Modello dati &
+  \textbf{Nuova entità:} la richiesta in coda deve essere persistita con
+  utente, posto, intervallo, stato e ordine di arrivo, impedendo i duplicati
+  attivi. \\
+  \file{src/lib/automation-service.ts} & Servizio &
+  \textbf{No-show e scadenze:} il rilascio automatico dei posti non occupati è
+  uno dei tre eventi di liberazione; qui va avviata la promozione e gestita la
+  scadenza delle promozioni non confermate. \\
+  \file{api/admin/prenotazioni/route.ts} & Controller &
+  \textbf{Cancellazione dello staff:} l'annullamento di una prenotazione da
+  parte dello staff libera il posto e deve tentare la promozione. \\
+  \file{api/prenotazioni/[id]/route.ts} & Controller &
+  \textbf{Cancellazione dello studente:} l'annullamento da parte del titolare
+  è il caso più frequente di posto liberato. \\
+  \bottomrule
+  \caption{Start Impact Set (SIS) Dettagliato per CR02}\label{tab:sis-cr02}\\
+\end{xltabular}}
+
+\insieme{SIS}{
+  \elem{prisma/schema.prisma},\ \elem{src/lib/automation-service.ts},\\
+  \elem{api/admin/prenotazioni/route.ts},\ \elem{api/prenotazioni/[id]/route.ts}}
+
+\subsection{Candidate Impact Set (CIS)}
+
+Il Candidate Impact Set identifica i componenti che potrebbero subire effetti
+collaterali a causa delle modifiche introdotte nel SIS. Come per la CR01,
+l'indagine è partita dalla ricerca testuale di import, chiamate e tipi
+condivisi (stati della prenotazione, tipi di notifica e di evento) ed è stata
+completata con una revisione manuale. A differenza di un intervento isolato,
+la propagazione è ampia: i nuovi stati ed eventi attraversano statistiche,
+anomalie, interfacce e automazioni.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{File (Percorso)} & \tb{Motivo della Propagazione} \\
+  \midrule
+  \endhead
+  \file{app/prenota/page.tsx},
+  \file{components/mappa-biblioteca.tsx},
+  \file{components/mobile-posti-grid.tsx} &
+  Sono i punti in cui lo studente incontra il posto occupato: la proposta di
+  entrare in coda deve comparire qui. \\
+  \file{api/cron/automations/route.ts} &
+  Invoca il servizio delle automazioni: esecuzioni concorrenti potrebbero
+  promuovere due volte lo stesso utente. \\
+  \file{api/admin/anomalie/route.ts},
+  \file{app/admin/page.tsx} &
+  Contano no-show e cancellazioni per dashboard e anomalie: i nuovi stati ed
+  eventi potrebbero alterarne i valori. \\
+  \file{api/admin/statistiche/route.ts},
+  \file{app/admin/statistiche/page.tsx} &
+  Le statistiche aggregano gli stati delle prenotazioni; la coda richiede un
+  indicatore proprio senza inquinare quelli esistenti. \\
+  \file{api/admin/scanner/validate/route.ts} &
+  Esegue il check-in: deve accettare le prenotazioni nate da una promozione e
+  non le richieste ancora in coda. \\
+  \file{api/disponibilita-giorni/route.ts} &
+  Calcola i giorni prenotabili dagli stati delle prenotazioni. \\
+  \file{lib/realtime-events.ts}, \file{lib/sse-emitter.ts},
+  \file{api/sse/posti/route.ts}, \file{hooks/use-sse.ts} &
+  Canale previsto per avvisare in tempo reale dei posti liberati e delle
+  promozioni. \\
+  \bottomrule
+  \caption{Componenti aggiunti dal Candidate Impact Set per la CR02}\label{tab:cis-cr02}\\
+\end{xltabular}}
+
+Il CIS conta quindi 18 file: i 4 del SIS e i 14 elencati.
+
+\section{Implementazione}
+
+\subsection{Actual Impact Set (AIS)}
+
+Durante l'implementazione della CR02 le scelte architetturali hanno
+privilegiato il riuso del servizio di dominio creato per la CR01: ingresso in
+coda, annullamento, posizione e promozione sono funzioni dello stesso
+servizio, chiamate da tutti i punti di liberazione. L'AIS comprende i
+seguenti elementi:
+\begin{itemize}
+  \item \textbf{File Modificati (dal CIS):}
+  \begin{itemize}
+    \item \file{prisma/schema.prisma}: entità \texttt{ListaAttesa} con stati
+          \texttt{IN\_ATTESA}, \texttt{PROMOSSA}, \texttt{SCADUTA},
+          \texttt{ANNULLATA} e nuovi tipi di notifica e di evento.
+    \item \file{src/lib/automation-service.ts}: promozione dopo il no-show,
+          scadenza delle promozioni non confermate entro quindici minuti,
+          protezione dalle doppie esecuzioni.
+    \item \file{api/cron/automations/route.ts}: lock di PostgreSQL che
+          impedisce due esecuzioni contemporanee.
+    \item \file{api/admin/prenotazioni/route.ts}: promozione dopo
+          l'annullamento dello staff ed esito restituito all'interfaccia.
+    \item \file{app/prenota/page.tsx}, \file{mappa-biblioteca.tsx},
+          \file{mobile-posti-grid.tsx}: proposta di ingresso in coda sul posto
+          occupato e nel messaggio di conflitto.
+    \item \file{api/admin/statistiche/route.ts},
+          \file{app/admin/statistiche/page.tsx}: indicatore dedicato alla
+          coda.
+    \item \file{lib/realtime-events.ts}, \file{api/sse/posti/route.ts},
+          \file{hooks/use-sse.ts}: nuovi eventi di coda e promozione sul canale
+          in tempo reale.
+  \end{itemize}
+  \item \textbf{Nuovi File Creati o Modificati fuori stima:}
+  \begin{itemize}
+    \item \file{src/lib/prenotazioni-service.ts}: nuove funzioni di
+          dominio per la coda (\texttt{entraInCoda},
+          \texttt{annullaRichiestaCoda}, \texttt{posizioneInCoda},
+          \texttt{promuoviPrimoInCoda}).
+    \item \file{api/prenotazioni/coda/route.ts} (New): elenco, ingresso e
+          uscita dalla coda per lo studente.
+    \item \file{hooks/use-ingresso-coda.ts} (New) e
+          \file{lib/eventi-coda.ts} (New): logica client condivisa tra mappa e
+          griglia, tipi degli eventi di coda.
+    \item \file{app/notifiche/tipo-config.tsx} (New) e
+          \file{app/notifiche/page.tsx}: resa dei nuovi tipi di notifica.
+    \item \file{src/middleware.ts}, \file{admin/prenotazioni-actions.tsx},
+          \file{admin/statistiche-charts.tsx}: protezione della route della
+          coda, esito della promozione per lo staff, grafico della coda.
+    \item Due migrazioni (New): tabella della lista d'attesa con indici e
+          vincolo di unicità delle richieste attive; estensione degli enum.
+  \end{itemize}
+\end{itemize}
+
+Formalmente, l'insieme dei file impattati risulta essere:
+
+\insieme{AIS_{CR02}}{
+  \elem{prisma/schema.prisma},\ \elem{src/lib/automation-service.ts},\\
+  \elem{api/cron/automations/route.ts},\ \elem{api/admin/prenotazioni/route.ts},\\
+  \elem{app/prenota/page.tsx},\ \elem{mappa-biblioteca.tsx},\ \elem{mobile-posti-grid.tsx},\\
+  \elem{api/admin/statistiche/route.ts},\ \elem{app/admin/statistiche/page.tsx},\\
+  \elem{lib/realtime-events.ts},\ \elem{api/sse/posti/route.ts},\ \elem{hooks/use-sse.ts},\\
+  \elem{src/lib/prenotazioni-service.ts},\ \elem{app/notifiche/page.tsx},\\
+  \elem{src/middleware.ts},\ \elem{admin/prenotazioni-actions.tsx},\\
+  \elem{admin/statistiche-charts.tsx},\ \elem{api/prenotazioni/coda/route.ts}\ \text{(New)},\\
+  \elem{hooks/use-ingresso-coda.ts}\ \text{(New)},\ \elem{lib/eventi-coda.ts}\ \text{(New)},\\
+  \elem{app/notifiche/tipo-config.tsx}\ \text{(New)},\\
+  \text{migrazione della lista d'attesa (New)},\\
+  \text{migrazione di estensione degli enum (New)}}
+
+\subsection{False Positive Impact Set (FPIS)}
+
+Il False Positive Impact Set evidenzia i componenti inclusi nel CIS che sono
+rimasti inalterati durante l'implementazione.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{Classe/File} & \tb{Motivo dell'Esclusione} \\
+  \midrule
+  \endhead
+  \file{api/admin/anomalie/route.ts}, \file{app/admin/page.tsx} &
+  La coda è un'entità separata: le richieste in attesa non sono prenotazioni
+  e i conteggi di no-show e cancellazioni non sono cambiati. \\
+  \file{api/admin/scanner/validate/route.ts} &
+  Una promozione produce una normale prenotazione \texttt{CONFERMATA}: lo
+  scanner la riconosce senza modifiche, e una richiesta in coda non ha un QR. \\
+  \file{lib/sse-emitter.ts} &
+  I nuovi eventi sono stati aggiunti in \file{realtime-events.ts}; il
+  meccanismo di consegna è rimasto invariato. \\
+  \file{api/disponibilita-giorni/route.ts} &
+  I giorni prenotabili dipendono dal calendario e dalle prenotazioni attive,
+  non dalla coda. \\
+  \file{api/prenotazioni/[id]/route.ts} &
+  \textbf{Omissione, non vero falso positivo.} A fine CR la cancellazione da
+  parte dello studente non avviava la promozione: il caso era verificato solo
+  a livello di servizio. Il difetto è emerso dalla verifica dal vivo ed è stato
+  corretto nella manutenzione successiva, collegando la route alla
+  promozione. \\
+  \bottomrule
+  \caption{False Positive Impact Set (FPIS) per la CR02}\label{tab:fpis-cr02}\\
+\end{xltabular}}
+
+\textbf{Analisi:} cinque dei sei elementi sono veri falsi positivi, dovuti
+alla scelta di modellare la coda come entità separata invece che come nuovo
+stato della prenotazione: i componenti che leggono le prenotazioni non hanno
+dovuto cambiare. Il sesto è un caso diverso e più istruttivo: la stima era
+corretta, l'implementazione incompleta. Per questo l'FPIS non va letto come
+misura della sola qualità della stima.
+
+\subsection{Discovered Impact Set (DIS)}
+
+Il Discovered Impact Set comprende i file non inclusi nel CIS che sono stati
+creati o modificati durante l'implementazione.
+
+{\small
+\begin{xltabular}{\linewidth}{L{4.6cm}Y}
+  \toprule
+  \intestazione \tb{Classe/File} & \tb{Motivazione dell'Inclusione} \\
+  \midrule
+  \endhead
+  \file{src/lib/prenotazioni-service.ts} &
+  Le operazioni di coda devono condividere la transazione e le regole della
+  prenotazione: sono state aggiunte al servizio di dominio della CR01, con
+  lock sulle righe per impedire doppie promozioni concorrenti. \\
+  \file{api/prenotazioni/coda/route.ts} &
+  Nessuna route esistente poteva ospitare elenco, ingresso e uscita dalla
+  coda senza violare la responsabilità singola: è stata creata una route
+  dedicata. \\
+  \file{hooks/use-ingresso-coda.ts}, \file{lib/eventi-coda.ts} &
+  La stessa logica di ingresso in coda serviva a mappa, griglia mobile e
+  messaggio di conflitto: è stata estratta in un hook e in un modulo di tipi
+  condivisi. \\
+  \file{app/notifiche/page.tsx}, \file{app/notifiche/tipo-config.tsx} &
+  La pagina delle notifiche associava icone e colori solo ai tipi esistenti:
+  i nuovi tipi richiedevano una configurazione con un ripiego per i tipi
+  sconosciuti. \\
+  \file{src/middleware.ts} &
+  La nuova route della coda doveva essere protetta come le altre route
+  riservate. \\
+  \file{admin/prenotazioni-actions.tsx}, \file{admin/statistiche-charts.tsx} &
+  Lo staff deve sapere chi è stato promosso dopo un annullamento e vedere
+  l'andamento della coda. \\
+  Migrazioni \texttt{lista\_attesa} ed estensione degli enum &
+  PostgreSQL non permette di usare un nuovo valore di enum nella stessa
+  transazione che lo aggiunge: tabella e valori sono stati separati in due
+  migrazioni. \\
+  \bottomrule
+  \caption{Discovered Impact Set (DIS) per la CR02}\label{tab:dis-cr02}\\
+\end{xltabular}}
+
+\textbf{Analisi:} il DIS è ampio perché la CR02 ha seguito una strategia di
+estensione: componenti nuovi e dedicati, invece di modificare quelli
+esistenti. La verifica successiva ha mostrato un ulteriore punto sfuggito sia
+alla stima sia all'implementazione: nessuna schermata permetteva allo studente
+di vedere le proprie richieste in coda e di uscirne, benché l'API lo
+consentisse. È stata aggiunta in seguito una scheda dedicata in \enquote{Le
+mie prenotazioni}.
+
+\subsection{Metrics}
+
+Valutiamo ora l'accuratezza della stima dell'impatto per questa Change
+Request utilizzando le metriche standard.
+\begin{itemize}
+  \item \textbf{Candidate Impact Set (CIS):} 18 file
+  \item \textbf{Actual Impact Set (AIS):} 23 file
+  \item \textbf{Intersezione (CIS $\cap$ AIS):} 12 file
+\end{itemize}
+
+\paragraph{Precision (Precisione)}
+Indica quanto la stima iniziale fosse mirata, ovvero quanta parte dei file
+previsti è stata effettivamente modificata.
+\[ \mathit{Precision} = \frac{|\mathit{CIS} \cap \mathit{AIS}|}{|\mathit{CIS}|} = \frac{12}{18} \approx 0{,}67\ (66{,}7\%) \]
+Un valore del 67\% indica una precisione discreta: la scelta di rappresentare
+la coda come entità separata ha reso superflue le modifiche a statistiche,
+anomalie e scanner che la stima aveva previsto per prudenza.
+
+\paragraph{Recall (Richiamo)}
+Indica quanto del lavoro finale effettivamente svolto era stato previsto
+all'inizio.
+\[ \mathit{Recall} = \frac{|\mathit{CIS} \cap \mathit{AIS}|}{|\mathit{AIS}|} = \frac{12}{23} \approx 0{,}52\ (52{,}2\%) \]
+Un valore del 52\% conferma che circa metà dell'implementazione ha
+riguardato file nuovi o componenti non previsti, come il servizio di dominio
+esteso, la route della coda e l'hook condiviso. Riflette la scelta, presa in
+corso d'opera, di aggiungere moduli dedicati invece di modificare quelli
+esistenti.
+
+\end{document}

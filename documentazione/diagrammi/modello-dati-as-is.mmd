@@ -1,0 +1,62 @@
+erDiagram
+    User ||--o{ Prenotazione : effettua
+    User ||--o{ Prestito : ottiene
+    User ||--o{ Notifica : riceve
+    User ||--o{ RichiestaPreparazione : richiede
+    User ||--o{ LogEvento : "compie"
+    User ||--o{ AuthToken : possiede
+    Sala ||--o{ Posto : contiene
+    Posto ||--o{ Prenotazione : "è prenotato in"
+    Libro ||--o{ Prestito : "è prestato in"
+    Libro ||--o{ RichiestaPreparazione : "è richiesto in"
+    Prenotazione ||--o{ LogEvento : "è tracciata da"
+
+    User {
+        string email
+        enum ruolo
+        bool isPendolare
+        bool necessitaAccessibilita
+        bool attivo
+    }
+    Sala {
+        string nome
+        int piano
+        string orarioApertura
+        string orarioChiusura
+    }
+    Posto {
+        string numero
+        enum stato
+        bool isAccessibile
+    }
+    Prenotazione {
+        date data
+        time oraInizio
+        time oraFine
+        enum stato
+        bool marginePendolare
+    }
+    Libro {
+        string titolo
+        int copieDisponibili
+    }
+    Prestito {
+        datetime dataScadenza
+        enum stato
+        int rinnovi
+    }
+    Notifica {
+        enum tipo
+        bool letta
+    }
+    LogEvento {
+        enum tipo
+        json dettagli
+    }
+    RichiestaPreparazione {
+        enum stato
+    }
+    AuthToken {
+        enum type
+        datetime expiresAt
+    }
