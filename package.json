@@ -38,7 +38,7 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
-    "@sentry/nextjs": "^10.34.0",
+    "@sentry/nextjs": "^10.76.2",
     "@types/qrcode": "^1.5.6",
     "@vercel/analytics": "^1.6.1",
     "@vercel/speed-insights": "^1.3.1",
@@ -51,7 +51,7 @@
     "dotenv": "^17.2.3",
     "express-rate-limit": "^8.2.1",
     "lucide-react": "^0.560.0",
-    "next": "^16.4.0",
+    "next": "^16.4.3",
     "next-auth": "^5.0.0-beta.32",
     "next-themes": "^0.4.6",
     "pg": "^8.16.3",
@@ -63,7 +63,7 @@
     "recharts": "^3.6.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
-    "zod": "^4.1.13"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
@@ -79,7 +79,7 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9",
-    "eslint-config-next": "^16.4.0",
+    "eslint-config-next": "^16.4.3",
     "jsdom": "^26.1.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
