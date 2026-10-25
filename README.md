@@ -319,6 +319,7 @@ docs/                    documenti di lavoro storici (analisi AS-IS, report di f
 - [Registro dei lavori](documentazione/REGISTRO-LAVORI.md): modifiche, dati
   misurati e difetti corretti
 - [Pacchetto di consegna](deliverables/BiblioFlow-consegna-2026-10-15/)
+- [Consegna ISTA: otto documenti di progetto](Biblioflow-v2.0/) (revisione per l'esame ISTA)
 - [Documenti di lavoro storici](docs/): analisi AS-IS e report delle singole
   fasi, superati dai documenti in `documentazione/`
 - [Regole di contribuzione](CONTRIBUTING.md)
