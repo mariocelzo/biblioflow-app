@@ -28,3 +28,8 @@ I file sono in ordine di lettura; il prefisso numerico indica la sequenza.
    parti modificate, regressione, copertura e test end-to-end.
 8. **Report Finale** (`8 - Report_Finale.pdf`): sintesi del percorso evolutivo
    e dei relativi esiti.
+
+## Altri file
+
+- `02.Informazioni progetto ISTA - BiblioFlow.xlsx`: foglio del corso con le
+  informazioni sul progetto e sui partecipanti.
