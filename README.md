@@ -42,8 +42,8 @@ Applicazione pubblicata: [biblioflow-app.vercel.app](https://biblioflow-app.verc
 
 La documentazione di progetto (report, change request, impact analysis, piano
 e report di test) e' in [`documentazione/`](documentazione/): sorgenti LaTeX,
-diagrammi e PDF compilati; il pacchetto da consegnare e' in
-[`deliverables/`](deliverables/). Il riferimento immutabile precedente alle
+diagrammi e PDF compilati; i documenti consegnati sono in
+[`documentazione-consegna/`](documentazione-consegna/). Il riferimento immutabile precedente alle
 change request e' il tag `baseline-pre-cr-bf-01`.
 
 ## Stack
@@ -305,7 +305,7 @@ src/lib/                 auth, dominio, Prisma, automazioni e rate limiting
 prisma/                  schema, migrazioni e seed
 tests/                   suite correnti e caratterizzazione pre-modifica
 documentazione/          documenti LaTeX, diagrammi, PDF e registro dei lavori
-deliverables/            pacchetto di consegna (PDF, Excel del corso, manifest)
+documentazione-consegna/ documenti consegnati (8 PDF ed Excel del corso)
 docs/                    documenti di lavoro storici (analisi AS-IS, report di fase)
 .github/workflows/       pipeline CI e deploy migrazioni
 ```
@@ -318,8 +318,8 @@ docs/                    documenti di lavoro storici (analisi AS-IS, report di f
   Finale
 - [Registro dei lavori](documentazione/REGISTRO-LAVORI.md): modifiche, dati
   misurati e difetti corretti
-- [Pacchetto di consegna](deliverables/BiblioFlow-consegna-2026-10-15/)
-- [Consegna ISTA: otto documenti di progetto](Biblioflow-v2.0/) (revisione per l'esame ISTA)
+- [Documentazione consegnata](documentazione-consegna/): gli otto documenti
+  di progetto in PDF e il foglio del corso
 - [Documenti di lavoro storici](docs/): analisi AS-IS e report delle singole
   fasi, superati dai documenti in `documentazione/`
 - [Regole di contribuzione](CONTRIBUTING.md)
